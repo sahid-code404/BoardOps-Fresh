@@ -309,6 +309,78 @@ function dashboard() {
   };
 }
 
+function billingReadiness(params?: Record<string, unknown>) {
+  const month = Number(params?.month ?? new Date().getMonth() - 1);
+  const year = Number(params?.year ?? new Date().getFullYear());
+  const monthName = new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date(year, month, 1));
+  return {
+    month,
+    year,
+    periodLabel: `${monthName} ${year}`,
+    canClose: true,
+    existingCycle: null,
+    items: [
+      { key: "meals", label: "Meal entries locked", status: "ready", detail: "All meal entries are ready for closing.", count: 1182 },
+      { key: "expenses", label: "Expenses reviewed", status: "ready", detail: "Approved expenses are included in the period.", amount: 86420 },
+      { key: "formula", label: "Billing formula valid", status: "ready", detail: "The canonical billing formula is valid for this visual checkpoint." },
+      { key: "residents", label: "Resident accounts ready", status: "ready", detail: "All active resident accounts can receive bills.", count: 48 },
+    ],
+  };
+}
+
+function auditLogFixture() {
+  const logs = [
+    {
+      id: "audit-1",
+      actorId: VISUAL_ADMIN.id,
+      action: "PAYMENT_RECORDED",
+      entity: "Payment",
+      entityId: "payment-visual-1",
+      oldValue: null,
+      newValue: JSON.stringify({ amount: 2500, resident: VISUAL_USER.name }),
+      ipAddress: "127.0.0.1",
+      userAgent: "BoardOps visual fixture",
+      reason: "Visual route smoke fixture",
+      createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+      actor: {
+        id: VISUAL_ADMIN.id,
+        name: VISUAL_ADMIN.name,
+        email: VISUAL_ADMIN.email,
+        avatarUrl: null,
+      },
+    },
+    {
+      id: "audit-2",
+      actorId: VISUAL_USER.id,
+      action: "MEAL_UPDATED",
+      entity: "MealEntry",
+      entityId: "meal-entry-visual-1",
+      oldValue: JSON.stringify({ status: "ON" }),
+      newValue: JSON.stringify({ status: "OFF" }),
+      ipAddress: "127.0.0.1",
+      userAgent: "BoardOps visual fixture",
+      reason: null,
+      createdAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+      actor: {
+        id: VISUAL_USER.id,
+        name: VISUAL_USER.name,
+        email: VISUAL_USER.email,
+        avatarUrl: null,
+      },
+    },
+  ];
+
+  return {
+    logs,
+    total: logs.length,
+    pagination: { limit: 50, offset: 0, hasMore: false },
+    filters: {
+      entities: ["Payment", "MealEntry"],
+      actions: ["PAYMENT_RECORDED", "MEAL_UPDATED"],
+    },
+  };
+}
+
 function parseBody(body: BodyInit | null | undefined): Record<string, unknown> {
   if (typeof body !== "string") return {};
   try {
@@ -349,6 +421,9 @@ export async function visualFixtureApiFetch<T>(path: string, opts: VisualFetchOp
   if (pathname === "/users") return envelope(USERS) as T;
   if (pathname.startsWith("/users/")) return envelope(USERS[1]) as T;
   if (pathname === "/leave" || pathname.startsWith("/leave/")) return envelope([]) as T;
+  if (pathname === "/billing-cycles/readiness") return envelope(billingReadiness(params)) as T;
+  if (pathname === "/billing-cycles") return envelope([]) as T;
+  if (pathname === "/audit-logs") return envelope(auditLogFixture()) as T;
 
   // Mutations are intentionally side-effect free in visual mode. They resolve
   // successfully so dialogs, optimistic states and interaction animations can
