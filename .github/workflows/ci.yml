@@ -9,8 +9,25 @@ permissions:
   contents: read
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      lock_exists: ${{ steps.lock.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: lock
+        name: Check lockfile
+        shell: bash
+        run: |
+          if [[ -f pnpm-lock.yaml ]]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
   bootstrap-lockfile:
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && hashFiles('pnpm-lock.yaml') == '' }}
+    needs: prepare
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.prepare.outputs.lock_exists == 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -30,7 +47,8 @@ jobs:
           git push
 
   verify:
-    if: ${{ hashFiles('pnpm-lock.yaml') != '' }}
+    needs: prepare
+    if: ${{ needs.prepare.outputs.lock_exists == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -49,23 +67,29 @@ jobs:
       - name: Seed local D1
         run: pnpm db:seed:local
       - name: Start Worker and verify health/readiness
+        shell: bash
         run: |
           pnpm --filter @boardops/api dev > /tmp/boardops-api.log 2>&1 &
           API_PID=$!
           trap 'kill $API_PID || true' EXIT
+          healthy=false
           for i in $(seq 1 40); do
-            if curl --fail --silent http://127.0.0.1:8787/api/health >/dev/null; then break; fi
+            if curl --fail --silent http://127.0.0.1:8787/api/health >/dev/null; then healthy=true; break; fi
             sleep 1
           done
+          if [[ "$healthy" != "true" ]]; then cat /tmp/boardops-api.log; exit 1; fi
           curl --fail --show-error http://127.0.0.1:8787/api/health
           curl --fail --show-error http://127.0.0.1:8787/api/ready
       - name: Start frontend and smoke index
+        shell: bash
         run: |
           pnpm --filter @boardops/web dev > /tmp/boardops-web.log 2>&1 &
           WEB_PID=$!
           trap 'kill $WEB_PID || true' EXIT
+          healthy=false
           for i in $(seq 1 40); do
-            if curl --fail --silent http://127.0.0.1:5173/ >/dev/null; then break; fi
+            if curl --fail --silent http://127.0.0.1:5173/ >/dev/null; then healthy=true; break; fi
             sleep 1
           done
+          if [[ "$healthy" != "true" ]]; then cat /tmp/boardops-web.log; exit 1; fi
           curl --fail --show-error http://127.0.0.1:5173/ >/dev/null
