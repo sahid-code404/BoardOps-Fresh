@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// The viewport/theme audit intentionally walks every canonical route. The
+// default 30s Playwright timeout was shorter than the matrix itself on CI even
+// though the individual route checks were healthy, so bound the complete audit
+// explicitly rather than weakening/removing route coverage.
+test.setTimeout(120_000);
+
 const ADMIN_ROUTES = [
   ["/dashboard", "Dashboard"],
   ["/meals", "Meal Configuration"],
