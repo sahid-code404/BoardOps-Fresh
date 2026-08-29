@@ -24,10 +24,13 @@
   isolation: isolate;
 }
 
+/* Top-bar route labels are persistent navigation context. Keep them painted if
+ * Motion's fade is interrupted, but do not neutralize the golden slide offset;
+ * transform motion remains progressive enhancement and cannot make text
+ * disappear. */
 header > div > .flex-1 > p,
 header > div > .flex-1 > h1 {
   opacity: 1 !important;
-  transform: none !important;
 }
 
 /*
