@@ -76,7 +76,7 @@ jobs:
       - run: pnpm build
       - name: Reset, migrate, seed and verify local D1
         run: pnpm db:reset:local
-      - name: Start Worker and verify health/readiness/auth
+      - name: Start Worker and verify health/readiness/auth/dashboard
         shell: bash
         run: |
           pnpm --filter @boardops/api dev > /tmp/boardops-api.log 2>&1 &
@@ -108,6 +108,10 @@ jobs:
           curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
             http://127.0.0.1:8787/api/auth/me > /tmp/me.json
           node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/me.json','utf8')); if(!x.success||x.data?.email!=='admin@boardops.local'||x.data?.role!=='ADMIN') process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
+            http://127.0.0.1:8787/api/dashboard > /tmp/dashboard.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/dashboard.json','utf8')); if(!x.success||x.data?.isAdmin!==true||x.data?.kpis?.totalUsers!==2||!Array.isArray(x.data?.recentActivity)) process.exit(1)"
 
           curl --fail --show-error --cookie /tmp/boardops-cookies.txt --cookie-jar /tmp/boardops-cookies.txt \
             -X POST http://127.0.0.1:8787/api/auth/logout > /tmp/logout.json
