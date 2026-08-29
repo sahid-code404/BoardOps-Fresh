@@ -8,7 +8,10 @@ SELECT
   (SELECT COUNT(*) FROM idempotency_keys) AS idempotency_keys,
   (SELECT COUNT(*) FROM audit_events) AS audit_events,
   (SELECT COUNT(*) FROM outbox_events) AS outbox_events,
+  (SELECT COUNT(*) FROM registration_requests) AS registration_requests,
+  (SELECT COUNT(*) FROM auth_challenges) AS auth_challenges,
   (SELECT COUNT(*) FROM users WHERE id = 'usr_admin_local' AND email = 'admin@boardops.local' AND role = 'ADMIN' AND status = 'ACTIVE') AS seeded_admin,
+  (SELECT COUNT(*) FROM registration_requests WHERE user_id = 'usr_resident_kabir_local' AND cycle = 1 AND status = 'PENDING_REVIEW') AS seeded_registration,
   (SELECT COUNT(*) FROM accounting_periods WHERE institution_id = 'inst_boardops_local' AND status = 'OPEN') AS open_periods;
 `;
 
@@ -56,6 +59,8 @@ const required = {
   institutions: 1,
   accounting_periods: 2,
   users: 3,
+  registration_requests: 1,
+  seeded_registration: 1,
   seeded_admin: 1,
   open_periods: 1,
   audit_events: 1,
