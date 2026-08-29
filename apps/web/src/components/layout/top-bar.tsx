@@ -51,7 +51,6 @@ export function TopBar() {
   const token = useAuthStore((s) => s.token);
   const isDark = resolvedTheme === "dark";
 
-  // When theme changes via topbar, sync to user's profile so Profile page stays in sync
   const handleThemeChange = (t: string) => {
     setTheme(t);
     if (user) {
@@ -60,13 +59,25 @@ export function TopBar() {
     }
   };
 
-  // Fetch unread notification count — refreshes every 30s
   const { data: unreadCount } = useQuery({
     queryKey: ["notifications", "unread-count"],
     queryFn: async () => {
-      const res = await api.get<{ success: boolean; data: { unreadCount: number; notifications: Array<{ id: string; title: string; description: string | null; type: string; priority: string; route: string | null; readAt: string | null; createdAt: string }> } }>(
-        "/notifications?unread=true"
-      );
+      const res = await api.get<{
+        success: boolean;
+        data: {
+          unreadCount: number;
+          notifications: Array<{
+            id: string;
+            title: string;
+            description: string | null;
+            type: string;
+            priority: string;
+            route: string | null;
+            readAt: string | null;
+            createdAt: string;
+          }>;
+        };
+      }>("/notifications?unread=true");
       return res.data;
     },
     enabled: !!token,
@@ -79,16 +90,25 @@ export function TopBar() {
   const [notifPanelOpen, setNotifPanelOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  // Close panel on outside click
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+    if (!notifPanelOpen) return;
+
+    const handlePointer = (event: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
         setNotifPanelOpen(false);
       }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNotifPanelOpen(false);
+    };
+
+    document.addEventListener("mousedown", handlePointer);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handlePointer);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [notifPanelOpen]);
 
   const label = NAV_LABELS[view] ?? "BoardOps";
   const showBadge = unreadNum > 0;
@@ -96,7 +116,6 @@ export function TopBar() {
   return (
     <header className="sticky top-0 z-30 safe-top px-3 sm:px-4 lg:px-6 pt-3">
       <div className="mx-auto max-w-6xl glass rounded-3xl px-3 py-2.5 flex items-center gap-1.5 sm:gap-2">
-        {/* Hamburger — always visible (mobile-first on all screens) */}
         <motion.button
           whileTap={{ scale: 0.9 }}
           onClick={() => setSidebarOpen(true)}
@@ -106,7 +125,6 @@ export function TopBar() {
           <Menu className="h-5 w-5" />
         </motion.button>
 
-        {/* Title */}
         <div className="flex-1 min-w-0">
           <motion.p
             key={view}
@@ -126,8 +144,6 @@ export function TopBar() {
           </motion.h1>
         </div>
 
-        {/* Search button — hidden on mobile (< sm) to free up space; the
-            command palette is still reachable via the hamburger sidebar. */}
         <motion.button
           whileTap={{ scale: 0.9 }}
           onClick={() => setCommandOpen(true)}
@@ -137,22 +153,25 @@ export function TopBar() {
           <Search className="h-[18px] w-[18px]" />
         </motion.button>
 
-        {/* Theme switcher — overlay with Light/Dark/System */}
         <ThemeSwitcher
           isDark={isDark}
           onThemeChange={handleThemeChange}
           currentTheme={user?.theme || theme || "system"}
         />
 
-        {/* Notifications — dropdown panel with recent notifications */}
         <div className="relative shrink-0" ref={notifRef}>
           <motion.button
             whileTap={{ scale: 0.9 }}
-            onClick={() => { setNotifPanelOpen(false); setView("notifications"); }}
+            onClick={() => setNotifPanelOpen((open) => !open)}
             aria-label={`Notifications${showBadge ? ` (${formatBadge(unreadNum)} unread)` : ""}`}
+            aria-expanded={notifPanelOpen}
+            aria-haspopup="dialog"
+            aria-controls="topbar-notifications-panel"
             className={cn(
               "relative grid place-items-center h-10 w-10 rounded-2xl glass-soft transition-colors",
-              view === "notifications" ? "text-primary ring-2 ring-primary/50" : "text-foreground"
+              view === "notifications" || notifPanelOpen
+                ? "text-primary ring-2 ring-primary/50"
+                : "text-foreground"
             )}
           >
             <Bell className="h-[18px] w-[18px]" />
@@ -172,10 +191,12 @@ export function TopBar() {
             </AnimatePresence>
           </motion.button>
 
-          {/* Notification dropdown panel */}
           <AnimatePresence>
             {notifPanelOpen && (
               <motion.div
+                id="topbar-notifications-panel"
+                role="dialog"
+                aria-label="Recent notifications"
                 initial={{ opacity: 0, y: -8, scale: 0.96 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -8, scale: 0.96 }}
@@ -187,7 +208,10 @@ export function TopBar() {
                     Notifications {unreadNum > 0 && <span className="text-destructive">({unreadNum} unread)</span>}
                   </p>
                   <button
-                    onClick={() => { setNotifPanelOpen(false); setView("notifications"); }}
+                    onClick={() => {
+                      setNotifPanelOpen(false);
+                      setView("notifications");
+                    }}
                     className="text-[10px] text-primary hover:underline"
                   >
                     View all
@@ -200,13 +224,13 @@ export function TopBar() {
                       <p className="text-xs text-muted-foreground">You're all caught up</p>
                     </div>
                   ) : (
-                    recentNotifs.slice(0, 8).map((n) => (
+                    recentNotifs.slice(0, 8).map((notification) => (
                       <button
-                        key={n.id}
+                        key={notification.id}
                         onClick={() => {
                           setNotifPanelOpen(false);
-                          if (n.route) {
-                            const viewKey = n.route.replace(/^\//, "").split("/")[0] as never;
+                          if (notification.route) {
+                            const viewKey = notification.route.replace(/^\//, "").split("/")[0] as never;
                             setView(viewKey);
                           } else {
                             setView("notifications");
@@ -214,16 +238,30 @@ export function TopBar() {
                         }}
                         className="w-full text-left p-3 hover:bg-secondary/50 transition-colors border-b border-border/30 last:border-0 flex items-start gap-2"
                       >
-                        <span className={cn(
-                          "h-2 w-2 rounded-full shrink-0 mt-1.5",
-                          n.priority === "URGENT" ? "bg-destructive" :
-                          n.priority === "HIGH" ? "bg-warning" : "bg-primary"
-                        )} />
+                        <span
+                          className={cn(
+                            "h-2 w-2 rounded-full shrink-0 mt-1.5",
+                            notification.priority === "URGENT"
+                              ? "bg-destructive"
+                              : notification.priority === "HIGH"
+                                ? "bg-warning"
+                                : "bg-primary"
+                          )}
+                        />
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium truncate">{n.title}</p>
-                          {n.description && <p className="text-[10px] text-muted-foreground truncate">{n.description}</p>}
+                          <p className="text-xs font-medium truncate">{notification.title}</p>
+                          {notification.description && (
+                            <p className="text-[10px] text-muted-foreground truncate">
+                              {notification.description}
+                            </p>
+                          )}
                           <p className="text-[9px] text-muted-foreground mt-0.5">
-                            {new Date(n.createdAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            {new Date(notification.createdAt).toLocaleString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
                           </p>
                         </div>
                       </button>
@@ -235,7 +273,6 @@ export function TopBar() {
           </AnimatePresence>
         </div>
 
-        {/* Profile avatar — routes to profile page */}
         <motion.button
           whileTap={{ scale: 0.9 }}
           whileHover={{ scale: 1.06 }}
@@ -327,14 +364,14 @@ function ThemeSwitcher({
       <AnimatePresence>
         {open && (
           <div className="absolute right-0 top-12 z-50 glass-strong rounded-2xl p-1.5 min-w-[150px] shadow-xl">
-            {options.map((opt) => {
-              const active = currentTheme === opt.value;
-              const Icon = opt.icon;
+            {options.map((option) => {
+              const active = currentTheme === option.value;
+              const Icon = option.icon;
               return (
                 <button
-                  key={opt.value}
+                  key={option.value}
                   onClick={() => {
-                    onThemeChange(opt.value);
+                    onThemeChange(option.value);
                     setOpen(false);
                   }}
                   className={cn(
@@ -345,7 +382,7 @@ function ThemeSwitcher({
                   )}
                 >
                   <Icon className="h-4 w-4" />
-                  <span className="flex-1 text-left">{opt.label}</span>
+                  <span className="flex-1 text-left">{option.label}</span>
                   <AnimatePresence>
                     {active && (
                       <motion.div
