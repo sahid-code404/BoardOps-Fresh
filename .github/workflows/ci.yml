@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap-lockfile:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && hashFiles('pnpm-lock.yaml') == '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable && corepack prepare pnpm@11.23.0 --activate
+      - run: pnpm install --lockfile-only
+      - name: Commit deterministic lockfile
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pnpm-lock.yaml
+          git commit -m "chore: generate pnpm lockfile"
+          git push
+
+  verify:
+    if: ${{ hashFiles('pnpm-lock.yaml') != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable && corepack prepare pnpm@11.23.0 --activate
+      - name: Frozen dependency install
+        run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - name: Apply local D1 migrations
+        run: pnpm db:migrate:local
+      - name: Seed local D1
+        run: pnpm db:seed:local
+      - name: Start Worker and verify health/readiness
+        run: |
+          pnpm --filter @boardops/api dev > /tmp/boardops-api.log 2>&1 &
+          API_PID=$!
+          trap 'kill $API_PID || true' EXIT
+          for i in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:8787/api/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --show-error http://127.0.0.1:8787/api/health
+          curl --fail --show-error http://127.0.0.1:8787/api/ready
+      - name: Start frontend and smoke index
+        run: |
+          pnpm --filter @boardops/web dev > /tmp/boardops-web.log 2>&1 &
+          WEB_PID=$!
+          trap 'kill $WEB_PID || true' EXIT
+          for i in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:5173/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --show-error http://127.0.0.1:5173/ >/dev/null
