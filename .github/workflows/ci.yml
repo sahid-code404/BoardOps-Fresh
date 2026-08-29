@@ -74,10 +74,8 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
-      - name: Apply local D1 migrations
-        run: pnpm db:migrate:local
-      - name: Seed local D1
-        run: pnpm db:seed:local
+      - name: Reset, migrate, seed and verify local D1
+        run: pnpm db:reset:local
       - name: Start Worker and verify health/readiness
         shell: bash
         run: |
