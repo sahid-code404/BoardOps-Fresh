@@ -50,12 +50,13 @@ export const useAuthStore = create<AuthState>()(
       setToken: (t) => set({ token: t }),
       logout: () => {
         // Clear the UI immediately, but also revoke the real HttpOnly server
-        // session. Previously Profile's Sign Out only cleared Zustand, leaving
-        // the cookie/session valid on the Worker.
+        // session. `keepalive` prevents a route change/tab close immediately
+        // after the click from cancelling the small revocation request.
         if (typeof window !== "undefined" && get().token) {
           void fetch("/api/auth/logout", {
             method: "POST",
             credentials: "include",
+            keepalive: true,
             headers: { Accept: "application/json" },
           }).catch(() => {
             // Local sign-out must remain usable while offline. A server-side
