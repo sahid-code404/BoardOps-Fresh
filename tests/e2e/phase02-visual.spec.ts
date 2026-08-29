@@ -42,8 +42,8 @@ test("authentication panel remains visible on a cold unauthenticated render", as
   await page.goto("/dashboard?auth=1");
   await expect(page.getByText("Operations Suite", { exact: true })).toBeVisible();
   await expect(page.locator("form").getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
-  await expect(page.getByLabel("Email")).toBeVisible();
-  await expect(page.getByLabel("Password")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Email", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Password", exact: true })).toBeVisible();
 });
 
 for (const [path, title] of ADMIN_ROUTES) {
