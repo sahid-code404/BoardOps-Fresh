@@ -30,6 +30,46 @@ header > div > .flex-1 > h1 {
   transform: none !important;
 }
 
+/*
+ * Persistent-content safety net.
+ *
+ * Several golden-master feature components use `initial={{ opacity: 0 }}` on
+ * content-bearing Motion wrappers. On the affected Chromium/Framer Motion
+ * path, an interrupted entrance can leave that inline style stranded forever,
+ * producing apparently empty cards even though the content exists in the DOM.
+ *
+ * Closed dialogs/popovers are normally unmounted/ported outside these shell
+ * regions. For mounted shell content we prefer an immediate visible state over
+ * a fade that can fail. Transform/scale animations are intentionally left
+ * untouched so the interaction character remains while opacity is no longer a
+ * correctness dependency.
+ */
+header div[style*="opacity: 0;"]:has(svg),
+nav div[style*="opacity: 0;"]:has(svg),
+main div[style*="opacity: 0;"]:has(h1),
+main div[style*="opacity: 0;"]:has(h2),
+main div[style*="opacity: 0;"]:has(h3),
+main div[style*="opacity: 0;"]:has(p),
+main div[style*="opacity: 0;"]:has(button),
+main div[style*="opacity: 0;"]:has(a),
+main div[style*="opacity: 0;"]:has(svg),
+main div[style*="opacity: 0;"]:has(img),
+main div[style*="opacity: 0;"]:has(input),
+main div[style*="opacity: 0;"]:has(textarea),
+main div[style*="opacity: 0;"]:has(select) {
+  opacity: 1 !important;
+}
+
+/* The theme icon and Profile identity are permanent controls/content, not
+ * decorative transition layers. If Motion stalls, also neutralize their
+ * entrance transform so they cannot remain tiny/rotated/off-position. */
+button[aria-label="Theme switcher"] > div,
+main .glass:has(button[aria-label="Upload avatar"]) .relative.shrink-0.mx-auto,
+main .glass:has(button[aria-label="Upload avatar"]) .text-center > div {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
 /* AuthLayout structure: background + centered content column + Motion panel.
  * Keep the panel above the mesh and visible even when its initial Motion style
  * gets stranded at opacity: 0 during a cold load or interrupted HMR cycle. */
