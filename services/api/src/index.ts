@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { tokenDigest } from "./auth/crypto";
+import { enforcePasswordMutationPolicy } from "./middleware/password-policy";
 import { authRoutes } from "./routes/auth";
 import { authWorkflowRoutes } from "./routes/auth-workflows";
 import { runtimeRoutes } from "./routes/runtime";
@@ -83,6 +84,8 @@ app.use("*", async (c, next) => {
   c.header("x-request-id", requestId);
   await next();
 });
+
+app.use("/api/*", enforcePasswordMutationPolicy);
 
 app.get("/api/health", (c) => c.json({ status: "ok", service: "boardops-api" }));
 
