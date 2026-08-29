@@ -3,8 +3,8 @@ packages:
   - services/*
   - packages/*
 
-# pnpm 11 blocks dependency build scripts unless explicitly trusted.
-# These two packages require their official install/build scripts for Vite/Workers.
-onlyBuiltDependencies:
-  - esbuild
-  - workerd
+# pnpm 11 blocks dependency build scripts unless explicitly reviewed.
+# Vite and the Cloudflare runtime require these official install/build scripts.
+allowBuilds:
+  esbuild: true
+  workerd: true
