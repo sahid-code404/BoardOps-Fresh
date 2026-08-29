@@ -10,7 +10,7 @@ import { AnimatedBackground } from "@/components/glass/animated-background";
 import { GlassButton } from "@/components/glass/glass-button";
 import { api, ApiError } from "@/lib/api-client";
 import { VISUAL_FIXTURES_ENABLED } from "@/lib/visual-fixtures";
-import { preloadAllViews } from "@/lib/view-loaders";
+import { preloadAllViews, preloadPriorityViews } from "@/lib/view-loaders";
 import { ShieldX } from "lucide-react";
 import { useAppStore } from "@/stores/use-app-store";
 import { CommandPalette } from "@/components/layout/command-palette";
@@ -31,6 +31,7 @@ export default function BoardOpsApp() {
     VISUAL_FIXTURES_ENABLED &&
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("auth") === "1";
+  const authenticatedAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
 
   const { isLoading, isError } = useQuery({
     queryKey: ["auth-me", token],
@@ -48,28 +49,31 @@ export default function BoardOpsApp() {
     staleTime: 60 * 1000,
   });
 
-  // Once the authenticated shell has painted, warm the remaining section
-  // chunks during idle time. Initial render stays light, while later navigation
-  // is effectively instant without making route downloads block first paint.
+  // Warm high-probability navigation immediately after the authenticated shell
+  // paints, then fill the remaining route cache during idle time. This keeps
+  // first paint lean while removing the "click, wait for a large Vite chunk"
+  // feeling from Profile / Counts / Payments / Users / Notifications.
   useEffect(() => {
     if (!token || !user || forceAuthPreview) return;
+
+    void preloadPriorityViews(authenticatedAdmin);
 
     const idleWindow = window as IdleCapableWindow;
     let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
     let idleId: number | undefined;
-    const warm = () => void preloadAllViews();
+    const warmRest = () => void preloadAllViews();
 
     if (idleWindow.requestIdleCallback) {
-      idleId = idleWindow.requestIdleCallback(warm, { timeout: 1500 });
+      idleId = idleWindow.requestIdleCallback(warmRest, { timeout: 900 });
     } else {
-      timeoutId = globalThis.setTimeout(warm, 250);
+      timeoutId = globalThis.setTimeout(warmRest, 120);
     }
 
     return () => {
       if (idleId !== undefined) idleWindow.cancelIdleCallback?.(idleId);
       if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId);
     };
-  }, [token, user?.id, forceAuthPreview]);
+  }, [token, user?.id, authenticatedAdmin, forceAuthPreview]);
 
   // Visual CI needs a deterministic way to exercise the unauthenticated
   // golden-master surface even though fixture mode normally injects an admin
