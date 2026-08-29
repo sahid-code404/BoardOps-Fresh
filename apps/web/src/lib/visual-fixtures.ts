@@ -236,6 +236,53 @@ const THEME = {
   transparency: "medium",
 };
 
+const INSTITUTION = {
+  id: "visual-institution",
+  name: "BoardOps Residence",
+  type: "HOSTEL",
+  address: "Bengaluru, Karnataka",
+  contactEmail: "office@boardops.local",
+  contactPhone: "+91 80000 00000",
+  currency: "INR",
+  timezone: "Asia/Kolkata",
+  logoUrl: null,
+};
+
+const POLICY_CATEGORIES = {
+  categories: [
+    {
+      category: "MEAL",
+      label: "Meal Policies",
+      policies: [
+        {
+          key: "policy.meal.allowLateChange",
+          value: "false",
+          type: "BOOLEAN",
+          description: "Allow resident meal changes after the configured cutoff.",
+        },
+        {
+          key: "policy.meal.cutoffGraceMinutes",
+          value: "15",
+          type: "NUMBER",
+          description: "Grace period applied to meal cutoffs.",
+        },
+      ],
+    },
+    {
+      category: "PAYMENT",
+      label: "Payment Policies",
+      policies: [
+        {
+          key: "policy.payment.requireReference",
+          value: "true",
+          type: "BOOLEAN",
+          description: "Require a reference when an administrator records a payment.",
+        },
+      ],
+    },
+  ],
+};
+
 function mealEntries(params?: Record<string, unknown>) {
   const requested = typeof params?.date === "string" ? params.date : null;
   const keys = requested
@@ -424,6 +471,8 @@ export async function visualFixtureApiFetch<T>(path: string, opts: VisualFetchOp
   if (pathname === "/billing-cycles/readiness") return envelope(billingReadiness(params)) as T;
   if (pathname === "/billing-cycles") return envelope([]) as T;
   if (pathname === "/audit-logs") return envelope(auditLogFixture()) as T;
+  if (pathname === "/institution") return envelope(INSTITUTION) as T;
+  if (pathname === "/policies") return envelope(POLICY_CATEGORIES) as T;
 
   // Mutations are intentionally side-effect free in visual mode. They resolve
   // successfully so dialogs, optimistic states and interaction animations can
