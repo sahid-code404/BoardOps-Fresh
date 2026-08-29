@@ -9,6 +9,14 @@ async function openView(page: Page, view: string, expectedTitle: string) {
   expect(pageErrors).toEqual([]);
 }
 
+test("plain visual-mode root cold-loads with visible dashboard content", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+  await expect(page.getByText("Total Users", { exact: true })).toBeVisible();
+  await expect(page.getByText("Meals ON Today", { exact: true })).toBeVisible();
+});
+
 test("admin dashboard golden-master shell renders", async ({ page }) => {
   await openView(page, "dashboard", "Dashboard");
   await expect(page.getByText("Admin Console", { exact: true })).toBeVisible();

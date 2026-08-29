@@ -1,0 +1,13 @@
+/*
+ * Runtime visibility safety for the golden-master shell.
+ *
+ * Framer Motion entrance animations are progressive enhancement. The top-bar
+ * title must never remain invisible when a cold-load animation is interrupted
+ * by the browser. Inline Motion styles can temporarily set opacity/transform,
+ * so this narrowly-scoped rule keeps only the persistent shell title visible.
+ */
+header > div > .flex-1 > p,
+header > div > .flex-1 > h1 {
+  opacity: 1 !important;
+  transform: none !important;
+}

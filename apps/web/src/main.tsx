@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import "./styles/golden.css";
+import "./styles/runtime-visibility.css";
 import BoardOpsApp from "./BoardOpsApp";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
