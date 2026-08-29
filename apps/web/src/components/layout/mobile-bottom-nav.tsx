@@ -36,15 +36,10 @@ export function MobileBottomNav() {
                 className="relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 rounded-2xl min-w-0"
                 aria-current={active ? "page" : undefined}
               >
-                {active && (
-                  <motion.div
-                    className="absolute inset-0 rounded-2xl bg-primary/15"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.2 }}
-                  />
-                )}
+                {/* Active navigation is functional state, not decorative motion.
+                    Never allow an interrupted entrance animation to strand the
+                    selected-page highlight at opacity: 0. */}
+                {active && <div className="absolute inset-0 rounded-2xl bg-primary/15" />}
                 <motion.div
                   whileTap={{ scale: 0.85 }}
                   className={cn(
