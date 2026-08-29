@@ -78,7 +78,7 @@ async function expectPersistentGlyphs(page: Page) {
   }
 }
 
-test("real local runtime loads a complete golden-master administrator shell", async ({ page }) => {
+test("real local runtime loads a complete and usable golden-master administrator shell", async ({ page }) => {
   const failedApiResponses: string[] = [];
   page.on("response", (response) => {
     const url = new URL(response.url());
@@ -100,9 +100,6 @@ test("real local runtime loads a complete golden-master administrator shell", as
   await expect(page.getByText("Total Users", { exact: true })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByLabel("Loading dashboard data")).toHaveCount(0, { timeout: 5_000 });
 
-  // The temporary runtime-only account summary was not part of the audited
-  // golden master. Identity remains available through the persistent avatar and
-  // full Profile screen without altering Dashboard composition.
   await expect(page.getByText("Signed in administrator", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "View profile", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open profile", exact: true })).toBeVisible();
@@ -129,6 +126,16 @@ test("real local runtime loads a complete golden-master administrator shell", as
   await expectNoStuckPersistentOpacity(page);
   await expectRuntimeLayoutHealth(page);
 
+  // The top-bar notification panel existed in the golden frontend but its Bell
+  // handler immediately navigated away, making the panel impossible to open.
+  const notificationsButton = page.getByRole("button", { name: /^Notifications/ }).first();
+  await notificationsButton.click();
+  await expect(notificationsButton).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByRole("dialog", { name: "Recent notifications" })).toBeVisible();
+  await expect(page.getByText("You're all caught up", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Recent notifications" })).toHaveCount(0);
+
   await page.getByRole("button", { name: "Open profile", exact: true }).click();
   await expect(page).toHaveURL(/\/profile(?:\?|$)/, { timeout: 5_000 });
   await expect(page.getByRole("heading", { name: "My Profile", exact: true })).toBeVisible();
@@ -148,7 +155,31 @@ test("real local runtime loads a complete golden-master administrator shell", as
     .evaluate((element) => Number.parseFloat(getComputedStyle(element.parentElement!).opacity));
   expect(avatarWrapperOpacity).toBeGreaterThan(0.9);
 
+  // Visible Profile actions must not be decorative dead controls.
+  await page.getByRole("button", { name: /Active Sessions/ }).click();
+  await expect(page.getByRole("heading", { name: "Active Sessions", exact: true })).toBeVisible();
+  await expect(page.getByText("Chrome on Linux", { exact: true })).toBeVisible();
+  await expect(page.getByText("This device", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Active Sessions", exact: true })).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Change Password/ }).click();
+  await expect(page.getByRole("heading", { name: "Change Password", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Current Password", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("New Password", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("heading", { name: "Change Password", exact: true })).toHaveCount(0);
+
   await expectNoStuckPersistentOpacity(page);
   await expectRuntimeLayoutHealth(page);
   expect(failedApiResponses).toEqual([]);
+
+  // Sign Out must revoke the HttpOnly server session, not merely hide the UI.
+  const logoutResponse = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/auth/logout" && response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Sign Out", exact: true }).last().click();
+  await expect((await logoutResponse).status()).toBe(200);
+  await expect(page.getByRole("textbox", { name: "Email", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Password", exact: true })).toBeVisible();
 });
