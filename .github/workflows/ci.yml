@@ -76,7 +76,7 @@ jobs:
       - run: pnpm build
       - name: Reset, migrate, seed and verify local D1
         run: pnpm db:reset:local
-      - name: Start Worker and verify health/readiness/auth/dashboard
+      - name: Start Worker and verify health/readiness/auth/dashboard/profile actions
         shell: bash
         run: |
           pnpm --filter @boardops/api dev > /tmp/boardops-api.log 2>&1 &
@@ -122,6 +122,30 @@ jobs:
           curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
             http://127.0.0.1:8787/api/auth/profile > /tmp/profile.json
           node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/profile.json','utf8')); if(!x.success||x.data?.name!=='BoardOps Admin'||x.data?.status!=='ACTIVE') process.exit(1)"
+
+          # Active Sessions is a visible Profile action. The API must return
+          # presentation-ready device/browser/OS data rather than undefined UI.
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
+            http://127.0.0.1:8787/api/auth/sessions > /tmp/sessions.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/sessions.json','utf8')); const s=x.data?.find(v=>v.current); if(!x.success||!s||!s.device||!s.browser||!s.os||!s.createdAt) process.exit(1)"
+
+          # Avatar upload is visible in Profile and must be backed by local R2.
+          printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZJ3sAAAAASUVORK5CYII=' | base64 -d > /tmp/avatar.png
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
+            -F 'avatar=@/tmp/avatar.png;type=image/png' \
+            http://127.0.0.1:8787/api/auth/avatar > /tmp/avatar.json
+          avatar_url=$(node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/avatar.json','utf8')); if(!x.success||!x.data?.avatarUrl) process.exit(1); process.stdout.write(x.data.avatarUrl)")
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
+            "http://127.0.0.1:8787${avatar_url}" --output /tmp/avatar-roundtrip.png
+          test -s /tmp/avatar-roundtrip.png
+
+          # Change Password is another visible Profile action. Keep the current
+          # session, revoke other sessions, and prove the mutation completes.
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
+            -H 'content-type: application/json' \
+            -d '{"currentPassword":"BoardOps@Fresh#2026!A7","newPassword":"BoardOps@Temp#2026!B8"}' \
+            http://127.0.0.1:8787/api/auth/change-password > /tmp/change-password.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/change-password.json','utf8')); if(!x.success||x.data?.changed!==true||x.data?.otherSessionsRevoked!==true) process.exit(1)"
 
           curl --fail --show-error --cookie /tmp/boardops-cookies.txt --cookie-jar /tmp/boardops-cookies.txt \
             -X POST http://127.0.0.1:8787/api/auth/logout > /tmp/logout.json
