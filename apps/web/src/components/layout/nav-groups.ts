@@ -1,6 +1,7 @@
 "use client";
 
 import { navForRole, type NavItem } from "./nav-config";
+import type { Role } from "@/stores/use-auth-store";
 
 export type NavGroup = { title: string; items: NavItem[] };
 
@@ -11,14 +12,14 @@ export function groupNavItems(items: NavItem[]): NavGroup[] {
     { title: "Finance", items: [] },
     { title: "Administration", items: [] },
   ];
-  items.forEach((i) => {
-    if (["dashboard", "meals", "user-meals", "kitchen"].includes(i.view)) groups[0].items.push(i);
-    else if (["billing", "payments", "expenses", "funds", "monthly-closing"].includes(i.view)) groups[1].items.push(i);
-    else groups[2].items.push(i);
+  items.forEach((item) => {
+    if (["dashboard", "meals", "user-meals", "kitchen"].includes(item.view)) groups[0].items.push(item);
+    else if (["billing", "payments", "expenses", "funds", "monthly-closing"].includes(item.view)) groups[1].items.push(item);
+    else groups[2].items.push(item);
   });
-  return groups.filter((g) => g.items.length > 0);
+  return groups.filter((group) => group.items.length > 0);
 }
 
-export function groupedNavForRole(role: "ADMIN" | "USER"): NavGroup[] {
+export function groupedNavForRole(role: Role): NavGroup[] {
   return groupNavItems(navForRole(role));
 }
