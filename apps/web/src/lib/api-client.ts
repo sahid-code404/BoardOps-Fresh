@@ -1,6 +1,5 @@
 "use client";
 
-import { useAuthStore } from "@/stores/use-auth-store";
 import { VISUAL_FIXTURES_ENABLED, visualFixtureApiFetch } from "@/lib/visual-fixtures";
 
 const API_BASE = "/api";
@@ -25,7 +24,6 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
   }
 
   const { params, headers, ...rest } = opts;
-  const token = useAuthStore.getState().token;
   const url = new URL(`${API_BASE}${path}`, window.location.origin);
   if (params) {
     Object.entries(params).forEach(([k, v]) => {
@@ -44,14 +42,11 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
     requestHeaders.set("Content-Type", "application/json");
   }
 
-  // Phase 04 uses an HttpOnly cookie as the real credential. `cookie-session`
-  // is only a persisted client-side session hint and must never be sent as a
-  // bearer credential. Older development bearer tokens remain accepted only
-  // so a stale browser can fail closed and be cleared by `/auth/me`.
-  if (token && token !== "cookie-session") {
-    requestHeaders.set("Authorization", `Bearer ${token}`);
-  }
-
+  // Browser authentication is cookie-only. The non-secret `cookie-session`
+  // value persisted by the auth store is a UI/session-presence hint, not a
+  // credential. Legacy localStorage bearer values are deliberately never
+  // forwarded by the Vite client; a stale browser without a valid HttpOnly
+  // cookie fails closed through `/auth/me` and must sign in again once.
   const res = await fetch(url.toString(), {
     ...rest,
     headers: requestHeaders,
