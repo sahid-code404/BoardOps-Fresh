@@ -1,0 +1,46 @@
+name: Phase 02 Golden Master Port
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/phase02-port.yml"
+      - "scripts/phase02-port.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  port:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout target
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout audited golden master read-only
+        uses: actions/checkout@v4
+        with:
+          repository: sahid-code404/BoardOpsv2rewrite
+          ref: 77f3dec3b264c42904207f27c5f008b33c03b868
+          path: .golden
+          persist-credentials: false
+
+      - name: Port exact client source into Vite workspace
+        run: node scripts/phase02-port.mjs
+
+      - name: Record port commit
+        run: |
+          rm -rf .golden
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web scripts/phase02-port.mjs
+          if git diff --cached --quiet; then
+            echo "No port changes to commit."
+            exit 0
+          fi
+          git commit -m "feat: port BoardOps golden-master frontend"
+          git push
