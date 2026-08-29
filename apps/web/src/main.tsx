@@ -23,10 +23,18 @@ function bootstrap() {
   const root = document.getElementById("root");
   if (!root) throw new Error("Missing #root element");
 
-  // First paint must never wait for a route import. Core authenticated views are
-  // eager and secondary routes are warmed in the background after React mounts.
-  // A persisted session can therefore be validated immediately instead of
-  // staring at a blank document while a chunk is downloaded.
+  // Start the direct-route chunk request before React begins rendering, but do
+  // not await it. This preserves an immediate first paint while giving a cold
+  // /settings, /profile, /system, etc. load the entire auth-validation window
+  // to download its feature chunk. Normal in-app navigation still preloads the
+  // destination before switching views, so Suspense remains an edge-case safety
+  // net instead of a routine user-visible transition.
+  if (useAuthStore.getState().token) {
+    void preloadView(useAppStore.getState().view).catch((error) => {
+      console.error("Failed to warm initial BoardOps route", error);
+    });
+  }
+
   createRoot(root).render(
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange={false}>
       <QueryProvider>
@@ -38,12 +46,6 @@ function bootstrap() {
       </QueryProvider>
     </ThemeProvider>,
   );
-
-  if (useAuthStore.getState().token) {
-    void preloadView(useAppStore.getState().view).catch((error) => {
-      console.error("Failed to warm initial BoardOps route", error);
-    });
-  }
 }
 
 bootstrap();
