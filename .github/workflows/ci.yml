@@ -91,6 +91,8 @@ jobs:
 
           curl --fail --show-error http://127.0.0.1:8787/api/health
           curl --fail --show-error http://127.0.0.1:8787/api/ready
+          curl --fail --show-error http://127.0.0.1:8787/api/theme > /tmp/theme.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/theme.json','utf8')); if(!x.success||x.data?.glassMode!=='on'||x.data?.blurIntensity!=='normal') process.exit(1)"
 
           bad_status=$(curl --silent --output /tmp/bad-login.json --write-out '%{http_code}' \
             -H 'content-type: application/json' \
@@ -112,6 +114,14 @@ jobs:
           curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
             http://127.0.0.1:8787/api/dashboard > /tmp/dashboard.json
           node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/dashboard.json','utf8')); if(!x.success||x.data?.isAdmin!==true||x.data?.kpis?.totalUsers!==2||!Array.isArray(x.data?.recentActivity)) process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
+            'http://127.0.0.1:8787/api/notifications?unread=true' > /tmp/notifications.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/notifications.json','utf8')); if(!x.success||x.data?.unreadCount!==0||!Array.isArray(x.data?.notifications)) process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
+            http://127.0.0.1:8787/api/auth/profile > /tmp/profile.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/profile.json','utf8')); if(!x.success||x.data?.name!=='BoardOps Admin'||x.data?.status!=='ACTIVE') process.exit(1)"
 
           curl --fail --show-error --cookie /tmp/boardops-cookies.txt --cookie-jar /tmp/boardops-cookies.txt \
             -X POST http://127.0.0.1:8787/api/auth/logout > /tmp/logout.json
@@ -146,3 +156,20 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Phase 02 visual fixture smoke
         run: pnpm test:e2e
+
+  runtime-smoke:
+    needs: [prepare, verify]
+    if: ${{ needs.prepare.outputs.lock_ready == 'true' && needs.verify.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable && corepack prepare pnpm@11.23.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Real D1 authenticated shell smoke
+        run: pnpm test:e2e:runtime

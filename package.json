@@ -15,7 +15,8 @@
     "db:seed:local": "wrangler d1 execute boardops-local --local --persist-to .wrangler/state --config services/api/wrangler.jsonc --file scripts/seed-local.sql",
     "db:verify:local": "node scripts/verify-local-db.mjs",
     "db:reset:local": "node scripts/reset-local-db.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:runtime": "playwright test --config playwright.runtime.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

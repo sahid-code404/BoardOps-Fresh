@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-08-29 — Authenticated shell completeness and performance hardening
+- Removed the blocking route import that previously delayed React's first render when a persisted session existed.
+- Made Dashboard the eager authenticated route and moved large secondary features, including Profile, back behind background-warmed route chunks so the first useful screen stays small and fast.
+- Added real `/api/theme`, `/api/notifications`, and `/api/auth/profile` runtime endpoints so the golden-master shell no longer starts with missing theme/glass state or repeated 404 requests.
+- Applied default glass/theme attributes before first paint and isolated the root/glass stacking contexts so fixed mesh and negative-z decorative backgrounds remain visible across browser/GPU paths.
+- Reduced page/stagger entrance delays while preserving the golden-master motion language.
+- Added a persistent administrator summary to Dashboard using authenticated identity data, including name, email, phone, role/status, last-login context and a direct Profile action. It renders independently of slower dashboard-domain data.
+- Reduced Dashboard's user-count work to one conditional aggregate query.
+- Added a real-runtime Playwright gate using the local D1 database and actual login cookie. It verifies authenticated dashboard identity, dashboard completion, mesh/background/theme attributes, Profile navigation and absence of failed core `/api/*` responses.
+
 ## 2026-08-29 — Phase 04 auth-core / blank-startup fix
 - Real local testing exposed a cold-start race: the web Vite server became ready before the Worker, causing immediate `/api/*` proxy requests to fail with `ECONNREFUSED` while stale persisted auth state could still mount the shell.
 - Added ordered local startup: root `pnpm dev` now starts the Worker first, waits for `/api/health`, then starts the web app.
