@@ -12,22 +12,30 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      lock_exists: ${{ steps.lock.outputs.exists }}
+      lock_ready: ${{ steps.lock.outputs.ready }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable && corepack prepare pnpm@11.23.0 --activate
       - id: lock
-        name: Check lockfile
+        name: Validate deterministic lockfile
         shell: bash
         run: |
-          if [[ -f pnpm-lock.yaml ]]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+          if [[ ! -f pnpm-lock.yaml ]]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if pnpm install --lockfile-only --frozen-lockfile; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
           fi
 
   bootstrap-lockfile:
     needs: prepare
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.prepare.outputs.lock_exists == 'false' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.prepare.outputs.lock_ready == 'false' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -37,20 +45,24 @@ jobs:
         with:
           node-version: '22'
       - run: corepack enable && corepack prepare pnpm@11.23.0 --activate
-      - run: pnpm install --lockfile-only
+      - run: pnpm install --lockfile-only --no-frozen-lockfile
       - name: Commit deterministic lockfile
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add pnpm-lock.yaml
-          git commit -m "chore: generate pnpm lockfile"
+          if git diff --cached --quiet; then
+            echo "Lockfile already current."
+            exit 0
+          fi
+          git commit -m "chore: refresh pnpm lockfile"
           git push
 
   verify:
     needs: prepare
-    if: ${{ needs.prepare.outputs.lock_exists == 'true' }}
+    if: ${{ needs.prepare.outputs.lock_ready == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
