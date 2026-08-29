@@ -49,6 +49,14 @@ export default function BoardOpsApp() {
     staleTime: 60 * 1000,
   });
 
+  // Session cleanup is an effect, never a render side effect. The previous
+  // queueMicrotask from the render branch could schedule duplicate logout work
+  // under React retries/StrictMode and made authentication transitions harder
+  // to reason about.
+  useEffect(() => {
+    if (isError && token && !forceAuthPreview) clearAuth();
+  }, [isError, token, forceAuthPreview, clearAuth]);
+
   // Warm high-probability navigation immediately after the authenticated shell
   // paints, then fill the remaining route cache during idle time. This keeps
   // first paint lean while removing the "click, wait for a large Vite chunk"
@@ -100,7 +108,6 @@ export default function BoardOpsApp() {
   }
 
   if (isError && token) {
-    queueMicrotask(() => clearAuth());
     return <AuthScreen />;
   }
 
