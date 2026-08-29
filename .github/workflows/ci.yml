@@ -76,7 +76,7 @@ jobs:
       - run: pnpm build
       - name: Reset, migrate, seed and verify local D1
         run: pnpm db:reset:local
-      - name: Start Worker and verify health/readiness
+      - name: Start Worker and verify health/readiness/auth
         shell: bash
         run: |
           pnpm --filter @boardops/api dev > /tmp/boardops-api.log 2>&1 &
@@ -88,8 +88,30 @@ jobs:
             sleep 1
           done
           if [[ "$healthy" != "true" ]]; then cat /tmp/boardops-api.log; exit 1; fi
+
           curl --fail --show-error http://127.0.0.1:8787/api/health
           curl --fail --show-error http://127.0.0.1:8787/api/ready
+
+          bad_status=$(curl --silent --output /tmp/bad-login.json --write-out '%{http_code}' \
+            -H 'content-type: application/json' \
+            -d '{"email":"admin@boardops.local","password":"wrong-password"}' \
+            http://127.0.0.1:8787/api/auth/login)
+          test "$bad_status" = "401"
+
+          curl --fail --show-error --cookie-jar /tmp/boardops-cookies.txt \
+            -H 'content-type: application/json' \
+            -d '{"email":"admin@boardops.local","password":"BoardOps@Fresh#2026!A7"}' \
+            http://127.0.0.1:8787/api/auth/login > /tmp/login.json
+
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/login.json','utf8')); if(!x.success||x.data?.user?.id!=='usr_admin_local'||x.data?.token!=='cookie-session') process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
+            http://127.0.0.1:8787/api/auth/me > /tmp/me.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/me.json','utf8')); if(!x.success||x.data?.email!=='admin@boardops.local'||x.data?.role!=='ADMIN') process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt --cookie-jar /tmp/boardops-cookies.txt \
+            -X POST http://127.0.0.1:8787/api/auth/logout > /tmp/logout.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/logout.json','utf8')); if(!x.success||x.data?.loggedOut!==true) process.exit(1)"
       - name: Start frontend and smoke index
         shell: bash
         run: |

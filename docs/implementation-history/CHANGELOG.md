@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-08-29 — Phase 04 auth-core / blank-startup fix
+- Real local testing exposed a cold-start race: the web Vite server became ready before the Worker, causing immediate `/api/*` proxy requests to fail with `ECONNREFUSED` while stale persisted auth state could still mount the shell.
+- Added ordered local startup: root `pnpm dev` now starts the Worker first, waits for `/api/health`, then starts the web app.
+- Added immutable `0003_auth_core.sql` for digested server sessions and persisted login history.
+- Added PBKDF2-SHA256 password verification compatible with the deterministic local administrator seed.
+- Added secure cookie-backed `/api/auth/login`, `/api/auth/me`, `/api/auth/logout`, session listing and session revocation.
+- Raw session tokens are never stored in D1 and are never persisted in browser localStorage; the client stores only the non-secret `cookie-session` hint.
+- Strengthened the frontend auth gate so stale persisted users cannot mount the authenticated shell before `/auth/me` validates the server session.
+- Added short retry handling for transient auth bootstrap network failures and fail-closed handling for invalid sessions.
+- CI auth smoke now checks wrong-password rejection, real seeded-admin login, cookie-backed `/auth/me`, and logout in addition to the existing D1/build/visual gates.
+- Phase 04 remains IN PROGRESS: registration, verification OTP, password recovery and approval workflow are still deferred within the phase.
+
 ## 2026-08-29 — Phase 03 database core verified
 - CI run `33262977660` passed frozen install, TypeScript, tests, builds, clean local D1 reset/migrate/seed/invariant verification, Worker health/readiness, frontend startup, and the existing Playwright visual/navigation regression suite.
 - Phase 03 database core is verified at implementation commit `287742541e98138d279ecdf99febf83d4f5589f9`.

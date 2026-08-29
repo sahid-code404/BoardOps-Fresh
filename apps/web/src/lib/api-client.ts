@@ -32,11 +32,18 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
     });
   }
+
+  // Phase 04 uses an HttpOnly cookie as the real credential. `cookie-session`
+  // is only a persisted client-side session hint and must never be sent as a
+  // bearer credential. Older development bearer tokens remain accepted only
+  // so a stale browser can fail closed and be cleared by `/auth/me`.
+  const bearerHeaders = token && token !== "cookie-session" ? { Authorization: `Bearer ${token}` } : {};
+
   const res = await fetch(url.toString(), {
     ...rest,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...bearerHeaders,
       ...(headers || {}),
     },
     credentials: "include",

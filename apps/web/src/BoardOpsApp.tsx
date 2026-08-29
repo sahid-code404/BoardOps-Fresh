@@ -7,7 +7,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { LazyViewRouter } from "@/components/layout/lazy-view-router";
 import { AnimatedBackground } from "@/components/glass/animated-background";
 import { GlassButton } from "@/components/glass/glass-button";
-import { api } from "@/lib/api-client";
+import { api, ApiError } from "@/lib/api-client";
 import { ShieldX } from "lucide-react";
 import { useAppStore } from "@/stores/use-app-store";
 import { CommandPalette } from "@/components/layout/command-palette";
@@ -28,15 +28,18 @@ export default function BoardOpsApp() {
       return r.data;
     },
     enabled: !!token,
-    retry: false,
+    retry: (failureCount, error) => {
+      if (failureCount >= 3) return false;
+      return !(error instanceof ApiError) || error.status >= 500;
+    },
+    retryDelay: (attempt) => Math.min(250 * 2 ** attempt, 1500),
     staleTime: 60 * 1000,
   });
 
-  if (isError && token) {
-    queueMicrotask(() => clearAuth());
-  }
-
-  if (token && isLoading && !user) {
+  // Never trust a persisted user until the server has validated the session.
+  // This prevents a stale localStorage snapshot from mounting the whole shell
+  // while `/auth/me` is still failing during a cold local startup.
+  if (token && isLoading) {
     return (
       <div className="min-h-screen grid place-items-center safe-top safe-bottom">
         <AnimatedBackground />
@@ -49,14 +52,20 @@ export default function BoardOpsApp() {
     );
   }
 
-  if (!token || (isError && !user)) {
+  if (isError && token) {
+    queueMicrotask(() => clearAuth());
     return <AuthScreen />;
   }
 
-  const userRole = user?.role || "USER";
+  if (!token || !user) {
+    return <AuthScreen />;
+  }
+
+  const userRole = user.role || "USER";
   const isAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN";
 
-  // Permission guard: residents can only access their allowed views
+  // Permission guard: residents can only access their allowed views.
+  // Phase 05 replaces this compatibility guard with backend-enforced RBAC.
   const adminOnlyViews = ["meals", "kitchen", "expenses", "funds", "monthly-closing", "formula-engine", "users", "settings", "system"];
   const isForbidden = !isAdmin && adminOnlyViews.includes(view);
 

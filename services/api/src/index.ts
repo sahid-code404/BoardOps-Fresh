@@ -1,11 +1,8 @@
 import { Hono } from "hono";
+import { authRoutes } from "./routes/auth";
+import type { AppEnv } from "./types";
 
-type Bindings = {
-  DB: D1Database;
-  FILES: R2Bucket;
-};
-
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<AppEnv>();
 
 const REQUIRED_CORE_TABLES = [
   "institutions",
@@ -14,10 +11,13 @@ const REQUIRED_CORE_TABLES = [
   "idempotency_keys",
   "audit_events",
   "outbox_events",
+  "user_sessions",
+  "login_history",
 ] as const;
 
 app.use("*", async (c, next) => {
   const requestId = crypto.randomUUID();
+  c.set("requestId", requestId);
   c.header("x-request-id", requestId);
   await next();
 });
@@ -44,18 +44,20 @@ app.get("/api/ready", async (c) => {
     return c.json({
       status: "ready",
       service: "boardops-api",
-      schema: "phase03-core",
+      schema: "phase04-auth-core",
     });
   } catch {
     return c.json(
       {
         status: "not_ready",
         service: "boardops-api",
-        schema: "phase03-core",
+        schema: "phase04-auth-core",
       },
       503,
     );
   }
 });
+
+app.route("/api/auth", authRoutes);
 
 export default app;
