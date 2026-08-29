@@ -47,6 +47,10 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
   // credential. Legacy localStorage bearer values are deliberately never
   // forwarded by the Vite client; a stale browser without a valid HttpOnly
   // cookie fails closed through `/auth/me` and must sign in again once.
+  // Also strip a caller-provided Authorization header so old ported code cannot
+  // accidentally re-introduce browser bearer authentication through this API.
+  requestHeaders.delete("Authorization");
+
   const res = await fetch(url.toString(), {
     ...rest,
     headers: requestHeaders,
