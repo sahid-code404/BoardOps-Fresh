@@ -76,3 +76,33 @@ describe("readiness endpoint", () => {
     });
   });
 });
+
+describe("password mutation policy", () => {
+  it("rejects change-password values that omit the special-character rule", async () => {
+    const response = await app.request("http://boardops.local/api/auth/change-password", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ currentPassword: "Anything@1", newPassword: "NoSpecial123" }),
+    });
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toEqual({
+      success: false,
+      error: "Password must contain at least one special character",
+    });
+  });
+
+  it("applies the same strong policy to administrator user-password edits", async () => {
+    const response = await app.request("http://boardops.local/api/users/example-user", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "NoSpecial123" }),
+    });
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toEqual({
+      success: false,
+      error: "Password must contain at least one special character",
+    });
+  });
+});
