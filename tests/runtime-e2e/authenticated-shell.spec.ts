@@ -100,8 +100,6 @@ test("real local runtime loads a complete and usable golden-master administrator
   await expect(page.getByText("Total Users", { exact: true })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByLabel("Loading dashboard data")).toHaveCount(0, { timeout: 5_000 });
 
-  // The temporary account summary that caused the reported Dashboard parity
-  // regression must never reappear. Profile remains reachable from the avatar.
   await expect(page.getByText("Signed in administrator", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "View profile", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Open profile", exact: true })).toBeVisible();
@@ -124,8 +122,6 @@ test("real local runtime loads a complete and usable golden-master administrator
   await expectNoStuckPersistentOpacity(page);
   await expectRuntimeLayoutHealth(page);
 
-  // Bell click must open the recent-notification panel instead of immediately
-  // navigating away from it.
   const notificationsButton = page.getByRole("button", { name: /^Notifications/ }).first();
   await notificationsButton.click();
   await expect(notificationsButton).toHaveAttribute("aria-expanded", "true");
@@ -153,10 +149,6 @@ test("real local runtime loads a complete and usable golden-master administrator
     .evaluate((element) => Number.parseFloat(getComputedStyle(element.parentElement!).opacity));
   expect(avatarWrapperOpacity).toBeGreaterThan(0.9);
 
-  // Session labels are derived from the real user-agent and therefore differ
-  // between Playwright, desktop browsers, mobile browsers and proxies. Verify
-  // the API has a complete presentation and assert the UI renders that exact
-  // runtime-derived label instead of hard-coding one CI environment.
   const sessionPresentation = await page.evaluate(async () => {
     const response = await fetch("/api/auth/sessions", { credentials: "include" });
     const body = (await response.json()) as {
@@ -173,30 +165,31 @@ test("real local runtime loads a complete and usable golden-master administrator
   expect(sessionPresentation.device.trim().length).toBeGreaterThan(0);
 
   await page.getByRole("button", { name: /Active Sessions/ }).click();
-  const sessionsHeading = page.getByRole("heading", { name: "Active Sessions", exact: true });
-  await expect(sessionsHeading).toBeVisible();
+  const sessionsSheet = page.locator('[data-slot="sheet-content"]').filter({
+    has: page.getByRole("heading", { name: "Active Sessions", exact: true }),
+  });
+  await expect(sessionsSheet).toBeVisible();
   await expect(
-    page.getByText(`${sessionPresentation.browser} on ${sessionPresentation.os}`, { exact: true }),
+    sessionsSheet.getByText(`${sessionPresentation.browser} on ${sessionPresentation.os}`, { exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("This device", { exact: true })).toBeVisible();
+  await expect(sessionsSheet.getByText("This device", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
-  // Radix may retain a closing sheet in the portal while its exit animation
-  // finishes; the user-facing invariant is that it is no longer visible.
-  await expect(sessionsHeading).toBeHidden();
+  await expect(sessionsSheet).toBeHidden();
 
   await page.getByRole("button", { name: /Change Password/ }).click();
-  const passwordHeading = page.getByRole("heading", { name: "Change Password", exact: true });
-  await expect(passwordHeading).toBeVisible();
-  await expect(page.getByLabel("Current Password", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("New Password", { exact: true })).toBeVisible();
+  const passwordDialog = page.locator('[data-slot="dialog-content"]').filter({
+    has: page.getByRole("heading", { name: "Change Password", exact: true }),
+  });
+  await expect(passwordDialog).toBeVisible();
+  await expect(passwordDialog.getByLabel("Current Password", { exact: true })).toBeVisible();
+  await expect(passwordDialog.getByLabel("New Password", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(passwordHeading).toBeHidden();
+  await expect(passwordDialog).toBeHidden();
 
   await expectNoStuckPersistentOpacity(page);
   await expectRuntimeLayoutHealth(page);
   expect(failedApiResponses).toEqual([]);
 
-  // Sign Out must revoke the HttpOnly server session, not merely clear client UI.
   const logoutResponse = page.waitForResponse(
     (response) => new URL(response.url()).pathname === "/api/auth/logout" && response.request().method() === "POST",
   );
