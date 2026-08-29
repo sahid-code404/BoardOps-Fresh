@@ -1,54 +1,99 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function openView(page: Page, view: string, expectedTitle: string) {
+async function openRoute(page: Page, path: string, expectedTitle: string) {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
-  await page.goto(`/?view=${view}`);
+  await page.goto(path);
   await expect(page.getByRole("heading", { name: expectedTitle, exact: true })).toBeVisible();
   await page.waitForTimeout(350);
+  expect(new URL(page.url()).pathname).toBe(path);
   expect(pageErrors).toEqual([]);
 }
 
-test("plain visual-mode root cold-loads with visible dashboard content", async ({ page }) => {
+const ADMIN_ROUTES = [
+  ["/dashboard", "Dashboard"],
+  ["/meals", "Meal Configuration"],
+  ["/user-meals", "Meals"],
+  ["/kitchen", "Meal Counts"],
+  ["/billing", "Billing & Closing"],
+  ["/payments", "Payments & Wallet"],
+  ["/expenses", "Expenses & Procurement"],
+  ["/funds", "Funds Overview"],
+  ["/monthly-closing", "Monthly Closing"],
+  ["/formula-engine", "Formula Engine"],
+  ["/users", "User Management"],
+  ["/notifications", "Notifications & Announcements"],
+  ["/settings", "Settings & Policies"],
+  ["/system", "System (Audit & Tasks)"],
+  ["/profile", "My Profile"],
+] as const;
+
+test("plain visual-mode root canonicalizes to the dashboard route", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
   await expect(page.getByText("Total Users", { exact: true })).toBeVisible();
   await expect(page.getByText("Meals ON Today", { exact: true })).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe("/dashboard");
 });
 
-test("admin dashboard golden-master shell renders", async ({ page }) => {
-  await openView(page, "dashboard", "Dashboard");
+for (const [path, title] of ADMIN_ROUTES) {
+  test(`admin route ${path} renders without a page error`, async ({ page }) => {
+    await openRoute(page, path, title);
+  });
+}
+
+test("dashboard fixture content renders", async ({ page }) => {
+  await openRoute(page, "/dashboard", "Dashboard");
   await expect(page.getByText("Admin Console", { exact: true })).toBeVisible();
   await expect(page.getByText("Total Users", { exact: true })).toBeVisible();
   await expect(page.getByText("Meals ON Today", { exact: true })).toBeVisible();
 });
 
 test("meal configuration renders from visual fixtures", async ({ page }) => {
-  await openView(page, "meals", "Meal Configuration");
+  await openRoute(page, "/meals", "Meal Configuration");
   await expect(page.getByText("Breakfast", { exact: true }).first()).toBeVisible();
 });
 
 test("resident meal schedule renders without backend", async ({ page }) => {
-  await openView(page, "user-meals", "Meals");
+  await openRoute(page, "/user-meals", "Meals");
   await expect(page.getByText("Breakfast", { exact: true }).first()).toBeVisible();
 });
 
 test("user management renders deterministic residents", async ({ page }) => {
-  await openView(page, "users", "User Management");
+  await openRoute(page, "/users", "User Management");
   await expect(page.getByText("Riya Sen", { exact: true })).toBeVisible();
 });
 
 test("notifications and profile render in fixture mode", async ({ page }) => {
-  await openView(page, "notifications", "Notifications & Announcements");
+  await openRoute(page, "/notifications", "Notifications & Announcements");
   await expect(page.getByText("Monthly statement is ready", { exact: true })).toBeVisible();
-  await page.goto("/?view=profile");
+  await page.goto("/profile");
   await expect(page.getByRole("heading", { name: "My Profile", exact: true })).toBeVisible();
   await expect(page.getByText("Aarav Sharma", { exact: true }).first()).toBeVisible();
 });
 
-test("mobile shell keeps the dashboard usable", async ({ page }) => {
+test("legacy query navigation is canonicalized to a real route", async ({ page }) => {
+  await page.goto("/?view=users");
+  await expect(page.getByRole("heading", { name: "User Management", exact: true })).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe("/users");
+  expect(new URL(page.url()).searchParams.has("view")).toBe(false);
+});
+
+test("browser back restores the previous BoardOps route", async ({ page }) => {
+  await openRoute(page, "/dashboard", "Dashboard");
+  await page.getByRole("button", { name: "More navigation" }).click();
+  await page.getByRole("button", { name: "Users", exact: true }).click();
+  await expect(page).toHaveURL(/\/users(?:\?|$)/);
+  await expect(page.getByRole("heading", { name: "User Management", exact: true })).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/dashboard(?:\?|$)/);
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+});
+
+test("mobile shell keeps the routed dashboard usable", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await openView(page, "dashboard", "Dashboard");
+  await openRoute(page, "/dashboard", "Dashboard");
   await expect(page.getByRole("button", { name: "Open menu" })).toBeVisible();
 });
