@@ -1,0 +1,23 @@
+{
+  "name": "@boardops/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 8787",
+    "build": "vite build",
+    "typecheck": "tsc --pretty false",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "hono": "4.13.5"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.54.1",
+    "@cloudflare/workers-types": "5.20260827.1",
+    "typescript": "7.0.2",
+    "vite": "8.2.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.126.0"
+  }
+}
