@@ -90,7 +90,8 @@ jobs:
           if [[ "$healthy" != "true" ]]; then cat /tmp/boardops-api.log; exit 1; fi
 
           curl --fail --show-error http://127.0.0.1:8787/api/health
-          curl --fail --show-error http://127.0.0.1:8787/api/ready
+          curl --fail --show-error http://127.0.0.1:8787/api/ready > /tmp/ready.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/ready.json','utf8')); if(x.status!=='ready'||x.schema!=='phase04-auth-workflows') process.exit(1)"
           curl --fail --show-error http://127.0.0.1:8787/api/theme > /tmp/theme.json
           node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/theme.json','utf8')); if(!x.success||x.data?.glassMode!=='on'||x.data?.blurIntensity!=='normal') process.exit(1)"
 
@@ -122,6 +123,103 @@ jobs:
           curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
             http://127.0.0.1:8787/api/auth/profile > /tmp/profile.json
           node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/profile.json','utf8')); if(!x.success||x.data?.name!=='BoardOps Admin'||x.data?.status!=='ACTIVE') process.exit(1)"
+
+          # Phase 04 registration -> verification -> review -> resubmit -> approve.
+          curl --fail --show-error --cookie-jar /tmp/registration-cookies.txt \
+            -H 'content-type: application/json' \
+            -d '{"name":"Phase Four User","institutionName":"BoardOps Institute","institutionUserId":"RES-PHASE04","email":"phase04.user@example.test","phone":"+919876540004","password":"BoardOps@Test#2026!C9","confirmPassword":"BoardOps@Test#2026!C9","room":"D-401","gender":"OTHER","consents":{"rules":true,"privacy":true,"terms":true}}' \
+            http://127.0.0.1:8787/api/auth/register > /tmp/register.json
+          registration_user_id=$(node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/register.json','utf8')); if(!x.success||!x.data?.userId||x.data?.email!=='phase04.user@example.test'||x.data?.registrationToken||x.data?.otp) process.exit(1); process.stdout.write(x.data.userId)")
+          grep -q 'boardops_registration' /tmp/registration-cookies.txt
+
+          wrong_otp_status=$(curl --silent --output /tmp/wrong-verify.json --write-out '%{http_code}' \
+            -H 'content-type: application/json' \
+            -d '{"email":"phase04.user@example.test","otp":"111111"}' \
+            http://127.0.0.1:8787/api/auth/verify-email)
+          test "$wrong_otp_status" = "400"
+
+          curl --fail --show-error \
+            -H 'content-type: application/json' \
+            -d '{"email":"phase04.user@example.test","otp":"424242"}' \
+            http://127.0.0.1:8787/api/auth/verify-email > /tmp/verify-email.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/verify-email.json','utf8')); if(!x.success||x.data?.emailVerified!==true) process.exit(1)"
+
+          curl --fail --show-error \
+            'http://127.0.0.1:8787/api/auth/registration-status?email=phase04.user%40example.test' > /tmp/status-anon.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/status-anon.json','utf8')); if(!x.success||x.data?.exists!==false) process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/registration-cookies.txt \
+            'http://127.0.0.1:8787/api/auth/registration-status?email=phase04.user%40example.test' > /tmp/status-pending.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/status-pending.json','utf8')); if(!x.success||x.data?.exists!==true||x.data?.status!=='PENDING'||x.data?.emailVerified!==true||x.data?.cycle!==1) process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
+            'http://127.0.0.1:8787/api/users?q=phase04.user%40example.test' > /tmp/users-phase04.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/users-phase04.json','utf8')); if(!x.success||!x.data?.some(u=>u.email==='phase04.user@example.test'&&u.status==='PENDING'&&u.emailVerified===true)) process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
+            -X PATCH -H 'content-type: application/json' \
+            -d '{"fields":["room"],"reason":"Please confirm the corrected room assignment"}' \
+            "http://127.0.0.1:8787/api/users/${registration_user_id}/request-changes" > /tmp/request-changes.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/request-changes.json','utf8')); if(!x.success||x.data?.status!=='PENDING'||!x.data?.changesRequested?.includes('room')) process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/registration-cookies.txt \
+            'http://127.0.0.1:8787/api/auth/registration-status?email=phase04.user%40example.test' > /tmp/status-changes.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/status-changes.json','utf8')); if(!x.success||!x.data?.changesRequested?.includes('room')||!x.data?.changesRequestReason) process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/registration-cookies.txt \
+            -H 'content-type: application/json' \
+            -d '{"email":"phase04.user@example.test","name":"Phase Four User","institutionUserId":"RES-PHASE04","phone":"+919876540004","room":"D-402","gender":"OTHER"}' \
+            http://127.0.0.1:8787/api/auth/resubmit > /tmp/resubmit.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/resubmit.json','utf8')); if(!x.success||x.data?.cycle!==2||x.data?.status!=='PENDING'||x.data?.verificationRequired!==false) process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/registration-cookies.txt \
+            'http://127.0.0.1:8787/api/auth/registration-status?email=phase04.user%40example.test' > /tmp/status-cycle2.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/status-cycle2.json','utf8')); if(!x.success||x.data?.cycle!==2||x.data?.reviewStatus!=='PENDING_REVIEW'||x.data?.room!=='D-402') process.exit(1)"
+
+          curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
+            -X PATCH -H 'content-type: application/json' \
+            -d '{"action":"APPROVE","reason":"Phase 04 CI approval"}' \
+            "http://127.0.0.1:8787/api/users/${registration_user_id}" > /tmp/approve.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/approve.json','utf8')); if(!x.success||x.data?.status!=='ACTIVE') process.exit(1)"
+
+          curl --fail --show-error --cookie-jar /tmp/phase04-user-cookies.txt \
+            -H 'content-type: application/json' \
+            -d '{"email":"phase04.user@example.test","password":"BoardOps@Test#2026!C9"}' \
+            http://127.0.0.1:8787/api/auth/login > /tmp/phase04-user-login.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/phase04-user-login.json','utf8')); if(!x.success||x.data?.user?.id!=='$registration_user_id') process.exit(1)"
+
+          # Password recovery must not enumerate accounts and must revoke all old sessions.
+          curl --fail --show-error -H 'content-type: application/json' \
+            -d '{"email":"nobody-phase04@example.test"}' \
+            http://127.0.0.1:8787/api/auth/forgot-password > /tmp/forgot-unknown.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/forgot-unknown.json','utf8')); if(!x.success||x.data?.sent!==true) process.exit(1)"
+
+          curl --fail --show-error -H 'content-type: application/json' \
+            -d '{"email":"phase04.user@example.test"}' \
+            http://127.0.0.1:8787/api/auth/forgot-password > /tmp/forgot-real.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/forgot-real.json','utf8')); if(!x.success||x.data?.sent!==true) process.exit(1)"
+
+          curl --fail --show-error -H 'content-type: application/json' \
+            -d '{"email":"phase04.user@example.test","otp":"424242"}' \
+            http://127.0.0.1:8787/api/auth/verify-reset-otp > /tmp/reset-otp.json
+          reset_token=$(node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/reset-otp.json','utf8')); if(!x.success||x.data?.verified!==true||!x.data?.resetToken) process.exit(1); process.stdout.write(x.data.resetToken)")
+
+          RESET_TOKEN="$reset_token" node -e "const fs=require('fs'); fs.writeFileSync('/tmp/reset-body.json', JSON.stringify({email:'phase04.user@example.test',resetToken:process.env.RESET_TOKEN,newPassword:'BoardOps@Reset#2026!D0'}))"
+          curl --fail --show-error -H 'content-type: application/json' \
+            --data-binary @/tmp/reset-body.json \
+            http://127.0.0.1:8787/api/auth/reset-password > /tmp/reset-password.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/reset-password.json','utf8')); if(!x.success||x.data?.reset!==true) process.exit(1)"
+
+          revoked_status=$(curl --silent --output /tmp/revoked-me.json --write-out '%{http_code}' \
+            --cookie /tmp/phase04-user-cookies.txt \
+            http://127.0.0.1:8787/api/auth/me)
+          test "$revoked_status" = "401"
+
+          curl --fail --show-error --cookie-jar /tmp/phase04-user-new-cookies.txt \
+            -H 'content-type: application/json' \
+            -d '{"email":"phase04.user@example.test","password":"BoardOps@Reset#2026!D0"}' \
+            http://127.0.0.1:8787/api/auth/login > /tmp/phase04-user-new-login.json
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/phase04-user-new-login.json','utf8')); if(!x.success||x.data?.user?.id!=='$registration_user_id') process.exit(1)"
 
           # Active Sessions is a visible Profile action. The API must return
           # presentation-ready device/browser/OS data rather than undefined UI.
