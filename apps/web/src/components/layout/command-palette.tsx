@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/command";
 import { useAppStore, type ViewKey } from "@/stores/use-app-store";
 import { useAuthStore, type Role } from "@/stores/use-auth-store";
+import { compatibilityNavRole } from "./nav-config";
 import { useEffect } from "react";
 
 type PaletteItem = {
@@ -36,7 +37,7 @@ type PaletteItem = {
   label: string;
   icon: LucideIcon;
   keywords: string[];
-  roles: Role[];
+  roles: Array<"ADMIN" | "USER">;
   group: string;
 };
 
@@ -59,11 +60,11 @@ const ITEMS: PaletteItem[] = [
 ];
 
 export function CommandPalette() {
-  const setView = useAppStore((s) => s.setView);
-  const open = useAppStore((s) => s.commandOpen);
-  const setOpen = useAppStore((s) => s.setCommandOpen);
-  const user = useAuthStore((s) => s.user);
-  const role = (user?.role as Role) || "USER";
+  const setView = useAppStore((state) => state.setView);
+  const open = useAppStore((state) => state.commandOpen);
+  const setOpen = useAppStore((state) => state.setCommandOpen);
+  const user = useAuthStore((state) => state.user);
+  const role = compatibilityNavRole(((user?.role as Role) || "USER"));
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
