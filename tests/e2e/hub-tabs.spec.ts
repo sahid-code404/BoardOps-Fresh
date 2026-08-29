@@ -71,9 +71,10 @@ for (const hub of HUBS) {
 
     const main = page.locator("main");
     for (const label of hub.tabs) {
-      const tab = main.getByRole("button", { name: label, exact: true }).first();
+      const tab = main.getByRole("tab", { name: label, exact: true }).first();
       await expect(tab, `${hub.path}: ${label} tab must be visible`).toBeVisible();
       await tab.click();
+      await expect(tab).toHaveAttribute("aria-selected", "true");
       await expectHealthyMountedTab(page);
       expect(pageErrors, `${hub.path}: ${label} must not throw`).toEqual([]);
     }
