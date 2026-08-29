@@ -11,7 +11,6 @@ import {
   Users,
   Settings,
   CreditCard,
-  MoreHorizontal,
   PiggyBank,
   CalendarCheck,
   Sigma,
@@ -32,21 +31,17 @@ export type NavItem = {
 };
 
 export const NAV_ITEMS: NavItem[] = [
-  // Workspace
   { view: "dashboard", label: "Home", icon: LayoutDashboard, roles: ["ADMIN", "USER"], primary: true, rail: true },
   { view: "meals", label: "Meal Configuration", icon: UtensilsCrossed, roles: ["ADMIN"], rail: true },
   { view: "user-meals", label: "Meals", icon: Utensils, roles: ["USER"], primaryRoles: ["USER"], rail: true },
   { view: "kitchen", label: "Counts", icon: BarChart3, roles: ["ADMIN"], primary: true, rail: true },
-  // Finance
   { view: "billing", label: "Billing", icon: Wallet, roles: ["ADMIN", "USER"], primaryRoles: ["USER"], rail: true },
   { view: "payments", label: "Payments", icon: CreditCard, roles: ["ADMIN", "USER"], primary: true, rail: true },
   { view: "expenses", label: "Expenses", icon: Receipt, roles: ["ADMIN"], rail: true },
   { view: "funds", label: "Funds", icon: PiggyBank, roles: ["ADMIN"], rail: true },
   { view: "monthly-closing", label: "Monthly Closing", icon: CalendarCheck, roles: ["ADMIN"], rail: true },
-  // Administration
   { view: "formula-engine", label: "Formula Engine", icon: Sigma, roles: ["ADMIN"], rail: true },
   { view: "users", label: "Users", icon: Users, roles: ["ADMIN"], primary: true, rail: true },
-
   { view: "notifications", label: "Notifications", icon: Bell, roles: ["ADMIN", "USER"], rail: true },
   { view: "settings", label: "Settings", icon: Settings, roles: ["ADMIN"], rail: true },
   { view: "system", label: "System", icon: ScrollText, roles: ["ADMIN"], rail: true },
@@ -64,22 +59,34 @@ export const NAV_LABELS: Record<ViewKey, string> = {
   "monthly-closing": "Monthly Closing",
   "formula-engine": "Formula Engine",
   users: "User Management",
-
   notifications: "Notifications & Announcements",
   settings: "Settings & Policies",
   system: "System (Audit & Tasks)",
   profile: "My Profile",
 };
 
+/**
+ * Phase 05 will replace this compatibility mapping with canonical backend RBAC.
+ * Until then, higher admin roles must not get an empty shell and Manager must
+ * retain the resident-safe navigation surface rather than disappearing from
+ * navigation entirely.
+ */
+export function compatibilityNavRole(role: Role): "ADMIN" | "USER" {
+  if (role === "SUPER_ADMIN" || role === "ADMIN") return "ADMIN";
+  return "USER";
+}
+
 export function navForRole(role: Role): NavItem[] {
-  return NAV_ITEMS.filter((n) => n.roles.includes(role));
+  const compatibleRole = compatibilityNavRole(role);
+  return NAV_ITEMS.filter((item) => item.roles.includes(compatibleRole));
 }
 
 export function primaryNav(role: Role): NavItem[] {
-  return NAV_ITEMS.filter((n) => {
-    if (!n.roles.includes(role)) return false;
-    if (n.primary) return true;
-    if (n.primaryRoles && n.primaryRoles.includes(role)) return true;
+  const compatibleRole = compatibilityNavRole(role);
+  return NAV_ITEMS.filter((item) => {
+    if (!item.roles.includes(compatibleRole)) return false;
+    if (item.primary) return true;
+    if (item.primaryRoles?.includes(compatibleRole)) return true;
     return false;
   });
 }
