@@ -1,12 +1,14 @@
 import { Hono, type Context } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import { randomToken, tokenDigest, verifyPassword } from "../auth/crypto";
+import { hashPassword, randomToken, tokenDigest, verifyPassword } from "../auth/crypto";
 import type { AppEnv } from "../types";
 
 const SESSION_COOKIE = "boardops_session";
 const SESSION_DAYS = 30;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_FAILURE_LIMIT = 5;
+const MAX_AVATAR_BYTES = 4 * 1024 * 1024;
+const AVATAR_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 
 type UserRow = {
   id: string;
@@ -62,6 +64,42 @@ function clientIp(c: Context<AppEnv>): string {
 
 function userAgent(c: Context<AppEnv>): string | null {
   return c.req.header("user-agent")?.slice(0, 512) || null;
+}
+
+function sessionPresentation(value: string | null) {
+  const ua = value ?? "";
+
+  const browser = /Edg\//u.test(ua)
+    ? "Edge"
+    : /Firefox\//u.test(ua)
+      ? "Firefox"
+      : /Chrome\//u.test(ua) || /CriOS\//u.test(ua)
+        ? "Chrome"
+        : /Safari\//u.test(ua)
+          ? "Safari"
+          : "Browser";
+
+  const os = /Android/u.test(ua)
+    ? "Android"
+    : /iPhone|iPad|iPod/u.test(ua)
+      ? "iOS"
+      : /Windows NT/u.test(ua)
+        ? "Windows"
+        : /Mac OS X|Macintosh/u.test(ua)
+          ? "macOS"
+          : /Linux/u.test(ua)
+            ? "Linux"
+            : "Unknown OS";
+
+  const device = /iPad/u.test(ua)
+    ? "iPad"
+    : /iPhone|iPod/u.test(ua)
+      ? "iPhone"
+      : /Android/u.test(ua)
+        ? "Android"
+        : "Computer";
+
+  return { browser, os, device };
 }
 
 function readSessionToken(c: Context<AppEnv>): string | null {
@@ -286,24 +324,157 @@ authRoutes.post("/logout", async (c) => {
   return c.json({ success: true, data: { loggedOut: true } });
 });
 
+authRoutes.post("/change-password", async (c) => {
+  const current = await currentSession(c);
+  if (!current) return c.json({ success: false, error: "Authentication required" }, 401);
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ success: false, error: "Invalid JSON body" }, 400);
+  }
+
+  const objectBody = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  const currentPassword = typeof objectBody.currentPassword === "string" ? objectBody.currentPassword : "";
+  const newPassword = typeof objectBody.newPassword === "string" ? objectBody.newPassword : "";
+
+  if (!currentPassword || currentPassword.length > 512) {
+    return c.json({ success: false, error: "Enter your current password" }, 400);
+  }
+  if (
+    newPassword.length < 8 ||
+    newPassword.length > 512 ||
+    !/[A-Z]/u.test(newPassword) ||
+    !/[a-z]/u.test(newPassword) ||
+    !/[0-9]/u.test(newPassword)
+  ) {
+    return c.json({
+      success: false,
+      error: "New password must be at least 8 characters and include uppercase, lowercase, and a number",
+    }, 400);
+  }
+
+  if (!(await verifyPassword(currentPassword, current.password_hash))) {
+    return c.json({ success: false, error: "Current password is incorrect" }, 401);
+  }
+  if (await verifyPassword(newPassword, current.password_hash)) {
+    return c.json({ success: false, error: "New password must be different from your current password" }, 400);
+  }
+
+  const now = new Date().toISOString();
+  const passwordHash = await hashPassword(newPassword);
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`).bind(passwordHash, now, current.id),
+    c.env.DB.prepare(
+      `UPDATE user_sessions
+       SET revoked_at = ?
+       WHERE user_id = ? AND id <> ? AND revoked_at IS NULL`,
+    ).bind(now, current.id, current.session_id),
+    c.env.DB.prepare(
+      `INSERT INTO audit_events
+        (id, institution_id, actor_user_id, action, entity_type, entity_id, request_id, reason, metadata_json, created_at)
+       VALUES (?, ?, ?, 'PASSWORD_CHANGED', 'User', ?, ?, NULL, ?, ?)`,
+    ).bind(
+      crypto.randomUUID(),
+      current.institution_id,
+      current.id,
+      current.id,
+      c.get("requestId"),
+      JSON.stringify({ otherSessionsRevoked: true }),
+      now,
+    ),
+  ]);
+
+  return c.json({ success: true, data: { changed: true, otherSessionsRevoked: true } });
+});
+
+authRoutes.post("/avatar", async (c) => {
+  const current = await currentSession(c);
+  if (!current) return c.json({ success: false, error: "Authentication required" }, 401);
+
+  let formData: FormData;
+  try {
+    formData = await c.req.formData();
+  } catch {
+    return c.json({ success: false, error: "Invalid avatar upload" }, 400);
+  }
+
+  const avatar = formData.get("avatar");
+  if (!(avatar instanceof File)) {
+    return c.json({ success: false, error: "Choose an image to upload" }, 400);
+  }
+  if (!AVATAR_TYPES.has(avatar.type)) {
+    return c.json({ success: false, error: "Avatar must be JPEG, PNG, WebP, or GIF" }, 415);
+  }
+  if (avatar.size <= 0 || avatar.size > MAX_AVATAR_BYTES) {
+    return c.json({ success: false, error: "Avatar must be smaller than 4 MB" }, 413);
+  }
+
+  const key = `avatars/${current.institution_id}/${current.id}/current`;
+  await c.env.FILES.put(key, await avatar.arrayBuffer(), {
+    httpMetadata: {
+      contentType: avatar.type,
+      cacheControl: "private, max-age=300",
+    },
+  });
+
+  const version = crypto.randomUUID();
+  const avatarUrl = `/api/auth/avatar/image?v=${version}`;
+  const now = new Date().toISOString();
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE users SET avatar_url = ?, updated_at = ? WHERE id = ?`).bind(avatarUrl, now, current.id),
+    c.env.DB.prepare(
+      `INSERT INTO audit_events
+        (id, institution_id, actor_user_id, action, entity_type, entity_id, request_id, reason, metadata_json, created_at)
+       VALUES (?, ?, ?, 'PROFILE_AVATAR_UPDATED', 'User', ?, ?, NULL, ?, ?)`,
+    ).bind(
+      crypto.randomUUID(),
+      current.institution_id,
+      current.id,
+      current.id,
+      c.get("requestId"),
+      JSON.stringify({ objectKey: key, contentType: avatar.type, size: avatar.size }),
+      now,
+    ),
+  ]);
+
+  return c.json({ success: true, data: { avatarUrl } });
+});
+
+authRoutes.get("/avatar/image", async (c) => {
+  const current = await currentSession(c);
+  if (!current) return c.json({ success: false, error: "Authentication required" }, 401);
+
+  const key = `avatars/${current.institution_id}/${current.id}/current`;
+  const avatar = await c.env.FILES.get(key);
+  if (!avatar) return c.json({ success: false, error: "Avatar not found" }, 404);
+
+  const headers = new Headers();
+  avatar.writeHttpMetadata(headers);
+  headers.set("Cache-Control", "private, max-age=300");
+  headers.set("X-Content-Type-Options", "nosniff");
+  return new Response(avatar.body, { headers });
+});
+
 authRoutes.get("/sessions", async (c) => {
   const current = await currentSession(c);
   if (!current) return c.json({ success: false, error: "Authentication required" }, 401);
 
+  const now = new Date().toISOString();
   const rows = await c.env.DB.prepare(
-    `SELECT id, user_agent, ip_address, expires_at, revoked_at, created_at
+    `SELECT id, user_agent, ip_address, expires_at, created_at
      FROM user_sessions
-     WHERE user_id = ?
+     WHERE user_id = ? AND revoked_at IS NULL AND expires_at > ?
      ORDER BY created_at DESC
      LIMIT 50`,
   )
-    .bind(current.id)
+    .bind(current.id, now)
     .all<{
       id: string;
       user_agent: string | null;
       ip_address: string | null;
       expires_at: string;
-      revoked_at: string | null;
       created_at: string;
     }>();
 
@@ -311,14 +482,46 @@ authRoutes.get("/sessions", async (c) => {
     success: true,
     data: rows.results.map((row) => ({
       id: row.id,
+      ...sessionPresentation(row.user_agent),
       userAgent: row.user_agent,
-      ipAddress: row.ip_address,
+      ipAddress: row.ip_address ?? "Unknown IP",
       expiresAt: row.expires_at,
-      revokedAt: row.revoked_at,
       createdAt: row.created_at,
       current: row.id === current.session_id,
     })),
   });
+});
+
+authRoutes.delete("/sessions", async (c) => {
+  const current = await currentSession(c);
+  if (!current) return c.json({ success: false, error: "Authentication required" }, 401);
+
+  const now = new Date().toISOString();
+  const result = await c.env.DB.prepare(
+    `UPDATE user_sessions
+     SET revoked_at = ?
+     WHERE user_id = ? AND id <> ? AND revoked_at IS NULL`,
+  )
+    .bind(now, current.id, current.session_id)
+    .run();
+
+  await c.env.DB.prepare(
+    `INSERT INTO audit_events
+      (id, institution_id, actor_user_id, action, entity_type, entity_id, request_id, reason, metadata_json, created_at)
+     VALUES (?, ?, ?, 'OTHER_SESSIONS_REVOKED', 'User', ?, ?, NULL, ?, ?)`,
+  )
+    .bind(
+      crypto.randomUUID(),
+      current.institution_id,
+      current.id,
+      current.id,
+      c.get("requestId"),
+      JSON.stringify({ revokedCount: Number(result.meta.changes ?? 0) }),
+      now,
+    )
+    .run();
+
+  return c.json({ success: true, data: { revoked: Number(result.meta.changes ?? 0) } });
 });
 
 authRoutes.delete("/sessions/:id", async (c) => {
