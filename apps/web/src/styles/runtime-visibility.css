@@ -63,10 +63,15 @@ main div[style*="opacity: 0;"]:has(select) {
   opacity: 1 !important;
 }
 
-/* The theme icon and Profile identity are permanent controls/content, not
- * decorative transition layers. If Motion stalls, also neutralize their
- * entrance transform so they cannot remain tiny/rotated/off-position. */
-button[aria-label="Theme switcher"] > div,
+/* Keep the persistent theme glyph painted while retaining its golden
+ * rotate/scale transition. Even the interrupted 0.5 scale remains usable, and
+ * the persistent-glyph browser gate prevents regressions below that threshold. */
+button[aria-label="Theme switcher"] > div {
+  opacity: 1 !important;
+}
+
+/* Profile identity/avatar entrance transforms can move or shrink whole blocks,
+ * so those permanent identity surfaces keep a deterministic final transform. */
 main .glass:has(button[aria-label="Upload avatar"]) .relative.shrink-0.mx-auto,
 main .glass:has(button[aria-label="Upload avatar"]) .text-center > div {
   opacity: 1 !important;
