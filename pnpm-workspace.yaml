@@ -10,3 +10,11 @@ allowBuilds:
   esbuild: true
   workerd: true
   es5-ext: true
+
+# The golden master pins Framer Motion 12.23.x. Its broad transitive ranges can
+# otherwise resolve a much newer motion-dom where activeAnimations was removed,
+# breaking production bundling without any source-code change. Keep the matching
+# 12.23 runtime family while Phase 02 preserves animation behavior exactly.
+overrides:
+  motion-dom: 12.23.23
+  motion-utils: 12.23.6
