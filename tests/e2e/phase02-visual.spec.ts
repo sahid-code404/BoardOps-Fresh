@@ -1,5 +1,41 @@
 import { expect, test, type Page } from "@playwright/test";
 
+async function expectNoStuckPersistentOpacity(page: Page) {
+  const stuck = await page.locator("header, main, nav").evaluateAll((roots) => {
+    const failures: string[] = [];
+    const seen = new Set<Element>();
+
+    for (const root of roots) {
+      root.querySelectorAll("div").forEach((candidate) => {
+        if (seen.has(candidate)) return;
+        seen.add(candidate);
+
+        const element = candidate as HTMLElement;
+        const rect = element.getBoundingClientRect();
+        if (rect.width < 2 || rect.height < 2) return;
+        if (element.closest('[aria-hidden="true"]')) return;
+        if (element.getAttribute("data-state") === "closed") return;
+
+        const style = getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity !== "0") return;
+
+        const text = (element.textContent || "").trim();
+        const hasUiDescendant = Boolean(
+          element.querySelector("button, a, input, textarea, select, svg, img, h1, h2, h3, p"),
+        );
+        if (!hasUiDescendant && text.length === 0) return;
+
+        const className = typeof element.className === "string" ? element.className : "";
+        failures.push(`${element.tagName.toLowerCase()}.${className.slice(0, 120)}`);
+      });
+    }
+
+    return failures.slice(0, 12);
+  });
+
+  expect(stuck).toEqual([]);
+}
+
 async function openRoute(page: Page, path: string, expectedTitle: string) {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -8,6 +44,7 @@ async function openRoute(page: Page, path: string, expectedTitle: string) {
   await page.waitForTimeout(350);
   expect(new URL(page.url()).pathname).toBe(path);
   expect(pageErrors).toEqual([]);
+  await expectNoStuckPersistentOpacity(page);
 }
 
 const ADMIN_ROUTES = [
@@ -35,6 +72,7 @@ test("plain visual-mode root canonicalizes to the dashboard route", async ({ pag
   await expect(page.getByText("Total Users", { exact: true })).toBeVisible();
   await expect(page.getByText("Meals ON Today", { exact: true })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe("/dashboard");
+  await expectNoStuckPersistentOpacity(page);
 });
 
 test("authentication panel remains visible on a cold unauthenticated render", async ({ page }) => {
@@ -47,7 +85,7 @@ test("authentication panel remains visible on a cold unauthenticated render", as
 });
 
 for (const [path, title] of ADMIN_ROUTES) {
-  test(`admin route ${path} renders without a page error`, async ({ page }) => {
+  test(`admin route ${path} renders without a page error or invisible persistent content`, async ({ page }) => {
     await openRoute(page, path, title);
   });
 }
@@ -57,6 +95,12 @@ test("dashboard fixture content renders", async ({ page }) => {
   await expect(page.getByText("Admin Console", { exact: true })).toBeVisible();
   await expect(page.getByText("Total Users", { exact: true })).toBeVisible();
   await expect(page.getByText("Meals ON Today", { exact: true })).toBeVisible();
+
+  const themeGlyphOpacity = await page
+    .getByRole("button", { name: "Theme switcher", exact: true })
+    .locator(":scope > div")
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element).opacity));
+  expect(themeGlyphOpacity).toBeGreaterThan(0.9);
 });
 
 test("meal configuration renders from visual fixtures", async ({ page }) => {
@@ -74,12 +118,24 @@ test("user management renders deterministic residents", async ({ page }) => {
   await expect(page.getByText("Riya Sen", { exact: true })).toBeVisible();
 });
 
-test("notifications and profile render in fixture mode", async ({ page }) => {
+test("notifications and profile render in fixture mode with visible profile identity", async ({ page }) => {
   await openRoute(page, "/notifications", "Notifications & Announcements");
   await expect(page.getByText("Monthly statement is ready", { exact: true })).toBeVisible();
   await page.goto("/profile");
   await expect(page.getByRole("heading", { name: "My Profile", exact: true })).toBeVisible();
   await expect(page.getByText("Aarav Sharma", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Upload avatar", exact: true })).toBeVisible();
+
+  const heroIdentityOpacity = await page
+    .getByRole("heading", { name: "Aarav Sharma", exact: true })
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element.parentElement!).opacity));
+  expect(heroIdentityOpacity).toBeGreaterThan(0.9);
+
+  const avatarWrapperOpacity = await page
+    .getByRole("button", { name: "Upload avatar", exact: true })
+    .evaluate((element) => Number.parseFloat(getComputedStyle(element.parentElement!).opacity));
+  expect(avatarWrapperOpacity).toBeGreaterThan(0.9);
+  await expectNoStuckPersistentOpacity(page);
 });
 
 test("legacy query navigation is canonicalized to a real route", async ({ page }) => {
