@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { preloadView } from "@/lib/view-loaders";
 import {
   browserUrlForView,
+  isViewKey,
   viewFromLocation,
   type ViewKey,
 } from "@/lib/view-routes";
@@ -51,19 +52,30 @@ export const useAppStore = create<AppState>()((set) => ({
   // in localStorage; stale persisted views were fighting direct URLs on reload.
   view: currentView(),
   setView: (v, options = {}) => {
+    // `ViewKey` protects normal TypeScript callers, but server-provided routes
+    // (notifications/activity) are runtime strings and older ported components
+    // can still reach this boundary through a cast. Never let an unknown value
+    // index the route-loader table or corrupt browser navigation.
+    const requested = v as unknown as string;
+    if (!isViewKey(requested)) {
+      console.warn(`Ignored invalid BoardOps navigation target: ${requested}`);
+      return;
+    }
+
+    const safeView = requested;
     const requestId = ++navigationSequence;
 
     // Keep the current screen mounted until the requested route chunk is ready.
     // This preserves code splitting without flashing a full-page Suspense
     // skeleton every time the user changes sections.
-    void preloadView(v)
+    void preloadView(safeView)
       .then(() => {
         if (requestId !== navigationSequence) return;
-        set({ view: v });
-        if (options.syncUrl !== false) writeViewUrl(v, options.replace);
+        set({ view: safeView });
+        if (options.syncUrl !== false) writeViewUrl(safeView, options.replace);
       })
       .catch((error) => {
-        console.error(`Failed to preload BoardOps view: ${v}`, error);
+        console.error(`Failed to preload BoardOps view: ${safeView}`, error);
       });
   },
   sidebarOpen: false,
