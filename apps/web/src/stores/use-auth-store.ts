@@ -49,19 +49,26 @@ export const useAuthStore = create<AuthState>()(
       setUser: (u) => set({ user: u }),
       setToken: (t) => set({ token: t }),
       logout: () => {
-        // Clear the UI immediately, but also revoke the real HttpOnly server
-        // session. `keepalive` prevents a route change/tab close immediately
-        // after the click from cancelling the small revocation request.
-        if (typeof window !== "undefined" && get().token) {
+        // Clear the UI immediately, but also revoke the real server session.
+        // `keepalive` prevents a route change/tab close immediately after the
+        // click from cancelling the small revocation request.
+        const token = get().token;
+        if (typeof window !== "undefined" && token) {
+          const headers: Record<string, string> = { Accept: "application/json" };
+          // `cookie-session` is only a client-side hint. Older development
+          // sessions may still contain the actual bearer credential, so revoke
+          // those explicitly while never exposing/sending the cookie sentinel.
+          if (token !== "cookie-session") headers.Authorization = `Bearer ${token}`;
+
           void fetch("/api/auth/logout", {
             method: "POST",
             credentials: "include",
             keepalive: true,
-            headers: { Accept: "application/json" },
+            headers,
           }).catch(() => {
             // Local sign-out must remain usable while offline. A server-side
-            // failure is intentionally best-effort here; the credential is not
-            // exposed to JavaScript and will be revalidated on the next login.
+            // failure is intentionally best-effort here; the credential will
+            // be revalidated on the next authenticated request.
           });
         }
         set({ user: null, token: null });
