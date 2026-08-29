@@ -6,9 +6,10 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function base64ToBytes(value: string): Uint8Array {
+function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
   const binary = atob(value);
-  const out = new Uint8Array(binary.length);
+  const buffer = new ArrayBuffer(binary.length);
+  const out = new Uint8Array(buffer);
   for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
   return out;
 }
@@ -16,8 +17,14 @@ function base64ToBytes(value: string): Uint8Array {
 function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
-  for (let i = 0; i < a.length; i += 1) diff |= a[i] ^ b[i];
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= (a[i] ?? 0) ^ (b[i] ?? 0);
+  }
   return diff === 0;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return Uint8Array.from(bytes).buffer;
 }
 
 export async function verifyPassword(password: string, encoded: string | null): Promise<boolean> {
@@ -32,7 +39,7 @@ export async function verifyPassword(password: string, encoded: string | null): 
   const expected = base64ToBytes(digestB64);
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt, iterations },
+    { name: "PBKDF2", hash: "SHA-256", salt: toArrayBuffer(salt), iterations },
     key,
     expected.byteLength * 8,
   );
@@ -43,7 +50,7 @@ export async function hashPassword(password: string, iterations = 600_000): Prom
   const salt = crypto.getRandomValues(new Uint8Array(24));
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", hash: "SHA-256", salt, iterations },
+    { name: "PBKDF2", hash: "SHA-256", salt: toArrayBuffer(salt), iterations },
     key,
     256,
   );
