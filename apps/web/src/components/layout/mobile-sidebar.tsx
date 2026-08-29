@@ -27,12 +27,14 @@ function initials(name: string) {
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? "")
+    .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
 }
 
 const ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: "Super Administrator",
   ADMIN: "Administrator",
+  MANAGER: "Manager",
   USER: "Resident",
 };
 
@@ -41,22 +43,24 @@ const ROLE_LABELS: Record<string, string> = {
  *
  * The drawer deliberately uses state-driven CSS transforms instead of
  * Framer-Motion `initial` transforms. A stalled animation must never be able
- * to leave navigation permanently off-screen. The open/closed state itself is
- * the final CSS state, while transitions remain progressive enhancement.
+ * to leave navigation permanently off-screen. `inert` also removes the closed
+ * off-canvas controls from keyboard/accessibility navigation; transforming a
+ * drawer off screen alone does not stop Tab from reaching its buttons.
  */
 export function MobileSidebar() {
-  const view = useAppStore((s) => s.view);
-  const setView = useAppStore((s) => s.setView);
-  const sidebarOpen = useAppStore((s) => s.sidebarOpen);
-  const setSidebarOpen = useAppStore((s) => s.setSidebarOpen);
-  const user = useAuthStore((s) => s.user);
+  const view = useAppStore((state) => state.view);
+  const setView = useAppStore((state) => state.setView);
+  const sidebarOpen = useAppStore((state) => state.sidebarOpen);
+  const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
+  const user = useAuthStore((state) => state.user);
   const role = user?.role ?? "USER";
-  const groups = groupedNavForRole(role as "ADMIN" | "USER");
+  const groups = groupedNavForRole(role === "SUPER_ADMIN" ? "ADMIN" : role === "MANAGER" ? "USER" : role);
 
   useEffect(() => {
-    document.body.style.overflow = sidebarOpen ? "hidden" : "";
+    const previousOverflow = document.body.style.overflow;
+    if (sidebarOpen) document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = "";
+      document.body.style.overflow = previousOverflow;
     };
   }, [sidebarOpen]);
 
@@ -69,9 +73,9 @@ export function MobileSidebar() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [sidebarOpen, setSidebarOpen]);
 
-  const handleNav = (v: typeof view) => {
+  const handleNav = (nextView: typeof view) => {
     setSidebarOpen(false);
-    setView(v);
+    setView(nextView);
   };
 
   return (
@@ -80,6 +84,7 @@ export function MobileSidebar() {
         type="button"
         aria-label="Close navigation backdrop"
         tabIndex={sidebarOpen ? 0 : -1}
+        aria-hidden={!sidebarOpen}
         onClick={() => setSidebarOpen(false)}
         className={cn(
           "fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-200",
@@ -89,6 +94,7 @@ export function MobileSidebar() {
 
       <aside
         aria-hidden={!sidebarOpen}
+        inert={!sidebarOpen}
         className={cn(
           "fixed left-0 top-0 bottom-0 z-50 w-[85vw] max-w-sm flex flex-col safe-top safe-bottom",
           "transition-transform duration-300 ease-out will-change-transform",
