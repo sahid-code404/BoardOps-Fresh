@@ -34,7 +34,15 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
   }
 
   const requestHeaders = new Headers(headers);
-  if (!requestHeaders.has("Content-Type")) requestHeaders.set("Content-Type", "application/json");
+  if (!requestHeaders.has("Accept")) requestHeaders.set("Accept", "application/json");
+
+  // JSON helpers below serialize their payloads to strings. Multipart/FormData
+  // requests must not receive a manual Content-Type header because the browser
+  // owns the multipart boundary. Keeping that distinction here lets uploads use
+  // the same credential/error path as every other authenticated API request.
+  if (typeof rest.body === "string" && !requestHeaders.has("Content-Type")) {
+    requestHeaders.set("Content-Type", "application/json");
+  }
 
   // Phase 04 uses an HttpOnly cookie as the real credential. `cookie-session`
   // is only a persisted client-side session hint and must never be sent as a
@@ -63,6 +71,8 @@ export const api = {
   get: <T>(path: string, opts?: FetchOpts) => apiFetch<T>(path, { ...opts, method: "GET" }),
   post: <T>(path: string, data?: unknown, opts?: FetchOpts) =>
     apiFetch<T>(path, { ...opts, method: "POST", body: data ? JSON.stringify(data) : undefined }),
+  postForm: <T>(path: string, data: FormData, opts?: FetchOpts) =>
+    apiFetch<T>(path, { ...opts, method: "POST", body: data }),
   put: <T>(path: string, data?: unknown, opts?: FetchOpts) =>
     apiFetch<T>(path, { ...opts, method: "PUT", body: data ? JSON.stringify(data) : undefined }),
   patch: <T>(path: string, data?: unknown, opts?: FetchOpts) =>
