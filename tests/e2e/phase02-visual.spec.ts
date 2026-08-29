@@ -80,10 +80,18 @@ test("legacy query navigation is canonicalized to a real route", async ({ page }
   expect(new URL(page.url()).searchParams.has("view")).toBe(false);
 });
 
+test("normal navigation preloads the route chunk instead of flashing a lazy skeleton", async ({ page }) => {
+  await openRoute(page, "/dashboard", "Dashboard");
+  await page.getByLabel("Primary navigation").getByRole("button", { name: "Payments", exact: true }).click();
+  await expect(page.getByLabel("Loading section")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/payments(?:\?|$)/);
+  await expect(page.getByRole("heading", { name: "Payments & Wallet", exact: true })).toBeVisible();
+});
+
 test("browser back restores the previous BoardOps route", async ({ page }) => {
   await openRoute(page, "/dashboard", "Dashboard");
   await page.getByRole("button", { name: "More navigation" }).click();
-  await page.getByRole("button", { name: "Users", exact: true }).click();
+  await page.getByRole("complementary").getByRole("button", { name: "Users", exact: true }).click();
   await expect(page).toHaveURL(/\/users(?:\?|$)/);
   await expect(page.getByRole("heading", { name: "User Management", exact: true })).toBeVisible();
 
