@@ -4,7 +4,9 @@ packages:
   - packages/*
 
 # pnpm 11 blocks dependency build scripts unless explicitly reviewed.
-# Vite and the Cloudflare runtime require these official install/build scripts.
+# Vite, the Cloudflare runtime, and one transitive compatibility package in
+# the audited BoardOps frontend dependency graph require these install scripts.
 allowBuilds:
   esbuild: true
   workerd: true
+  es5-ext: true
