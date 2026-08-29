@@ -283,6 +283,61 @@ test("More navigation opens a usable sidebar", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Meal Configuration", exact: true })).toBeVisible();
 });
 
+test("closed sidebar is inert and Escape reliably closes an open drawer", async ({ page }) => {
+  await openRoute(page, "/dashboard", "Dashboard");
+  const sidebar = page.locator("aside");
+  await expect(sidebar).toHaveAttribute("aria-hidden", "true");
+  expect(await sidebar.evaluate((element) => (element as HTMLElement).inert)).toBe(true);
+
+  await page.getByRole("button", { name: "Open menu", exact: true }).click();
+  await expect(sidebar).toHaveAttribute("aria-hidden", "false");
+  expect(await sidebar.evaluate((element) => (element as HTMLElement).inert)).toBe(false);
+  await expect(page.getByRole("button", { name: "Close menu", exact: true })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(sidebar).toHaveAttribute("aria-hidden", "true");
+  expect(await sidebar.evaluate((element) => (element as HTMLElement).inert)).toBe(true);
+});
+
+test("command palette opens from keyboard and routes without a lazy flash", async ({ page }) => {
+  await openRoute(page, "/dashboard", "Dashboard");
+  await page.keyboard.press("Control+K");
+  const input = page.getByPlaceholder("Search navigation and actions…");
+  await expect(input).toBeVisible();
+  await input.fill("formula");
+  await page.getByText("Formula Engine", { exact: true }).click();
+  await expect(page).toHaveURL(/\/formula-engine(?:\?|$)/);
+  await expect(page.getByLabel("Loading section")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Formula Engine", exact: true })).toBeVisible();
+});
+
+test("resident command palette exposes resident Meals and hides admin-only routes", async ({ page }) => {
+  await page.goto("/dashboard?role=user");
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
+  await page.keyboard.press("Control+K");
+  const input = page.getByPlaceholder("Search navigation and actions…");
+  await expect(input).toBeVisible();
+  await input.fill("meal");
+  await expect(page.getByText("Meals", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Meal Configuration", { exact: true })).toHaveCount(0);
+  await page.getByText("Meals", { exact: true }).first().click();
+  await expect(page).toHaveURL(/\/user-meals(?:\?|$)/);
+  await expect(page.getByRole("heading", { name: "Meals", exact: true })).toBeVisible();
+});
+
+test("theme switcher applies both dark and light modes", async ({ page }) => {
+  await openRoute(page, "/dashboard", "Dashboard");
+  const switcher = page.getByRole("button", { name: "Theme switcher", exact: true });
+
+  await switcher.click();
+  await page.getByRole("button", { name: "Dark", exact: true }).click();
+  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
+
+  await switcher.click();
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await expect(page.locator("html")).toHaveClass(/\blight\b/);
+});
+
 test("browser back restores the previous BoardOps route", async ({ page }) => {
   await openRoute(page, "/dashboard", "Dashboard");
   await page.getByLabel("Primary navigation").getByRole("button", { name: "Users", exact: true }).click();
