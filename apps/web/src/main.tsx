@@ -1,22 +1,23 @@
-import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import "./styles/foundation.css";
+import "./styles/golden.css";
+import BoardOpsApp from "./BoardOpsApp";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/providers/theme-provider";
+import { QueryProvider } from "@/providers/query-provider";
+import { ThemeConfigProvider } from "@/providers/theme-config-provider";
 
-function DevelopmentStatus() {
-  return (
-    <main className="dev-status">
-      <h1>BoardOps rewrite foundation</h1>
-      <p>Phase 00/01 only. The product UI is intentionally not approximated here.</p>
-      <p>The actual BoardOps frontend will be ported from the golden master after the source-audit gate.</p>
-    </main>
-  );
-}
+const root = document.getElementById("root");
+if (!root) throw new Error("Missing #root element");
 
-const rootElement = document.getElementById("root");
-if (!rootElement) throw new Error("Missing #root element");
-
-createRoot(rootElement).render(
-  <StrictMode>
-    {window.location.pathname === "/dev" ? <DevelopmentStatus /> : <div data-boardops-product-root />}
-  </StrictMode>,
+createRoot(root).render(
+  <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange={false}>
+    <QueryProvider>
+      <ThemeConfigProvider>
+        <BoardOpsApp />
+        <Toaster />
+        <SonnerToaster position="top-center" />
+      </ThemeConfigProvider>
+    </QueryProvider>
+  </ThemeProvider>,
 );

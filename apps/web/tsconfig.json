@@ -2,7 +2,19 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-jsx",
-    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo"
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "src/*"
+      ]
+    },
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": false,
+    "verbatimModuleSyntax": false
   },
-  "include": ["src", "vite.config.ts"]
+  "include": [
+    "src",
+    "vite.config.ts"
+  ]
 }
