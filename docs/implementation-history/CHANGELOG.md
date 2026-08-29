@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-08-29 — Phase 02 frontend golden-master port verified
+- CI run `33272421363` passed the frozen install, TypeScript, unit tests, production builds, clean D1 reset/migrate/seed verification, Worker smoke, real-D1 authenticated browser runtime smoke, and the complete Phase 02 visual browser gate at implementation head `3349f8c715ba3fee3891fa8117c7cf67bc20b3c5`.
+- Canonical browser routes now cover every audited top-level golden-master view, with `/` canonicalized to `/dashboard`, browser Back/Forward synchronization, and guarded runtime route values.
+- Route code splitting remains intact, but normal navigation preloads the destination before switching and cold authenticated direct routes begin warming before first React render, preventing routine full-page lazy-loading flashes.
+- Persistent shell/navigation correctness no longer depends on Framer Motion opacity entrances finishing; the drawer, bottom-nav selection and internal hub active tabs have deterministic state-driven paint.
+- Added accessible internal hub tabs and browser coverage for Notifications, Settings, Formula Engine and System; the new gate exposed and fixed the Settings → Policies fixture-shape crash.
+- Added compact 320×568 touch-only navigation/search coverage in addition to the full phone/tablet/desktop dark and desktop-light route matrix.
+- Browser API authentication is now cookie-only through the shared client: caller bearer headers are stripped, multipart uploads preserve browser-owned boundaries, and credential behavior has unit coverage.
+- Phase 02 is closed as VERIFIED. Unimplemented backend-domain data remains assigned to its owning later phase rather than being hidden with production fixtures.
+
 ## 2026-08-29 — Golden-dashboard restoration and route-wide frontend glitch audit
 - Removed the temporary "Signed in administrator" Dashboard card because it was not part of the audited golden master and duplicated Profile information.
 - Restored the Dashboard composition to greeting → KPIs → recent activity while retaining explicit first-load error/retry handling.
@@ -28,7 +38,7 @@
 - Raw session tokens are never stored in D1 and are never persisted in browser localStorage; the client stores only the non-secret `cookie-session` hint.
 - Strengthened the frontend auth gate so stale persisted users cannot mount the authenticated shell before `/auth/me` validates the server session.
 - Added short retry handling for transient auth bootstrap network failures and fail-closed handling for invalid sessions.
-- CI auth smoke now checks wrong-password rejection, real seeded-admin login, cookie-backed `/auth/me`, and logout in addition to the existing D1/build/visual gates.
+- CI auth smoke now checks wrong-password rejection, real seeded-admin login, cookie-backed `/api/auth/me`, and logout in addition to the existing D1/build/visual gates.
 - Phase 04 remains IN PROGRESS: registration, verification OTP, password recovery and approval workflow are still deferred within the phase.
 
 ## 2026-08-29 — Phase 03 database core verified
