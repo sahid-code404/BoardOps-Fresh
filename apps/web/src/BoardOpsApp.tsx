@@ -8,6 +8,7 @@ import { LazyViewRouter } from "@/components/layout/lazy-view-router";
 import { AnimatedBackground } from "@/components/glass/animated-background";
 import { GlassButton } from "@/components/glass/glass-button";
 import { api, ApiError } from "@/lib/api-client";
+import { VISUAL_FIXTURES_ENABLED } from "@/lib/visual-fixtures";
 import { ShieldX } from "lucide-react";
 import { useAppStore } from "@/stores/use-app-store";
 import { CommandPalette } from "@/components/layout/command-palette";
@@ -19,6 +20,10 @@ export default function BoardOpsApp() {
   const setUser = useAuthStore((s) => s.setUser);
   const clearAuth = useAuthStore((s) => s.logout);
   const view = useAppStore((s) => s.view);
+  const forceAuthPreview =
+    VISUAL_FIXTURES_ENABLED &&
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("auth") === "1";
 
   const { isLoading, isError } = useQuery({
     queryKey: ["auth-me", token],
@@ -27,7 +32,7 @@ export default function BoardOpsApp() {
       setUser(r.data);
       return r.data;
     },
-    enabled: !!token,
+    enabled: !!token && !forceAuthPreview,
     retry: (failureCount, error) => {
       if (failureCount >= 3) return false;
       return !(error instanceof ApiError) || error.status >= 500;
@@ -35,6 +40,14 @@ export default function BoardOpsApp() {
     retryDelay: (attempt) => Math.min(250 * 2 ** attempt, 1500),
     staleTime: 60 * 1000,
   });
+
+  // Visual CI needs a deterministic way to exercise the unauthenticated
+  // golden-master surface even though fixture mode normally injects an admin
+  // session before React mounts. This branch is compiled out of normal runtime
+  // behavior because VISUAL_FIXTURES_ENABLED is false outside visual mode.
+  if (forceAuthPreview) {
+    return <AuthScreen />;
+  }
 
   // Never trust a persisted user until the server has validated the session.
   // This prevents a stale localStorage snapshot from mounting the whole shell
