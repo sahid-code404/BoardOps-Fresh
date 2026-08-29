@@ -10,6 +10,8 @@ const CORE_TABLES = [
   "outbox_events",
   "user_sessions",
   "login_history",
+  "registration_requests",
+  "auth_challenges",
 ];
 
 function mockDb(tableNames = CORE_TABLES): D1Database {
@@ -44,7 +46,7 @@ describe("health endpoint", () => {
 });
 
 describe("readiness endpoint", () => {
-  it("requires the Phase 04 auth-core D1 schema", async () => {
+  it("requires the complete Phase 04 auth workflow D1 schema", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
@@ -55,22 +57,22 @@ describe("readiness endpoint", () => {
     await expect(response.json()).resolves.toEqual({
       status: "ready",
       service: "boardops-api",
-      schema: "phase04-auth-core",
+      schema: "phase04-auth-workflows",
     });
   });
 
-  it("fails closed when a required auth table is missing", async () => {
+  it("fails closed when a required auth workflow table is missing", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
-      { DB: mockDb(CORE_TABLES.filter((name) => name !== "user_sessions")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "auth_challenges")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({
       status: "not_ready",
       service: "boardops-api",
-      schema: "phase04-auth-core",
+      schema: "phase04-auth-workflows",
     });
   });
 });
