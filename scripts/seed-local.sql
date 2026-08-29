@@ -91,6 +91,34 @@ ON CONFLICT(id) DO UPDATE SET
   timezone = excluded.timezone,
   updated_at = excluded.updated_at;
 
+INSERT INTO registration_requests (
+  id, institution_id, user_id, cycle, status, fields_json,
+  reason, fields_needing_correction_json, reviewed_by, reviewed_at,
+  request_ip, created_at, updated_at
+) VALUES (
+  'registration_kabir_cycle_1',
+  'inst_boardops_local',
+  'usr_resident_kabir_local',
+  1,
+  'PENDING_REVIEW',
+  '{"name":"Kabir Mehta","email":"kabir@boardops.local","phone":"+919000012345","room":"C-305","gender":"MALE","institutionName":"BoardOps Institute","institutionUserId":"RES-0305"}',
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  '127.0.0.1',
+  '2026-08-28T09:00:00.000Z',
+  '2026-08-29T00:00:00.000Z'
+)
+ON CONFLICT(id) DO UPDATE SET
+  status = excluded.status,
+  fields_json = excluded.fields_json,
+  reason = excluded.reason,
+  fields_needing_correction_json = excluded.fields_needing_correction_json,
+  reviewed_by = excluded.reviewed_by,
+  reviewed_at = excluded.reviewed_at,
+  updated_at = excluded.updated_at;
+
 INSERT INTO audit_events (
   id, institution_id, actor_user_id, action, entity_type, entity_id,
   request_id, reason, metadata_json, created_at
