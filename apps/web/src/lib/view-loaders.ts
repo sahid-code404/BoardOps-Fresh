@@ -60,8 +60,35 @@ export const VIEW_COMPONENT_LOADERS: Record<ViewKey, ViewLoader> = {
   ),
 };
 
+const ADMIN_PRIORITY_VIEWS: ViewKey[] = [
+  "profile",
+  "kitchen",
+  "payments",
+  "users",
+  "notifications",
+];
+
+const USER_PRIORITY_VIEWS: ViewKey[] = [
+  "profile",
+  "user-meals",
+  "billing",
+  "payments",
+  "notifications",
+];
+
 export function preloadView(view: ViewKey): Promise<ViewModule> {
   return VIEW_COMPONENT_LOADERS[view]();
+}
+
+/**
+ * Warm the routes a signed-in user is most likely to open next. This starts
+ * after the shell paints, so it does not block Dashboard first paint, but it
+ * avoids the multi-hundred-millisecond first-click delay caused by compiling a
+ * large feature chunk only after the user has already clicked navigation.
+ */
+export async function preloadPriorityViews(isAdmin: boolean): Promise<void> {
+  const views = isAdmin ? ADMIN_PRIORITY_VIEWS : USER_PRIORITY_VIEWS;
+  await Promise.allSettled(views.map((view) => VIEW_COMPONENT_LOADERS[view]()));
 }
 
 export async function preloadAllViews(): Promise<void> {
