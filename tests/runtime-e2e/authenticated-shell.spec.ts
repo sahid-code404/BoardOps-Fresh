@@ -173,20 +173,24 @@ test("real local runtime loads a complete and usable golden-master administrator
   expect(sessionPresentation.device.trim().length).toBeGreaterThan(0);
 
   await page.getByRole("button", { name: /Active Sessions/ }).click();
-  await expect(page.getByRole("heading", { name: "Active Sessions", exact: true })).toBeVisible();
+  const sessionsHeading = page.getByRole("heading", { name: "Active Sessions", exact: true });
+  await expect(sessionsHeading).toBeVisible();
   await expect(
     page.getByText(`${sessionPresentation.browser} on ${sessionPresentation.os}`, { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("This device", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("heading", { name: "Active Sessions", exact: true })).toHaveCount(0);
+  // Radix may retain a closing sheet in the portal while its exit animation
+  // finishes; the user-facing invariant is that it is no longer visible.
+  await expect(sessionsHeading).toBeHidden();
 
   await page.getByRole("button", { name: /Change Password/ }).click();
-  await expect(page.getByRole("heading", { name: "Change Password", exact: true })).toBeVisible();
+  const passwordHeading = page.getByRole("heading", { name: "Change Password", exact: true });
+  await expect(passwordHeading).toBeVisible();
   await expect(page.getByLabel("Current Password", { exact: true })).toBeVisible();
   await expect(page.getByLabel("New Password", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("heading", { name: "Change Password", exact: true })).toHaveCount(0);
+  await expect(passwordHeading).toBeHidden();
 
   await expectNoStuckPersistentOpacity(page);
   await expectRuntimeLayoutHealth(page);
