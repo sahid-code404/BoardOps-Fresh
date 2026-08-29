@@ -29,6 +29,17 @@ jobs:
           path: .golden
           persist-credentials: false
 
+      - name: Patch generated compatibility-template literals
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("scripts/phase02-port.mjs")
+          s = p.read_text()
+          s = s.replace('return query ? \\`${pathname}?\\${query}\\` : pathname;', 'return query ? pathname + "?" + query : pathname;')
+          s = s.replace('throw new Error(\\`Redirecting to \\${href}\\`);', 'throw new Error("Redirecting to " + href);')
+          p.write_text(s)
+          PY
+
       - name: Port exact client source into Vite workspace
         run: node scripts/phase02-port.mjs
 
