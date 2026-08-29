@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { getCookie, setCookie } from "hono/cookie";
 import { hashPassword, randomToken, tokenDigest, verifyPassword } from "../auth/crypto";
 import type { AppEnv } from "../types";
 
@@ -8,6 +9,7 @@ const REGISTRATION_ACCESS_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const ISSUE_WINDOW_MS = 60 * 60 * 1000;
 const ISSUE_LIMIT_PER_IP = 8;
 const LOCAL_OTP = "424242";
+const REGISTRATION_COOKIE = "boardops_registration";
 
 type ChallengePurpose =
   | "EMAIL_VERIFY"
@@ -116,6 +118,21 @@ async function secretMatches(secret: string, encoded: string): Promise<boolean> 
     return verifyPassword(secret, encoded.slice(7));
   }
   return false;
+}
+
+function setRegistrationCookie(c: Context<AppEnv>, token: string) {
+  setCookie(c, REGISTRATION_COOKIE, token, {
+    httpOnly: true,
+    secure: c.env.ENVIRONMENT !== "local",
+    sameSite: "Lax",
+    path: "/api/auth",
+    maxAge: Math.floor(REGISTRATION_ACCESS_TTL_MS / 1000),
+  });
+}
+
+function registrationToken(c: Context<AppEnv>, explicit?: unknown): string {
+  if (typeof explicit === "string" && explicit.trim()) return explicit.trim();
+  return getCookie(c, REGISTRATION_COOKIE)?.trim() ?? "";
 }
 
 function logLocalDelivery(c: Context<AppEnv>, purpose: ChallengePurpose, email: string, code: string): boolean {
@@ -351,11 +368,11 @@ authWorkflowRoutes.post("/register", async (c) => {
   const emailChallengeId = crypto.randomUUID();
   const accessChallengeId = crypto.randomUUID();
   const otp = randomOtp(c);
-  const registrationToken = randomToken();
+  const accessToken = randomToken();
   const [passwordHash, otpHash, accessHash] = await Promise.all([
     hashPassword(password),
     secretHash(otp, "EMAIL_VERIFY"),
-    secretHash(registrationToken, "REGISTRATION_ACCESS"),
+    secretHash(accessToken, "REGISTRATION_ACCESS"),
   ]);
   const fieldsJson = JSON.stringify({
     name,
@@ -433,7 +450,8 @@ authWorkflowRoutes.post("/register", async (c) => {
     return c.json({ success: false, error: "Email verification delivery is not configured" }, 503);
   }
 
-  return c.json({ success: true, data: { userId, email, registrationToken } });
+  setRegistrationCookie(c, accessToken);
+  return c.json({ success: true, data: { userId, email } });
 });
 
 authWorkflowRoutes.post("/send-verification", async (c) => {
@@ -503,15 +521,15 @@ authWorkflowRoutes.post("/verify-email", async (c) => {
 
 authWorkflowRoutes.get("/registration-status", async (c) => {
   const email = normalizedEmail(c.req.query("email"));
-  const registrationToken = c.req.query("token")?.trim() ?? "";
-  if (!isEmail(email) || !registrationToken) return c.json({ success: true, data: { exists: false } });
+  const accessToken = registrationToken(c, c.req.query("token"));
+  if (!isEmail(email) || !accessToken) return c.json({ success: true, data: { exists: false } });
 
   const user = await findUserByEmail(c, email);
   if (!user) return c.json({ success: true, data: { exists: false } });
 
   const access = await latestChallenge(c, user.id, "REGISTRATION_ACCESS");
   const now = new Date().toISOString();
-  if (!access || access.expires_at <= now || !(await secretMatches(registrationToken, access.secret_hash))) {
+  if (!access || access.expires_at <= now || !(await secretMatches(accessToken, access.secret_hash))) {
     return c.json({ success: true, data: { exists: false } });
   }
 
@@ -559,14 +577,14 @@ authWorkflowRoutes.post("/resubmit", async (c) => {
   const body = await readObjectBody(c);
   if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
   const email = normalizedEmail(body.email);
-  const registrationToken = typeof body.registrationToken === "string" ? body.registrationToken.trim() : "";
-  if (!isEmail(email) || !registrationToken) return c.json({ success: false, error: "Registration access expired" }, 401);
+  const accessToken = registrationToken(c, body.registrationToken);
+  if (!isEmail(email) || !accessToken) return c.json({ success: false, error: "Registration access expired" }, 401);
 
   const user = await findUserByEmail(c, email);
   if (!user) return c.json({ success: false, error: "Registration not found" }, 404);
   const access = await latestChallenge(c, user.id, "REGISTRATION_ACCESS");
   const nowIso = new Date().toISOString();
-  if (!access || access.expires_at <= nowIso || !(await secretMatches(registrationToken, access.secret_hash))) {
+  if (!access || access.expires_at <= nowIso || !(await secretMatches(accessToken, access.secret_hash))) {
     return c.json({ success: false, error: "Registration access expired" }, 401);
   }
 
