@@ -43,11 +43,10 @@ type DashboardData = {
   isAdmin: boolean;
 };
 
-
 export function DashboardView() {
   const user = useAuthStore((s) => s.user);
   const setView = useAppStore((s) => s.setView);
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["dashboard"],
     queryFn: async () => {
       const r = await api.get<{ success: boolean; data: DashboardData }>("/dashboard");
@@ -59,7 +58,7 @@ export function DashboardView() {
     placeholderData: (prev) => prev,
   });
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <div className="space-y-4">
         <div className="grid-kpi gap-3">
@@ -68,6 +67,24 @@ export function DashboardView() {
           ))}
         </div>
       </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <GlassCard className="p-6 text-center" hover={false}>
+        <h2 className="text-lg font-semibold">Dashboard data unavailable</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          The dashboard could not load its data. The page will no longer remain stuck on loading placeholders.
+        </p>
+        <button
+          type="button"
+          onClick={() => void refetch()}
+          className="mt-4 inline-flex items-center justify-center rounded-2xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+        >
+          Retry
+        </button>
+      </GlassCard>
     );
   }
 
@@ -87,7 +104,6 @@ export function DashboardView() {
 
   return (
     <StaggerGroup className="space-y-4">
-      {/* Time-based greeting with gradient name */}
       <StaggerItem>
         <GlassCard className="p-5" hover={false} glow="primary">
           <p className="text-sm text-muted-foreground mb-2">
@@ -108,7 +124,6 @@ export function DashboardView() {
         </GlassCard>
       </StaggerItem>
 
-      {/* KPIs */}
       <StaggerItem>
         <div className="grid-kpi gap-3">
           {kpis.map((kpi) => {
@@ -148,7 +163,6 @@ export function DashboardView() {
         </div>
       </StaggerItem>
 
-      {/* Recent Activity (admin only) */}
       {data.isAdmin && data.recentActivity.length > 0 && (
         <StaggerItem>
           <GlassCard className="p-4" hover={false}>
