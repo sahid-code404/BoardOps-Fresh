@@ -8,7 +8,7 @@ const PASSWORD = "BoardOps@Browser#2026!E1";
 
 test("registration UI survives verification, review, resubmit and approval", async ({ page, browser }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Register", exact: true }).click();
+  await page.getByRole("tab", { name: "Register", exact: true }).click();
 
   await page.getByLabel("Full Name", { exact: true }).fill("Browser Phase Four");
   await page.getByLabel("Institution User ID", { exact: true }).fill("RES-BROWSER-P04");
