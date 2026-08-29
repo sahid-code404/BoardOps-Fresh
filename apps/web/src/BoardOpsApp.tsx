@@ -16,6 +16,11 @@ import { useAppStore } from "@/stores/use-app-store";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
 
+type IdleCapableWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (handle: number) => void;
+};
+
 export default function BoardOpsApp() {
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
@@ -49,19 +54,20 @@ export default function BoardOpsApp() {
   useEffect(() => {
     if (!token || !user || forceAuthPreview) return;
 
-    let timeoutId: number | undefined;
+    const idleWindow = window as IdleCapableWindow;
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | undefined;
     let idleId: number | undefined;
     const warm = () => void preloadAllViews();
 
-    if ("requestIdleCallback" in window) {
-      idleId = window.requestIdleCallback(warm, { timeout: 1500 });
+    if (idleWindow.requestIdleCallback) {
+      idleId = idleWindow.requestIdleCallback(warm, { timeout: 1500 });
     } else {
-      timeoutId = window.setTimeout(warm, 250);
+      timeoutId = globalThis.setTimeout(warm, 250);
     }
 
     return () => {
-      if (idleId !== undefined && "cancelIdleCallback" in window) window.cancelIdleCallback(idleId);
-      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      if (idleId !== undefined) idleWindow.cancelIdleCallback?.(idleId);
+      if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId);
     };
   }, [token, user?.id, forceAuthPreview]);
 
