@@ -37,6 +37,15 @@ test("plain visual-mode root canonicalizes to the dashboard route", async ({ pag
   expect(new URL(page.url()).pathname).toBe("/dashboard");
 });
 
+test("authentication panel remains visible on a cold unauthenticated render", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/dashboard?auth=1");
+  await expect(page.getByText("BoardOps", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Email")).toBeVisible();
+  await expect(page.getByLabel("Password")).toBeVisible();
+});
+
 for (const [path, title] of ADMIN_ROUTES) {
   test(`admin route ${path} renders without a page error`, async ({ page }) => {
     await openRoute(page, path, title);
