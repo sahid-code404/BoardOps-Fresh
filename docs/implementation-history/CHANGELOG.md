@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-08-29 — Golden-dashboard restoration and route-wide frontend glitch audit
+- Removed the temporary "Signed in administrator" Dashboard card because it was not part of the audited golden master and duplicated Profile information.
+- Restored the Dashboard composition to greeting → KPIs → recent activity while retaining explicit first-load error/retry handling.
+- Expanded Phase 02 browser checks from representative screens to every canonical admin route.
+- Added automatic detection for content-bearing UI stranded at zero opacity, missing persistent top-bar glyphs/profile affordance, horizontal document overflow, empty route content, persistent lazy skeletons, broken mesh/background geometry and insufficient fixed-bottom-nav clearance.
+- Added a complete route matrix at 390×844 dark, 768×1024 dark, 1440×900 dark and 1440×900 light.
+- Updated the real-D1 authenticated browser smoke to require golden Dashboard composition and to verify administrator identity in Profile instead of adding identity duplication to Dashboard.
+- Phase 02 remains open until the latest expanded matrix is green and any newly exposed layout/visibility defects are corrected.
+
 ## 2026-08-29 — Authenticated shell completeness and performance hardening
 - Removed the blocking route import that previously delayed React's first render when a persisted session existed.
 - Made Dashboard the eager authenticated route and moved large secondary features, including Profile, back behind background-warmed route chunks so the first useful screen stays small and fast.
