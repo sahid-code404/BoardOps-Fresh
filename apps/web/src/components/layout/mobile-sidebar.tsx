@@ -4,7 +4,7 @@ import { groupedNavForRole } from "./nav-groups";
 import { useAppStore } from "@/stores/use-app-store";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { cn } from "@/lib/utils";
-import { Sparkles, ChevronRight, X } from "lucide-react";
+import { Sparkles, ChevronRight, Search, X } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useEffect } from "react";
 
@@ -52,6 +52,7 @@ export function MobileSidebar() {
   const setView = useAppStore((state) => state.setView);
   const sidebarOpen = useAppStore((state) => state.sidebarOpen);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
+  const setCommandOpen = useAppStore((state) => state.setCommandOpen);
   const user = useAuthStore((state) => state.user);
   const role = user?.role ?? "USER";
   const groups = groupedNavForRole(role);
@@ -76,6 +77,11 @@ export function MobileSidebar() {
   const handleNav = (nextView: typeof view) => {
     setSidebarOpen(false);
     setView(nextView);
+  };
+
+  const openSearch = () => {
+    setSidebarOpen(false);
+    setCommandOpen(true);
   };
 
   return (
@@ -123,7 +129,7 @@ export function MobileSidebar() {
             </button>
           </div>
 
-          <div className="p-4 border-b border-border/40">
+          <div className="p-4 border-b border-border/40 space-y-3">
             <button
               onClick={() => handleNav("profile")}
               className="w-full flex items-center gap-3 p-2 rounded-2xl hover:bg-secondary/40 transition-colors text-left"
@@ -146,6 +152,21 @@ export function MobileSidebar() {
                 </p>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            </button>
+
+            {/* The golden top bar intentionally hides Search below `sm` and
+                documents the drawer as the mobile command-palette entry point.
+                The port had no such drawer control, leaving touch-only mobile
+                users unable to open Search at all. */}
+            <button
+              type="button"
+              onClick={openSearch}
+              aria-label="Search BoardOps"
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl glass-soft text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Search className="h-[18px] w-[18px] shrink-0" />
+              <span className="flex-1 text-left">Search BoardOps</span>
+              <span className="text-[10px] text-muted-foreground/70">⌘K</span>
             </button>
           </div>
 
