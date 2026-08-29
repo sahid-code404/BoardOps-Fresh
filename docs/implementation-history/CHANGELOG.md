@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-08-29 — Phase 03 database core verified
+- CI run `33262977660` passed frozen install, TypeScript, tests, builds, clean local D1 reset/migrate/seed/invariant verification, Worker health/readiness, frontend startup, and the existing Playwright visual/navigation regression suite.
+- Phase 03 database core is verified at implementation commit `287742541e98138d279ecdf99febf83d4f5589f9`.
+- Phase 04 secure authentication is the next owning phase; the deterministic local admin identity now exists in D1 but login behavior remains deliberately unclaimed until Phase 04 is implemented and verified.
+
 ## 2026-08-29 — Phase 03 database core implementation
 - Added immutable `0002_database_core.sql` for institutions, accounting periods, core user identities, idempotency keys, immutable audit events, and outbox events.
 - Added foreign keys, uniqueness/check constraints, and targeted indexes for D1 query paths.

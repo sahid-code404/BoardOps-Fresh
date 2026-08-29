@@ -89,10 +89,10 @@ No new long-lived in-memory caches were introduced.
 - local database verification asserts institution, periods, identities, seeded admin and audit foundation
 
 ## Local verification
-Pending CI/runtime verification at the time this implementation record was created.
+Verified in CI run `33262977660`: a clean local D1 was deleted, migrations were reapplied, deterministic seed data was inserted, invariants were checked, and the Worker successfully started against the same persisted D1 state. `/api/health` and `/api/ready` both passed.
 
 ## CI verification
-Pending.
+Run `33262977660` passed frozen dependency install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/verify, Worker health/readiness, frontend startup, and the Phase 02 Playwright visual/navigation regression suite on commit `287742541e98138d279ecdf99febf83d4f5589f9`.
 
 ## Known limitations
 - Phase 04 authentication is not implemented yet; the seeded admin credential is reserved for the next phase and is not yet a real login guarantee.
@@ -105,4 +105,4 @@ Phase 04 — secure authentication backend while preserving the existing auth UI
 Phase exit requires frozen install, TypeScript, tests, build, clean D1 reset/migrations/seed/invariant verification, Worker startup, `/api/health`, `/api/ready`, and regression visual smoke.
 
 ## Final status
-IMPLEMENTED — VERIFICATION PENDING
+VERIFIED
