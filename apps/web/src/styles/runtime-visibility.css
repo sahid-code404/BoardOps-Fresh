@@ -1,13 +1,30 @@
 /*
- * Runtime visibility safety for the golden-master shell.
+ * Runtime visibility safety for persistent golden-master UI.
  *
- * Framer Motion entrance animations are progressive enhancement. The top-bar
- * title must never remain invisible when a cold-load animation is interrupted
- * by the browser. Inline Motion styles can temporarily set opacity/transform,
- * so this narrowly-scoped rule keeps only the persistent shell title visible.
+ * Framer Motion entrance animations are progressive enhancement. Critical
+ * navigation and authentication controls must never remain invisible when a
+ * cold-load animation is interrupted by the browser. Inline Motion styles can
+ * temporarily set opacity/transform, so these narrowly-scoped rules keep the
+ * persistent UI usable even if an entrance animation never completes.
  */
 header > div > .flex-1 > p,
 header > div > .flex-1 > h1 {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* AuthLayout structure: background + centered content column + Motion panel.
+ * Keep the panel above the mesh and visible even when its initial Motion style
+ * gets stranded at opacity: 0 during a cold load or interrupted HMR cycle. */
+.min-h-screen.relative.flex.items-center.justify-center > .w-full.max-w-md {
+  position: relative;
+  z-index: 10;
+}
+
+.min-h-screen.relative.flex.items-center.justify-center > .w-full.max-w-md > div:last-child {
+  position: relative;
+  z-index: 10;
+  width: 100%;
   opacity: 1 !important;
   transform: none !important;
 }
