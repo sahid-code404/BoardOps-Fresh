@@ -2,7 +2,9 @@ import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { tokenDigest } from "./auth/crypto";
 import { authRoutes } from "./routes/auth";
+import { authWorkflowRoutes } from "./routes/auth-workflows";
 import { runtimeRoutes } from "./routes/runtime";
+import { userRoutes } from "./routes/users";
 import type { AppEnv } from "./types";
 
 const app = new Hono<AppEnv>();
@@ -16,6 +18,8 @@ const REQUIRED_CORE_TABLES = [
   "outbox_events",
   "user_sessions",
   "login_history",
+  "registration_requests",
+  "auth_challenges",
 ] as const;
 
 const SESSION_COOKIE = "boardops_session";
@@ -102,14 +106,14 @@ app.get("/api/ready", async (c) => {
     return c.json({
       status: "ready",
       service: "boardops-api",
-      schema: "phase04-auth-core",
+      schema: "phase04-auth-workflows",
     });
   } catch {
     return c.json(
       {
         status: "not_ready",
         service: "boardops-api",
-        schema: "phase04-auth-core",
+        schema: "phase04-auth-workflows",
       },
       503,
     );
@@ -117,7 +121,9 @@ app.get("/api/ready", async (c) => {
 });
 
 app.route("/api/auth", authRoutes);
+app.route("/api/auth", authWorkflowRoutes);
 app.route("/api", runtimeRoutes);
+app.route("/api", userRoutes);
 
 app.get("/api/dashboard", async (c) => {
   const viewer = await currentViewer(c);
