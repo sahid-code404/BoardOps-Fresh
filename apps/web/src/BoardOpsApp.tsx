@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
 import { useAuthStore, type CurrentUser } from "@/stores/use-auth-store";
 import { AuthScreen } from "@/components/features/auth/auth-screen";
 import { AppShell } from "@/components/layout/app-shell";
@@ -21,12 +22,15 @@ type IdleCapableWindow = Window & {
   cancelIdleCallback?: (handle: number) => void;
 };
 
+const ACCOUNT_THEMES = new Set(["light", "dark", "system"]);
+
 export default function BoardOpsApp() {
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
   const clearAuth = useAuthStore((s) => s.logout);
   const view = useAppStore((s) => s.view);
+  const { theme, setTheme } = useTheme();
   const forceAuthPreview =
     VISUAL_FIXTURES_ENABLED &&
     typeof window !== "undefined" &&
@@ -56,6 +60,17 @@ export default function BoardOpsApp() {
   useEffect(() => {
     if (isError && token && !forceAuthPreview) clearAuth();
   }, [isError, token, forceAuthPreview, clearAuth]);
+
+  // The account profile is authoritative for the user's appearance preference.
+  // Without this sync, a browser-local next-themes value could disagree with
+  // Profile/TopBar after login on another device (for example the UI renders
+  // dark while the menu says System). Visual fixture mode deliberately keeps
+  // its test-controlled local theme instead of applying fixture profile data.
+  useEffect(() => {
+    if (VISUAL_FIXTURES_ENABLED || !token || !user?.theme) return;
+    if (!ACCOUNT_THEMES.has(user.theme) || user.theme === theme) return;
+    setTheme(user.theme);
+  }, [token, user?.theme, theme, setTheme]);
 
   // Warm high-probability navigation immediately after the authenticated shell
   // paints, then fill the remaining route cache during idle time. This keeps
