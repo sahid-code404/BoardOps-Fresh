@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { tokenDigest } from "./auth/crypto";
 import { authRoutes } from "./routes/auth";
+import { runtimeRoutes } from "./routes/runtime";
 import type { AppEnv } from "./types";
 
 const app = new Hono<AppEnv>();
@@ -116,37 +117,32 @@ app.get("/api/ready", async (c) => {
 });
 
 app.route("/api/auth", authRoutes);
+app.route("/api", runtimeRoutes);
 
 app.get("/api/dashboard", async (c) => {
   const viewer = await currentViewer(c);
   if (!viewer) return c.json({ success: false, error: "Authentication required" }, 401);
 
-  const [totalUsersRow, pendingUsersRow, activityRows] = await Promise.all([
-    c.env.DB.prepare(
-      `SELECT COUNT(*) AS count
-       FROM users
-       WHERE institution_id = ? AND status = 'ACTIVE' AND deleted_at IS NULL`,
-    )
-      .bind(viewer.institution_id)
-      .first<{ count: number }>(),
-    c.env.DB.prepare(
-      `SELECT COUNT(*) AS count
-       FROM users
-       WHERE institution_id = ? AND status = 'PENDING' AND deleted_at IS NULL`,
-    )
-      .bind(viewer.institution_id)
-      .first<{ count: number }>(),
-    c.env.DB.prepare(
-      `SELECT a.id, a.action, a.created_at, u.name AS actor_name, u.email AS actor_email
-       FROM audit_events a
-       LEFT JOIN users u ON u.id = a.actor_user_id
-       WHERE a.institution_id = ?
-       ORDER BY a.created_at DESC
-       LIMIT 6`,
-    )
-      .bind(viewer.institution_id)
-      .all<ActivityRow>(),
-  ]);
+  const summary = await c.env.DB.prepare(
+    `SELECT
+       SUM(CASE WHEN status = 'ACTIVE' AND deleted_at IS NULL THEN 1 ELSE 0 END) AS active_count,
+       SUM(CASE WHEN status = 'PENDING' AND deleted_at IS NULL THEN 1 ELSE 0 END) AS pending_count
+     FROM users
+     WHERE institution_id = ?`,
+  )
+    .bind(viewer.institution_id)
+    .first<{ active_count: number | null; pending_count: number | null }>();
+
+  const activityRows = await c.env.DB.prepare(
+    `SELECT a.id, a.action, a.created_at, u.name AS actor_name, u.email AS actor_email
+     FROM audit_events a
+     LEFT JOIN users u ON u.id = a.actor_user_id
+     WHERE a.institution_id = ?
+     ORDER BY a.created_at DESC
+     LIMIT 6`,
+  )
+    .bind(viewer.institution_id)
+    .all<ActivityRow>();
 
   const isAdmin = viewer.role === "ADMIN" || viewer.role === "SUPER_ADMIN";
 
@@ -159,8 +155,8 @@ app.get("/api/dashboard", async (c) => {
     data: {
       todayMeals: [],
       kpis: {
-        totalUsers: Number(totalUsersRow?.count ?? 0),
-        pendingUsers: Number(pendingUsersRow?.count ?? 0),
+        totalUsers: Number(summary?.active_count ?? 0),
+        pendingUsers: Number(summary?.pending_count ?? 0),
         todayOnCount: 0,
         todayOffCount: 0,
         currentMealCharge: 0,

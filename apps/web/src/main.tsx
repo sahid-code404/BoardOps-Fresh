@@ -19,20 +19,14 @@ if (import.meta.hot) {
   import.meta.hot.dispose(removeRouteSync);
 }
 
-async function bootstrap() {
+function bootstrap() {
   const root = document.getElementById("root");
   if (!root) throw new Error("Missing #root element");
 
-  // When a session already exists (including visual fixture mode), resolve the
-  // current route chunk before mounting the shell. The application remains
-  // code-split, but a normal direct route does not begin with a full-page
-  // Suspense flash.
-  if (useAuthStore.getState().token) {
-    await preloadView(useAppStore.getState().view).catch((error) => {
-      console.error("Failed to preload initial BoardOps route", error);
-    });
-  }
-
+  // First paint must never wait for a route import. Core authenticated views are
+  // eager and secondary routes are warmed in the background after React mounts.
+  // A persisted session can therefore be validated immediately instead of
+  // staring at a blank document while a chunk is downloaded.
   createRoot(root).render(
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange={false}>
       <QueryProvider>
@@ -44,6 +38,12 @@ async function bootstrap() {
       </QueryProvider>
     </ThemeProvider>,
   );
+
+  if (useAuthStore.getState().token) {
+    void preloadView(useAppStore.getState().view).catch((error) => {
+      console.error("Failed to warm initial BoardOps route", error);
+    });
+  }
 }
 
-void bootstrap();
+bootstrap();

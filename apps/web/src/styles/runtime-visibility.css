@@ -7,6 +7,23 @@
  * temporarily set opacity/transform, so these narrowly-scoped rules keep the
  * persistent UI usable even if an entrance animation never completes.
  */
+
+/* Keep the fixed mesh inside a root stacking context. Without isolation, a
+ * negative-z background can slip behind the body's opaque background on some
+ * browsers/GPU paths, making parts of the golden-master mesh disappear. */
+#root {
+  min-height: 100vh;
+  position: relative;
+  isolation: isolate;
+}
+
+/* Nested decorative backgrounds (for example the Profile hero's -z-10 blobs)
+ * must stay behind card content, not behind the card itself. */
+.glass,
+.glass-strong {
+  isolation: isolate;
+}
+
 header > div > .flex-1 > p,
 header > div > .flex-1 > h1 {
   opacity: 1 !important;

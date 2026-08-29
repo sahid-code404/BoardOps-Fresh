@@ -4,12 +4,12 @@ import { lazy, Suspense, useMemo } from "react";
 import type { ViewKey } from "@/stores/use-app-store";
 import { VIEW_COMPONENT_LOADERS } from "@/lib/view-loaders";
 import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+import { DashboardView } from "@/components/features/dashboard/dashboard-view";
+import { ProfileView } from "@/components/features/auth/profile-view";
 
-// Route-level code splitting is intentionally preserved. `setView()` preloads
-// the target module before committing navigation, so this fallback is now a
-// safety net for first-load/network edge cases instead of a routine flash on
-// every section change.
-const DashboardView = lazy(VIEW_COMPONENT_LOADERS.dashboard);
+// Dashboard/profile are core authenticated surfaces and are bundled eagerly so
+// the first useful screen and essential account details never wait on a route
+// chunk. Larger secondary features remain split and are warmed during idle time.
 const MealsConfigView = lazy(VIEW_COMPONENT_LOADERS.meals);
 const UserMealsView = lazy(VIEW_COMPONENT_LOADERS["user-meals"]);
 const KitchenView = lazy(VIEW_COMPONENT_LOADERS.kitchen);
@@ -23,7 +23,6 @@ const UsersView = lazy(VIEW_COMPONENT_LOADERS.users);
 const NotificationsHubView = lazy(VIEW_COMPONENT_LOADERS.notifications);
 const SettingsHubView = lazy(VIEW_COMPONENT_LOADERS.settings);
 const SystemHubView = lazy(VIEW_COMPONENT_LOADERS.system);
-const ProfileView = lazy(VIEW_COMPONENT_LOADERS.profile);
 
 function ViewSkeleton() {
   return (

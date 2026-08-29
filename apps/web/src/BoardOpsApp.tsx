@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore, type CurrentUser } from "@/stores/use-auth-store";
 import { AuthScreen } from "@/components/features/auth/auth-screen";
@@ -9,6 +10,7 @@ import { AnimatedBackground } from "@/components/glass/animated-background";
 import { GlassButton } from "@/components/glass/glass-button";
 import { api, ApiError } from "@/lib/api-client";
 import { VISUAL_FIXTURES_ENABLED } from "@/lib/visual-fixtures";
+import { preloadAllViews } from "@/lib/view-loaders";
 import { ShieldX } from "lucide-react";
 import { useAppStore } from "@/stores/use-app-store";
 import { CommandPalette } from "@/components/layout/command-palette";
@@ -40,6 +42,28 @@ export default function BoardOpsApp() {
     retryDelay: (attempt) => Math.min(250 * 2 ** attempt, 1500),
     staleTime: 60 * 1000,
   });
+
+  // Once the authenticated shell has painted, warm the remaining section
+  // chunks during idle time. Initial render stays light, while later navigation
+  // is effectively instant without making route downloads block first paint.
+  useEffect(() => {
+    if (!token || !user || forceAuthPreview) return;
+
+    let timeoutId: number | undefined;
+    let idleId: number | undefined;
+    const warm = () => void preloadAllViews();
+
+    if ("requestIdleCallback" in window) {
+      idleId = window.requestIdleCallback(warm, { timeout: 1500 });
+    } else {
+      timeoutId = window.setTimeout(warm, 250);
+    }
+
+    return () => {
+      if (idleId !== undefined && "cancelIdleCallback" in window) window.cancelIdleCallback(idleId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+  }, [token, user?.id, forceAuthPreview]);
 
   // Visual CI needs a deterministic way to exercise the unauthenticated
   // golden-master surface even though fixture mode normally injects an admin

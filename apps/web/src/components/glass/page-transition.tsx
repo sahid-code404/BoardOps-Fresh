@@ -14,13 +14,10 @@ export function PageTransition({
 }) {
   return (
     <motion.div
-      // Critical page content must remain visible even if an entrance
-      // animation is interrupted during a cold browser load. Movement remains
-      // animated; visibility no longer depends on Motion reaching opacity 1.
-      initial={{ y: 12 }}
+      initial={{ y: 8 }}
       animate={{ y: 0 }}
-      exit={{ y: -8 }}
-      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+      exit={{ y: -6 }}
+      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
       className={cn("w-full", className)}
     >
       {children}
@@ -32,18 +29,18 @@ const container = {
   hidden: {},
   show: {
     transition: {
-      staggerChildren: 0.06,
-      delayChildren: 0.05,
+      staggerChildren: 0.02,
+      delayChildren: 0,
     },
   },
 };
 
 const item = {
-  hidden: { y: 16, scale: 0.97 },
+  hidden: { y: 8, scale: 0.99 },
   show: {
     y: 0,
     scale: 1,
-    transition: { type: "spring" as const, stiffness: 280, damping: 24 },
+    transition: { type: "spring" as const, stiffness: 360, damping: 30 },
   },
 };
 
@@ -55,12 +52,7 @@ export function StaggerGroup({
   className?: string;
 }) {
   return (
-    <motion.div
-      variants={container}
-      initial="hidden"
-      animate="show"
-      className={className}
-    >
+    <motion.div variants={container} initial="hidden" animate="show" className={className}>
       {children}
     </motion.div>
   );
@@ -73,9 +65,5 @@ export function StaggerItem({
   children: ReactNode;
   className?: string;
 }) {
-  return (
-    <motion.div variants={item} className={className}>
-      {children}
-    </motion.div>
-  );
+  return <motion.div variants={item} className={className}>{children}</motion.div>;
 }

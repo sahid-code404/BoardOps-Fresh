@@ -63,3 +63,7 @@ export const VIEW_COMPONENT_LOADERS: Record<ViewKey, ViewLoader> = {
 export function preloadView(view: ViewKey): Promise<ViewModule> {
   return VIEW_COMPONENT_LOADERS[view]();
 }
+
+export async function preloadAllViews(): Promise<void> {
+  await Promise.allSettled(Object.values(VIEW_COMPONENT_LOADERS).map((loader) => loader()));
+}

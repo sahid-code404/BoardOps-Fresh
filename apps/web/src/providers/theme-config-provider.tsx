@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useState, useCallback, type ReactNode } from "react";
 import { api } from "@/lib/api-client";
 
 type ThemeConfig = {
@@ -41,14 +41,10 @@ const ThemeContext = createContext<ThemeContextValue>({
   refresh: async () => {},
 });
 
-/** Convert a hex color to an OKLCH string for the CSS variable. */
 function hexToOklch(hex: string): string {
-  // We keep hex as-is and let the browser handle it — our CSS uses color-mix()
-  // and the variables accept any valid CSS color.
   return hex;
 }
 
-/** Compute a readable foreground color (black or white) for a given hex background. */
 function readableForeground(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
   const g = parseInt(hex.slice(3, 5), 16) / 255;
@@ -63,7 +59,6 @@ export function ThemeConfigProvider({ children }: { children: ReactNode }) {
   const applyTheme = useCallback((config: ThemeConfig) => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
-    // Only apply CSS variables for colors/radius — next-themes handles the .dark class
     root.style.setProperty("--primary", hexToOklch(config.primary));
     root.style.setProperty("--primary-foreground", config.primaryForeground || readableForeground(config.primary));
     root.style.setProperty("--accent", hexToOklch(config.accent));
@@ -73,11 +68,18 @@ export function ThemeConfigProvider({ children }: { children: ReactNode }) {
     root.style.setProperty("--sidebar-ring", hexToOklch(config.primary));
     root.style.setProperty("--radius", config.radius);
     root.style.setProperty("--chart-1", hexToOklch(config.primary));
-    // Glass / blur / transparency data attributes — drive the CSS overrides in globals.css
     root.setAttribute("data-glass-mode", config.glassMode || "on");
     root.setAttribute("data-blur-intensity", config.blurIntensity || "normal");
     root.setAttribute("data-transparency", config.transparency || "medium");
   }, []);
+
+  // Apply deterministic defaults before the browser paints the authenticated
+  // shell. Previously these data attributes only appeared after /api/theme
+  // succeeded, which made glass/background layers visibly pop in or disappear
+  // when the endpoint was unavailable.
+  useLayoutEffect(() => {
+    applyTheme(DEFAULT_THEME);
+  }, [applyTheme]);
 
   const refresh = useCallback(async () => {
     try {
@@ -86,12 +88,10 @@ export function ThemeConfigProvider({ children }: { children: ReactNode }) {
       setThemeState(config);
       applyTheme(config);
     } catch {
-      // Network error — keep defaults
+      applyTheme(DEFAULT_THEME);
     }
   }, [applyTheme]);
 
-  // Initial theme fetch — uses a flag to avoid the setState-in-effect lint rule
-  // while still running exactly once on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -102,13 +102,13 @@ export function ThemeConfigProvider({ children }: { children: ReactNode }) {
         setThemeState(config);
         applyTheme(config);
       } catch {
-        // Network error — keep defaults
+        if (!cancelled) applyTheme(DEFAULT_THEME);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [applyTheme]);
 
   const setTheme = useCallback(
     (config: ThemeConfig) => {
@@ -118,7 +118,6 @@ export function ThemeConfigProvider({ children }: { children: ReactNode }) {
     [applyTheme]
   );
 
-  /** Apply CSS variables for live preview WITHOUT updating the stored state. */
   const previewTheme = useCallback(
     (config: ThemeConfig) => {
       applyTheme(config);
