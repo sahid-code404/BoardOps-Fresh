@@ -20,6 +20,8 @@ export function GlassNav<T extends string>({
   const [hovered, setHovered] = useState<T | null>(null);
   return (
     <div
+      role="tablist"
+      aria-label="Section navigation"
       className={cn(
         "flex w-fit max-w-full items-center justify-center gap-1 overflow-x-auto no-scrollbar rounded-2xl border border-border/50 bg-card/45 p-1 shadow-sm backdrop-blur-md relative",
         className
@@ -29,6 +31,7 @@ export function GlassNav<T extends string>({
       <AnimatePresence>
         {hovered && hovered !== value && (
           <motion.div
+            aria-hidden="true"
             className="absolute top-1 bottom-1 rounded-full bg-secondary/50"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -47,6 +50,8 @@ export function GlassNav<T extends string>({
           <button
             key={item.value}
             type="button"
+            role="tab"
+            aria-selected={active}
             onClick={() => onChange(item.value)}
             onMouseEnter={() => setHovered(item.value)}
             className={cn(
@@ -56,12 +61,9 @@ export function GlassNav<T extends string>({
             )}
           >
             {active && (
-              <motion.div
+              <div
+                aria-hidden="true"
                 className="absolute inset-0 rounded-xl bg-primary shadow-lg shadow-primary/35"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
               />
             )}
             <span className="relative z-10 flex items-center gap-1.5">
