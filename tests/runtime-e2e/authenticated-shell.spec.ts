@@ -1,11 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
 async function expectNoStuckPersistentOpacity(page: Page) {
-  // Playwright's built-in `toBeVisible()` intentionally treats opacity: 0 as
-  // visible because the element still has layout. BoardOps had a real browser
-  // failure where Framer Motion stranded content at opacity: 0 forever, so we
-  // explicitly audit mounted, content-bearing shell wrappers after animations
-  // have had time to settle.
   await page.waitForTimeout(350);
   const stuck = await page.locator("header, main, nav").evaluateAll((roots) => {
     const failures: string[] = [];
@@ -42,7 +37,48 @@ async function expectNoStuckPersistentOpacity(page: Page) {
   expect(stuck).toEqual([]);
 }
 
-test("real local runtime loads the complete administrator shell", async ({ page }) => {
+async function expectRuntimeLayoutHealth(page: Page) {
+  const health = await page.evaluate(() => {
+    const main = document.querySelector("main") as HTMLElement | null;
+    const nav = document.querySelector('nav[aria-label="Primary navigation"]') as HTMLElement | null;
+    const navRect = nav?.getBoundingClientRect();
+    const mainStyle = main ? getComputedStyle(main) : null;
+    return {
+      scrollWidth: document.documentElement.scrollWidth,
+      viewportWidth: window.innerWidth,
+      mainTextLength: (main?.innerText || "").trim().length,
+      navHeight: navRect?.height ?? 0,
+      mainPaddingBottom: mainStyle ? Number.parseFloat(mainStyle.paddingBottom || "0") : 0,
+    };
+  });
+
+  expect(health.scrollWidth).toBeLessThanOrEqual(health.viewportWidth + 2);
+  expect(health.mainTextLength).toBeGreaterThan(10);
+  expect(health.mainPaddingBottom).toBeGreaterThanOrEqual(health.navHeight + 16);
+}
+
+async function expectPersistentGlyphs(page: Page) {
+  for (const label of ["Open menu", "Search", "Theme switcher", "Notifications"]) {
+    const button = page.getByRole("button", { name: new RegExp(`^${label}`) }).first();
+    await expect(button).toBeVisible();
+    const svg = button.locator("svg").first();
+    await expect(svg).toBeVisible();
+    const painted = await svg.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        width: rect.width,
+        height: rect.height,
+        opacity: Number.parseFloat(style.opacity || "1"),
+      };
+    });
+    expect(painted.width).toBeGreaterThan(8);
+    expect(painted.height).toBeGreaterThan(8);
+    expect(painted.opacity).toBeGreaterThan(0.9);
+  }
+}
+
+test("real local runtime loads a complete golden-master administrator shell", async ({ page }) => {
   const failedApiResponses: string[] = [];
   page.on("response", (response) => {
     const url = new URL(response.url());
@@ -61,19 +97,16 @@ test("real local runtime loads the complete administrator shell", async ({ page 
 
   await expect(page).toHaveURL(/\/dashboard(?:\?|$)/, { timeout: 5_000 });
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible({ timeout: 5_000 });
-
-  // Essential account identity is available independently of dashboard-domain
-  // data, so a slow/failed KPI request can never leave the administrator with
-  // an anonymous shell.
-  await expect(page.getByText("Signed in administrator", { exact: true })).toBeVisible();
-  await expect(page.getByText("BoardOps Admin", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("admin@boardops.local", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("ACTIVE", { exact: true })).toBeVisible();
   await expect(page.getByText("Total Users", { exact: true })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByLabel("Loading dashboard data")).toHaveCount(0, { timeout: 5_000 });
 
-  // Golden-master glass/background prerequisites must be installed in the real
-  // runtime, not only in the fixture build.
+  // The temporary runtime-only account summary was not part of the audited
+  // golden master. Identity remains available through the persistent avatar and
+  // full Profile screen without altering Dashboard composition.
+  await expect(page.getByText("Signed in administrator", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "View profile", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Open profile", exact: true })).toBeVisible();
+
   await expect(page.locator(".mesh-bg")).toHaveCount(1);
   await expect(page.locator("html")).toHaveAttribute("data-glass-mode", "on");
   await expect(page.locator("html")).toHaveAttribute("data-blur-intensity", "normal");
@@ -92,24 +125,19 @@ test("real local runtime loads the complete administrator shell", async ({ page 
   expect(mesh.width).toBeGreaterThan(300);
   expect(mesh.height).toBeGreaterThan(300);
 
-  // The theme glyph previously became an empty circle because its Motion
-  // wrapper remained at opacity: 0 even though the button itself was "visible".
-  const themeGlyphOpacity = await page
-    .getByRole("button", { name: "Theme switcher", exact: true })
-    .locator(":scope > div")
-    .evaluate((element) => Number.parseFloat(getComputedStyle(element).opacity));
-  expect(themeGlyphOpacity).toBeGreaterThan(0.9);
+  await expectPersistentGlyphs(page);
   await expectNoStuckPersistentOpacity(page);
+  await expectRuntimeLayoutHealth(page);
 
-  await page.getByRole("button", { name: "View profile", exact: true }).click();
+  await page.getByRole("button", { name: "Open profile", exact: true }).click();
   await expect(page).toHaveURL(/\/profile(?:\?|$)/, { timeout: 5_000 });
   await expect(page.getByRole("heading", { name: "My Profile", exact: true })).toBeVisible();
   await expect(page.getByText("BoardOps Admin", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("admin@boardops.local", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Admin", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Active", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Upload avatar", exact: true })).toBeVisible();
 
-  // Profile hero identity/avatar are content-bearing Motion wrappers. Assert
-  // their effective wrappers are actually opaque, not merely laid out.
   const heroIdentityOpacity = await page
     .getByRole("heading", { name: "BoardOps Admin", exact: true })
     .evaluate((element) => Number.parseFloat(getComputedStyle(element.parentElement!).opacity));
@@ -119,7 +147,8 @@ test("real local runtime loads the complete administrator shell", async ({ page 
     .getByRole("button", { name: "Upload avatar", exact: true })
     .evaluate((element) => Number.parseFloat(getComputedStyle(element.parentElement!).opacity));
   expect(avatarWrapperOpacity).toBeGreaterThan(0.9);
-  await expectNoStuckPersistentOpacity(page);
 
+  await expectNoStuckPersistentOpacity(page);
+  await expectRuntimeLayoutHealth(page);
   expect(failedApiResponses).toEqual([]);
 });
