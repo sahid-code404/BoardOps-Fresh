@@ -2,3 +2,9 @@ packages:
   - apps/*
   - services/*
   - packages/*
+
+# pnpm 11 blocks dependency build scripts unless explicitly trusted.
+# These two packages require their official install/build scripts for Vite/Workers.
+onlyBuiltDependencies:
+  - esbuild
+  - workerd
