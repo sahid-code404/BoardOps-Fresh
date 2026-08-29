@@ -12,7 +12,7 @@ import { GlassButton } from "@/components/glass/glass-button";
 import { api, ApiError } from "@/lib/api-client";
 import { VISUAL_FIXTURES_ENABLED } from "@/lib/visual-fixtures";
 import { preloadAllViews, preloadPriorityViews } from "@/lib/view-loaders";
-import { ShieldX } from "lucide-react";
+import { RefreshCw, ShieldX, WifiOff } from "lucide-react";
 import { useAppStore } from "@/stores/use-app-store";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
@@ -37,29 +37,31 @@ export default function BoardOpsApp() {
     new URLSearchParams(window.location.search).get("auth") === "1";
   const authenticatedAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
 
-  const { isLoading, isError } = useQuery({
+  const { isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["auth-me", token],
     queryFn: async () => {
-      const r = await api.get<{ success: boolean; data: CurrentUser }>("/auth/me");
-      setUser(r.data);
-      return r.data;
+      const response = await api.get<{ success: boolean; data: CurrentUser }>("/auth/me");
+      setUser(response.data);
+      return response.data;
     },
     enabled: !!token && !forceAuthPreview,
-    retry: (failureCount, error) => {
+    retry: (failureCount, queryError) => {
       if (failureCount >= 3) return false;
-      return !(error instanceof ApiError) || error.status >= 500;
+      return !(queryError instanceof ApiError) || queryError.status >= 500;
     },
     retryDelay: (attempt) => Math.min(250 * 2 ** attempt, 1500),
     staleTime: 60 * 1000,
   });
 
-  // Session cleanup is an effect, never a render side effect. The previous
-  // queueMicrotask from the render branch could schedule duplicate logout work
-  // under React retries/StrictMode and made authentication transitions harder
-  // to reason about.
+  const authRejected =
+    error instanceof ApiError && (error.status === 401 || error.status === 403);
+
+  // Only an explicit authentication rejection clears the local session hint.
+  // A temporary Worker/network/5xx failure must not sign a valid user out or
+  // replace the entire app with a misleading login screen.
   useEffect(() => {
-    if (isError && token && !forceAuthPreview) clearAuth();
-  }, [isError, token, forceAuthPreview, clearAuth]);
+    if (authRejected && token && !forceAuthPreview) clearAuth();
+  }, [authRejected, token, forceAuthPreview, clearAuth]);
 
   // The account profile is authoritative for the user's appearance preference.
   // Without this sync, a browser-local next-themes value could disagree with
@@ -108,7 +110,7 @@ export default function BoardOpsApp() {
 
   // Never trust a persisted user until the server has validated the session.
   // This prevents a stale localStorage snapshot from mounting the whole shell
-  // while `/auth/me` is still failing during a cold local startup.
+  // while `/auth/me` is still pending during a cold local startup.
   if (token && isLoading) {
     return (
       <div className="min-h-screen grid place-items-center safe-top safe-bottom">
@@ -122,7 +124,30 @@ export default function BoardOpsApp() {
     );
   }
 
-  if (isError && token) {
+  if (isError && token && !authRejected) {
+    return (
+      <div className="min-h-screen grid place-items-center safe-top safe-bottom px-4">
+        <AnimatedBackground />
+        <div className="relative z-10 glass-strong rounded-3xl p-6 w-full max-w-sm text-center space-y-4">
+          <div className="grid place-items-center h-14 w-14 rounded-3xl bg-warning/15 text-warning mx-auto">
+            <WifiOff className="h-6 w-6" />
+          </div>
+          <div className="space-y-1.5">
+            <h1 className="text-lg font-semibold">Unable to verify your session</h1>
+            <p className="text-sm text-muted-foreground">
+              BoardOps could not reach the session service. Your sign-in state has been kept so a temporary outage does not log you out.
+            </p>
+          </div>
+          <GlassButton className="w-full" onClick={() => void refetch()} loading={isFetching}>
+            <RefreshCw className="h-4 w-4" />
+            Try Again
+          </GlassButton>
+        </div>
+      </div>
+    );
+  }
+
+  if (authRejected && token) {
     return <AuthScreen />;
   }
 
