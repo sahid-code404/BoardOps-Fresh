@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuthStore } from "@/stores/use-auth-store";
+import { VISUAL_FIXTURES_ENABLED, visualFixtureApiFetch } from "@/lib/visual-fixtures";
 
 const API_BASE = "/api";
 
@@ -19,6 +20,10 @@ type FetchOpts = RequestInit & {
 };
 
 export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
+  if (VISUAL_FIXTURES_ENABLED) {
+    return visualFixtureApiFetch<T>(path, opts);
+  }
+
   const { params, headers, ...rest } = opts;
   const token = useAuthStore.getState().token;
   const url = new URL(`${API_BASE}${path}`, window.location.origin);
@@ -43,8 +48,6 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
       body?.error || body?.message || (typeof body?.details === "string" ? body.details : `Request failed (${res.status})`);
     throw new ApiError(message, res.status, body);
   }
-  // Return the full response envelope { success: true, data: T }.
-  // Callers access `.data` on the result.
   return body as T;
 }
 

@@ -105,3 +105,20 @@ jobs:
           done
           if [[ "$healthy" != "true" ]]; then cat /tmp/boardops-web.log; exit 1; fi
           curl --fail --show-error http://127.0.0.1:5173/ >/dev/null
+
+  visual-smoke:
+    needs: [prepare, verify]
+    if: ${{ needs.prepare.outputs.lock_ready == 'true' && needs.verify.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable && corepack prepare pnpm@11.23.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Phase 02 visual fixture smoke
+        run: pnpm test:e2e
