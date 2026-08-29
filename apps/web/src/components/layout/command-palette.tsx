@@ -3,6 +3,7 @@
 import {
   LayoutDashboard,
   UtensilsCrossed,
+  Utensils,
   BarChart3,
   Wallet,
   Receipt,
@@ -29,7 +30,6 @@ import {
 import { useAppStore, type ViewKey } from "@/stores/use-app-store";
 import { useAuthStore, type Role } from "@/stores/use-auth-store";
 import { useEffect } from "react";
-import { motion } from "framer-motion";
 
 type PaletteItem = {
   view: ViewKey;
@@ -43,6 +43,7 @@ type PaletteItem = {
 const ITEMS: PaletteItem[] = [
   { view: "dashboard", label: "Dashboard", icon: LayoutDashboard, keywords: ["home", "overview"], roles: ["ADMIN", "USER"], group: "Workspace" },
   { view: "meals", label: "Meal Configuration", icon: UtensilsCrossed, keywords: ["meals", "config", "menu"], roles: ["ADMIN"], group: "Workspace" },
+  { view: "user-meals", label: "Meals", icon: Utensils, keywords: ["meals", "schedule", "resident", "today"], roles: ["USER"], group: "Workspace" },
   { view: "kitchen", label: "Meal Counts", icon: BarChart3, keywords: ["kitchen", "counts", "meals", "chart"], roles: ["ADMIN"], group: "Workspace" },
   { view: "billing", label: "Billing & Closing", icon: Wallet, keywords: ["billing", "invoice", "bills", "monthly closing", "settle", "snapshot"], roles: ["ADMIN", "USER"], group: "Finance" },
   { view: "payments", label: "Payments & Wallet", icon: CreditCard, keywords: ["payment", "wallet", "pay", "deposit"], roles: ["ADMIN", "USER"], group: "Finance" },
@@ -65,13 +66,13 @@ export function CommandPalette() {
   const role = (user?.role as Role) || "USER";
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
         setOpen(!open);
       }
-      if (e.key === "F8") {
-        e.preventDefault();
+      if (event.key === "F8") {
+        event.preventDefault();
         setOpen(!open);
       }
     };
@@ -79,17 +80,17 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", handler);
   }, [open, setOpen]);
 
-  const filtered = ITEMS.filter((i) => i.roles.includes(role));
+  const filtered = ITEMS.filter((item) => item.roles.includes(role));
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
       <CommandInput placeholder="Search navigation and actions…" />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
-        {Array.from(new Set(filtered.map((i) => i.group))).map((group) => (
+        {Array.from(new Set(filtered.map((item) => item.group))).map((group) => (
           <CommandGroup key={group} heading={group}>
             {filtered
-              .filter((i) => i.group === group)
+              .filter((item) => item.group === group)
               .map((item) => (
                 <CommandItem
                   key={item.view}
