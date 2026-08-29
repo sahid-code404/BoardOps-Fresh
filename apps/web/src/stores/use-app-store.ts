@@ -1,28 +1,23 @@
 "use client";
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { preloadView } from "@/lib/view-loaders";
+import {
+  browserUrlForView,
+  viewFromLocation,
+  type ViewKey,
+} from "@/lib/view-routes";
 
-export type ViewKey =
-  | "dashboard"
-  | "meals"
-  | "user-meals"
-  | "kitchen"
-  | "billing"
-  | "payments"
-  | "expenses"
-  | "funds"
-  | "monthly-closing"
-  | "formula-engine"
-  | "users"
-  | "notifications"
-  | "settings"
-  | "system"
-  | "profile";
+export type { ViewKey } from "@/lib/view-routes";
+
+type NavigationOptions = {
+  replace?: boolean;
+  syncUrl?: boolean;
+};
 
 type AppState = {
   view: ViewKey;
-  setView: (v: ViewKey) => void;
+  setView: (v: ViewKey, options?: NavigationOptions) => void;
   sidebarOpen: boolean;
   setSidebarOpen: (v: boolean) => void;
   commandOpen: boolean;
@@ -33,20 +28,70 @@ type AppState = {
   setPendingAction: (a: { label: string; description?: string } | null) => void;
 };
 
-export const useAppStore = create<AppState>()(
-  persist(
-    (set) => ({
-      view: "dashboard",
-      setView: (v) => set({ view: v }),
-      sidebarOpen: false,
-      setSidebarOpen: (v) => set({ sidebarOpen: v }),
-      commandOpen: false,
-      setCommandOpen: (v) => set({ commandOpen: v }),
-      notificationsOpen: false,
-      setNotificationsOpen: (v) => set({ notificationsOpen: v }),
-      pendingAction: null,
-      setPendingAction: (a) => set({ pendingAction: a }),
-    }),
-    { name: "boardops-ui" }
-  )
-);
+let navigationSequence = 0;
+
+function currentView(): ViewKey {
+  if (typeof window === "undefined") return "dashboard";
+  return viewFromLocation(window.location) ?? "dashboard";
+}
+
+function writeViewUrl(view: ViewKey, replace = false) {
+  if (typeof window === "undefined") return;
+
+  const next = browserUrlForView(view);
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next === current) return;
+
+  const method = replace ? "replaceState" : "pushState";
+  window.history[method]({ boardopsView: view }, "", next);
+}
+
+export const useAppStore = create<AppState>()((set) => ({
+  // The browser URL is the canonical navigation state. Do not persist `view`
+  // in localStorage; stale persisted views were fighting direct URLs on reload.
+  view: currentView(),
+  setView: (v, options = {}) => {
+    const requestId = ++navigationSequence;
+
+    // Keep the current screen mounted until the requested route chunk is ready.
+    // This preserves code splitting without flashing a full-page Suspense
+    // skeleton every time the user changes sections.
+    void preloadView(v)
+      .then(() => {
+        if (requestId !== navigationSequence) return;
+        set({ view: v });
+        if (options.syncUrl !== false) writeViewUrl(v, options.replace);
+      })
+      .catch((error) => {
+        console.error(`Failed to preload BoardOps view: ${v}`, error);
+      });
+  },
+  sidebarOpen: false,
+  setSidebarOpen: (v) => set({ sidebarOpen: v }),
+  commandOpen: false,
+  setCommandOpen: (v) => set({ commandOpen: v }),
+  notificationsOpen: false,
+  setNotificationsOpen: (v) => set({ notificationsOpen: v }),
+  pendingAction: null,
+  setPendingAction: (a) => set({ pendingAction: a }),
+}));
+
+export function installViewRouteSync(): () => void {
+  if (typeof window === "undefined") return () => {};
+
+  const initial = viewFromLocation(window.location) ?? "dashboard";
+  useAppStore.setState({ view: initial });
+
+  // Canonicalize `/`, unknown paths, and the old `?view=` test URLs to stable
+  // browser routes while preserving unrelated query parameters (for example
+  // the visual fixture `role=user` switch).
+  writeViewUrl(initial, true);
+
+  const onPopState = () => {
+    const next = viewFromLocation(window.location) ?? "dashboard";
+    useAppStore.getState().setView(next, { syncUrl: false });
+  };
+
+  window.addEventListener("popstate", onPopState);
+  return () => window.removeEventListener("popstate", onPopState);
+}
