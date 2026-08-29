@@ -48,7 +48,23 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       setUser: (u) => set({ user: u }),
       setToken: (t) => set({ token: t }),
-      logout: () => set({ user: null, token: null }),
+      logout: () => {
+        // Clear the UI immediately, but also revoke the real HttpOnly server
+        // session. Previously Profile's Sign Out only cleared Zustand, leaving
+        // the cookie/session valid on the Worker.
+        if (typeof window !== "undefined" && get().token) {
+          void fetch("/api/auth/logout", {
+            method: "POST",
+            credentials: "include",
+            headers: { Accept: "application/json" },
+          }).catch(() => {
+            // Local sign-out must remain usable while offline. A server-side
+            // failure is intentionally best-effort here; the credential is not
+            // exposed to JavaScript and will be revalidated on the next login.
+          });
+        }
+        set({ user: null, token: null });
+      },
       isAuthenticated: () => !!get().token,
     }),
     { name: "boardops-auth" }
