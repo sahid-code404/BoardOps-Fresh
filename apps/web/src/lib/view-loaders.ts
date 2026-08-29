@@ -77,7 +77,13 @@ const USER_PRIORITY_VIEWS: ViewKey[] = [
 ];
 
 export function preloadView(view: ViewKey): Promise<ViewModule> {
-  return VIEW_COMPONENT_LOADERS[view]();
+  // Defensive runtime boundary. TypeScript knows ViewKey is valid, but values
+  // originating from persisted/server data can arrive here after an unsafe
+  // cast in older ported code. Return a normal rejection instead of throwing a
+  // `loader is not a function` TypeError that can tear down navigation.
+  const loader = (VIEW_COMPONENT_LOADERS as Partial<Record<string, ViewLoader>>)[view as string];
+  if (!loader) return Promise.reject(new Error(`Unknown BoardOps view: ${String(view)}`));
+  return loader();
 }
 
 /**
