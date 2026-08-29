@@ -1,10 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
-// The viewport/theme audit intentionally walks every canonical route. The
-// default 30s Playwright timeout was shorter than the matrix itself on CI even
-// though the individual route checks were healthy, so bound the complete audit
-// explicitly rather than weakening/removing route coverage.
-test.setTimeout(120_000);
+// The viewport/theme audit deliberately walks every canonical route. Give the
+// complete matrix enough time on CI without weakening any individual check.
+test.setTimeout(150_000);
 
 const ADMIN_ROUTES = [
   ["/dashboard", "Dashboard"],
@@ -136,7 +134,7 @@ async function expectLayoutHealth(page: Page) {
   expect(health.navWidth).toBeGreaterThan(100);
   expect(health.navHeight).toBeGreaterThan(40);
   expect(health.mainTextLength, "route must contain meaningful mounted content").toBeGreaterThan(10);
-  expect(health.mainPaddingBottom, "fixed bottom nav must not cover the final page content").toBeGreaterThanOrEqual(
+  expect(health.mainPaddingBottom, "fixed bottom nav must not cover final page content").toBeGreaterThanOrEqual(
     health.navHeight + 16,
   );
 }
@@ -170,6 +168,12 @@ async function openRoute(page: Page, path: string, expectedTitle: string) {
   expect(new URL(page.url()).pathname).toBe(path);
   expect(pageErrors).toEqual([]);
   await expectShellHealth(page);
+}
+
+function commandDialog(page: Page): Locator {
+  return page.locator('[data-slot="dialog-content"]').filter({
+    has: page.getByPlaceholder("Search navigation and actions…"),
+  });
 }
 
 test("plain visual-mode root canonicalizes to the golden dashboard route", async ({ page }) => {
@@ -228,7 +232,7 @@ test("dashboard preserves golden-master composition", async ({ page }) => {
   await expect(page.getByRole("button", { name: "View profile", exact: true })).toHaveCount(0);
 });
 
-test("representative feature fixtures still render their essential content", async ({ page }) => {
+test("representative feature fixtures render essential content", async ({ page }) => {
   await openRoute(page, "/meals", "Meal Configuration");
   await expect(page.getByText("Breakfast", { exact: true }).first()).toBeVisible();
 
@@ -302,10 +306,11 @@ test("closed sidebar is inert and Escape reliably closes an open drawer", async 
 test("command palette opens from keyboard and routes without a lazy flash", async ({ page }) => {
   await openRoute(page, "/dashboard", "Dashboard");
   await page.keyboard.press("Control+K");
-  const input = page.getByPlaceholder("Search navigation and actions…");
-  await expect(input).toBeVisible();
+  const dialog = commandDialog(page);
+  const input = dialog.getByPlaceholder("Search navigation and actions…");
+  await expect(dialog).toBeVisible();
   await input.fill("formula");
-  await page.getByText("Formula Engine", { exact: true }).click();
+  await dialog.getByText("Formula Engine", { exact: true }).click();
   await expect(page).toHaveURL(/\/formula-engine(?:\?|$)/);
   await expect(page.getByLabel("Loading section")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Formula Engine", exact: true })).toBeVisible();
@@ -315,12 +320,13 @@ test("resident command palette exposes resident Meals and hides admin-only route
   await page.goto("/dashboard?role=user");
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible();
   await page.keyboard.press("Control+K");
-  const input = page.getByPlaceholder("Search navigation and actions…");
-  await expect(input).toBeVisible();
+  const dialog = commandDialog(page);
+  const input = dialog.getByPlaceholder("Search navigation and actions…");
+  await expect(dialog).toBeVisible();
   await input.fill("meal");
-  await expect(page.getByText("Meals", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("Meal Configuration", { exact: true })).toHaveCount(0);
-  await page.getByText("Meals", { exact: true }).first().click();
+  await expect(dialog.getByText("Meals", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Meal Configuration", { exact: true })).toHaveCount(0);
+  await dialog.getByText("Meals", { exact: true }).click();
   await expect(page).toHaveURL(/\/user-meals(?:\?|$)/);
   await expect(page.getByRole("heading", { name: "Meals", exact: true })).toBeVisible();
 });
