@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { authenticatedPrincipal, type AuthPrincipal } from "../auth/authorization";
 import type { AppEnv } from "../types";
 
@@ -78,7 +78,7 @@ function mappedMeal(row: MealRow) {
   };
 }
 
-async function readBody(c: Parameters<typeof mealConfigRoutes.post>[1] extends never ? never : any) {
+async function readBody(c: Context<AppEnv>): Promise<Record<string, unknown> | null> {
   try {
     const value: unknown = await c.req.json();
     return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
@@ -171,7 +171,7 @@ function validateMealBody(
   };
 }
 
-async function mealById(c: any, principal: AuthPrincipal, id: string): Promise<MealRow | null> {
+async function mealById(c: Context<AppEnv>, principal: AuthPrincipal, id: string): Promise<MealRow | null> {
   return c.env.DB.prepare(
     `SELECT id, institution_id, name, display_name, description, icon, color,
             meal_type, status, display_order, default_state, default_visibility,
@@ -186,7 +186,7 @@ async function mealById(c: any, principal: AuthPrincipal, id: string): Promise<M
 }
 
 async function writeAudit(
-  c: any,
+  c: Context<AppEnv>,
   principal: AuthPrincipal,
   action: string,
   mealId: string,
