@@ -38,7 +38,7 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
 
       if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
         return {
-          first: async () => ({ permission_count: 49, role_count: 4, grant_count: 140 }),
+          first: async () => ({ permission_count: 50, role_count: 4, grant_count: 128 }),
         };
       }
 
@@ -65,7 +65,7 @@ describe("health endpoint", () => {
 });
 
 describe("readiness endpoint", () => {
-  it("requires the complete RBAC + meal + billing + payments + expenses D1 schema and baseline", async () => {
+  it("requires the complete RBAC + meal + billing + payments + expenses schema and Funds permission baseline", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
