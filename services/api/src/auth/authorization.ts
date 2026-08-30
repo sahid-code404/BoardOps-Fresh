@@ -24,6 +24,10 @@ export const PERMISSIONS = {
   USERS_UPDATE: "users.update",
   USERS_DELETE: "users.delete",
   USERS_RESTORE: "users.restore",
+  MEALS_CONFIG_READ: "meals.config.read",
+  MEALS_CONFIG_CREATE: "meals.config.create",
+  MEALS_CONFIG_UPDATE: "meals.config.update",
+  MEALS_CONFIG_DELETE: "meals.config.delete",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
