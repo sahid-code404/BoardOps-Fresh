@@ -103,11 +103,7 @@ function sessionPresentation(value: string | null) {
 }
 
 function readSessionToken(c: Context<AppEnv>): string | null {
-  const cookie = getCookie(c, SESSION_COOKIE);
-  if (cookie) return cookie;
-  const authorization = c.req.header("authorization");
-  if (!authorization?.toLowerCase().startsWith("bearer ")) return null;
-  return authorization.slice(7).trim() || null;
+  return getCookie(c, SESSION_COOKIE)?.trim() || null;
 }
 
 function setSessionCookie(c: Context<AppEnv>, token: string, expiresAt: Date) {

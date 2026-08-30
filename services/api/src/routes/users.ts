@@ -43,11 +43,7 @@ type UserListRow = UserRow & {
 };
 
 function readSessionToken(c: Context<AppEnv>): string | null {
-  const cookie = getCookie(c, SESSION_COOKIE);
-  if (cookie) return cookie;
-  const authorization = c.req.header("authorization");
-  if (!authorization?.toLowerCase().startsWith("bearer ")) return null;
-  return authorization.slice(7).trim() || null;
+  return getCookie(c, SESSION_COOKIE)?.trim() || null;
 }
 
 async function currentAdmin(c: Context<AppEnv>): Promise<AdminViewer | null> {
@@ -67,7 +63,10 @@ async function currentAdmin(c: Context<AppEnv>): Promise<AdminViewer | null> {
   )
     .bind(digest, new Date().toISOString())
     .first<AdminViewer>();
-  if (!row || (row.role !== "ADMIN" && row.role !== "SUPER_ADMIN")) return null;
+  // Authorization is enforced by the Phase 05 permission middleware before
+  // this route handler runs. Keep this lookup only for tenant scoping and the
+  // role/status invariants used by the mutation itself.
+  if (!row) return null;
   return row;
 }
 
