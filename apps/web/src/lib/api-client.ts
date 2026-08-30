@@ -72,6 +72,25 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
   return body as T;
 }
 
+function deleteRequest<T>(path: string, opts?: FetchOpts): Promise<T> {
+  // The imported golden Billing screen contains one legacy ambiguity: its Void
+  // action calls DELETE /bills/:id with no request options, while its real
+  // soft-delete action calls the same endpoint with a JSON body. The source
+  // backend only implemented deletion, so the old Void button actually deleted
+  // bills. Keep the golden component untouched while routing that one body-less
+  // legacy call to the new explicit financial void endpoint. New code should
+  // call POST /bills/:id/void directly; this shim can disappear when the golden
+  // Billing component is rewritten rather than patched.
+  if (
+    !VISUAL_FIXTURES_ENABLED &&
+    opts === undefined &&
+    /^\/bills\/[^/]+$/u.test(path)
+  ) {
+    return apiFetch<T>(`${path}/void`, { method: "POST", body: "{}" });
+  }
+  return apiFetch<T>(path, { ...opts, method: "DELETE" });
+}
+
 export const api = {
   get: <T>(path: string, opts?: FetchOpts) => apiFetch<T>(path, { ...opts, method: "GET" }),
   post: <T>(path: string, data?: unknown, opts?: FetchOpts) =>
@@ -82,5 +101,5 @@ export const api = {
     apiFetch<T>(path, { ...opts, method: "PUT", body: data ? JSON.stringify(data) : undefined }),
   patch: <T>(path: string, data?: unknown, opts?: FetchOpts) =>
     apiFetch<T>(path, { ...opts, method: "PATCH", body: data ? JSON.stringify(data) : undefined }),
-  delete: <T>(path: string, opts?: FetchOpts) => apiFetch<T>(path, { ...opts, method: "DELETE" }),
+  delete: deleteRequest,
 };
