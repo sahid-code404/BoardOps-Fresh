@@ -52,6 +52,7 @@ const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["GET /api/refunds", PERMISSIONS.REFUNDS_READ],
   ["GET /api/expenses", PERMISSIONS.EXPENSES_READ],
   ["POST /api/expenses", PERMISSIONS.EXPENSES_CREATE],
+  ["GET /api/funds", PERMISSIONS.FUNDS_READ],
 ]);
 
 const USER_ACTION_PERMISSION: Record<string, PermissionKey> = {
