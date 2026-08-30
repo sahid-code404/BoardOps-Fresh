@@ -12,7 +12,7 @@
 | Expenses | expenses view/API | expenses | Required | Required | integer money + immutability + replacement corrections | clean D1 + runtime + visual | VERIFIED |
 | Payments | payments view/API | payments | Required | Required | integer money + idempotency + immutability | clean D1 + runtime + visual | VERIFIED |
 | Funds | funds/resident ledger | funds | Required | Required | derived ledger authority; no duplicate mutable balance | clean D1 + runtime + visual | VERIFIED |
-| Refunds/adjustments | finance APIs | accounting | Required | Required | reversal/adjustment rules | planned | AUDITED |
+| Refunds/adjustments | finance APIs | accounting | Required | Required | durable credit reservation + immutable additive corrections | clean D1 + runtime + visual | VERIFIED |
 | Variables/formulas | formula engine/API | formulas | Required | Parser semantics where valid | block invalid fallback | planned | AUDITED |
 | Billing cycles/snapshots/bills | billing/closing | billing | Required | Workflow intent | immutable snapshot-only billing | clean D1 + runtime + visual | VERIFIED |
 | Monthly closing | monthly-closing | monthly-closing | Required | User workflow | durable state machine | planned | AUDITED |
