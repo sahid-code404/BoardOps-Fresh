@@ -88,24 +88,39 @@ function hasResolvedPermission(permissions: readonly string[], permission: strin
   return permissions.includes(permission);
 }
 
+/**
+ * Route access and navigation visibility are intentionally distinct.
+ * The golden source keeps the resident Meals experience out of Admin navigation,
+ * but Admin may still open that route directly (used by parity inspection and
+ * support workflows). All other cross-surface routes remain blocked.
+ */
 export function canAccessView(role: Role, permissions: readonly string[], view: ViewKey): boolean {
   const compatibleRole = compatibilityNavRole(role);
   if (view === "profile") {
     return hasResolvedPermission(permissions, "profile.read_self");
   }
   const item = NAV_ITEMS.find((candidate) => candidate.view === view);
-  if (!item || !item.roles.includes(compatibleRole)) return false;
+  if (!item) return false;
+
+  const sourceRouteAllowed =
+    item.roles.includes(compatibleRole) ||
+    (compatibleRole === "ADMIN" && view === "user-meals");
+  if (!sourceRouteAllowed) return false;
+
   return hasResolvedPermission(permissions, item.permission);
 }
 
 export function navForRole(role: Role, permissions: readonly string[] = []): NavItem[] {
-  return NAV_ITEMS.filter((item) => canAccessView(role, permissions, item.view));
+  const compatibleRole = compatibilityNavRole(role);
+  return NAV_ITEMS.filter(
+    (item) => item.roles.includes(compatibleRole) && canAccessView(role, permissions, item.view),
+  );
 }
 
 export function primaryNav(role: Role, permissions: readonly string[] = []): NavItem[] {
   const compatibleRole = compatibilityNavRole(role);
   return NAV_ITEMS.filter((item) => {
-    if (!canAccessView(role, permissions, item.view)) return false;
+    if (!item.roles.includes(compatibleRole) || !canAccessView(role, permissions, item.view)) return false;
     if (item.primary) return true;
     if (item.primaryRoles?.includes(compatibleRole)) return true;
     return false;

@@ -40,6 +40,11 @@ describe("permission-aware golden navigation", () => {
     expect(canAccessView("MANAGER", residentPermissions, "user-meals")).toBe(true);
   });
 
+  it("keeps resident Meals directly inspectable by Admin without adding it to Admin navigation", () => {
+    expect(canAccessView("ADMIN", adminPermissions, "user-meals")).toBe(true);
+    expect(navForRole("ADMIN", adminPermissions).some((item) => item.view === "user-meals")).toBe(false);
+  });
+
   it("filters primary navigation and profile access from resolved permissions", () => {
     expect(primaryNav("USER", residentPermissions).map((item) => item.view)).toEqual([
       "dashboard",
