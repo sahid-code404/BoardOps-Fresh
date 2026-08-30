@@ -586,6 +586,12 @@ export function AuthScreen() {
         isRejected={isRejected}
         hasChangesRequested={hasChangesRequested}
         onBackToLogin={resetToLogin}
+        onVerificationRequired={(email) => {
+          setVerifyEmail(email);
+          setPendingEmail(email);
+          setOtp("");
+          setMode("verify");
+        }}
       />
     );
   }
@@ -828,6 +834,7 @@ function PendingScreen({
   isRejected,
   hasChangesRequested,
   onBackToLogin,
+  onVerificationRequired,
 }: {
   email: string;
   status?: RegistrationStatus;
@@ -836,6 +843,7 @@ function PendingScreen({
   isRejected: boolean;
   hasChangesRequested: boolean;
   onBackToLogin: () => void;
+  onVerificationRequired: (email: string) => void;
 }) {
   const [showResubmit, setShowResubmit] = useState(false);
   const qc = useQueryClient();
@@ -971,8 +979,12 @@ function PendingScreen({
           <ResubmitDialog
             status={status}
             onClose={() => setShowResubmit(false)}
-            onDone={() => {
+            onDone={(result) => {
               setShowResubmit(false);
+              if (result.verificationRequired) {
+                onVerificationRequired(result.email);
+                return;
+              }
               qc.invalidateQueries({ queryKey: ["registration-status", email] });
             }}
           />
@@ -1032,13 +1044,14 @@ function ResubmitDialog({
 }: {
   status: RegistrationStatus;
   onClose: () => void;
-  onDone: () => void;
+  onDone: (result: { email: string; verificationRequired: boolean }) => void;
 }) {
   const fields = status.changesRequested ?? [];
   const [form, setForm] = useState({
     name: status.name ?? "",
     institutionUserId: status.institutionUserId ?? "",
     phone: status.phone ?? "",
+    newEmail: status.email ?? "",
     room: status.room ?? "",
     gender: (status.gender as "" | "MALE" | "FEMALE" | "OTHER") || "",
   });
@@ -1059,22 +1072,34 @@ function ResubmitDialog({
       setErrors({ phone: "Enter a valid phone" });
       return;
     }
+    if (fields.includes("email") && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(form.newEmail.trim())) {
+      setErrors({ email: "Enter a valid email" });
+      return;
+    }
     if (!form.room) {
       setErrors({ room: "Room number is required" });
       return;
     }
     try {
       setLoading(true);
-      await api.post("/auth/resubmit", {
+      const response = await api.post<{
+        success: boolean;
+        data: { email: string; verificationRequired: boolean };
+      }>("/auth/resubmit", {
         email: status.email,
         name: form.name,
         institutionUserId: form.institutionUserId,
         phone: form.phone,
+        newEmail: fields.includes("email") ? form.newEmail.trim() : undefined,
         room: form.room,
         gender: form.gender || undefined,
       });
-      toast.success("Resubmitted for review!");
-      onDone();
+      if (response.data.verificationRequired) {
+        toast.success("Registration updated — verify your new email next.");
+      } else {
+        toast.success("Resubmitted for review!");
+      }
+      onDone(response.data);
     } catch (err: any) {
       toast.error(err.message || "Could not resubmit");
     } finally {
@@ -1116,6 +1141,17 @@ function ResubmitDialog({
         error={errors.phone}
         icon={<Phone className="h-4 w-4" />}
       />
+      {fields.includes("email") && (
+        <GlassInput
+          label="Personal Email"
+          type="email"
+          value={form.newEmail}
+          onChange={(e) => setForm({ ...form, newEmail: e.target.value })}
+          error={errors.email}
+          icon={<Mail className="h-4 w-4" />}
+          hint="Changing your email requires a new verification code."
+        />
+      )}
       <GlassInput
         label="Room Number"
         value={form.room}
