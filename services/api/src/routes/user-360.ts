@@ -32,18 +32,18 @@ type LoginHistoryRow = {
 export const user360Routes = new Hono<AppEnv>();
 
 /**
- * Resident 360 runtime bridge.
+ * GET /api/users/:id/360
  *
- * The golden source aggregates profile + finance + meals + restrictions here.
- * At Phase 05 only identity/auth tables exist in canonical D1, so this endpoint
- * returns every real value currently owned by the rewrite and keeps later-domain
- * collections empty until their owning migrations are introduced. This avoids
- * fixture money/meal data while making the real User 360 view usable now.
+ * Phase 05 owns identity/auth/RBAC only. The route therefore exposes every
+ * resident value that is backed by canonical D1 tables today and explicitly
+ * marks later financial/meal/restriction domains unavailable. It never invents
+ * zero balances, meal counts, or booking eligibility to fill missing schemas.
  */
 user360Routes.get("/users/:id/360", async (c) => {
   const viewer = await authenticatedPrincipal(c);
   if (!viewer) return c.json({ success: false, error: "Authentication required" }, 401);
 
+  const userId = c.req.param("id");
   const user = await c.env.DB.prepare(
     `SELECT
        u.id, u.institution_id, u.name, u.email, u.phone, u.role, u.status,
@@ -55,7 +55,7 @@ user360Routes.get("/users/:id/360", async (c) => {
      WHERE u.id = ? AND u.institution_id = ?
      LIMIT 1`,
   )
-    .bind(c.req.param("id"), viewer.institutionId)
+    .bind(userId, viewer.institutionId)
     .first<User360Row>();
 
   if (!user) return c.json({ success: false, error: "User not found" }, 404);
@@ -73,6 +73,7 @@ user360Routes.get("/users/:id/360", async (c) => {
   return c.json({
     success: true,
     data: {
+      contractVersion: 1,
       profile: {
         id: user.id,
         name: user.name,
@@ -91,22 +92,19 @@ user360Routes.get("/users/:id/360", async (c) => {
         createdAt: user.created_at,
         lastLoginAt: user.last_login_at,
       },
+
+      // These domains do not exist in canonical Phase-05 D1 yet. Null values
+      // are deliberate: absence is not equivalent to a real zero balance,
+      // zero meals, or an unrestricted resident.
       fundAccount: null,
-      restrictions: {
-        canBookMeals: user.status === "ACTIVE",
-        financialStatus: "UNAVAILABLE",
-        availableBalance: 0,
-        requiredBalance: 0,
-        graceDaysRemaining: null,
-        hasExemption: false,
-        restrictionReason: null,
-      },
+      restrictions: null,
       activeRestrictions: [],
       recentBills: [],
       recentPayments: [],
       recentRefunds: [],
       ledger: [],
-      mealStats: { currentMonthON: 0 },
+      mealStats: null,
+
       loginHistory: loginHistory.results.map((entry) => ({
         id: entry.id,
         success: entry.success === 1,
@@ -114,6 +112,7 @@ user360Routes.get("/users/:id/360", async (c) => {
         createdAt: entry.created_at,
         reason: entry.reason,
       })),
+
       dataAvailability: {
         profile: true,
         loginHistory: true,
