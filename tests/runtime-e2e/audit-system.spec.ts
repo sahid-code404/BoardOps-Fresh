@@ -39,6 +39,9 @@ async function waitForTask(api: APIRequestContext, id: string) {
     if (!response.ok()) return `HTTP_${response.status()}`;
     const body = await json<{ data: typeof task }>(response);
     task = body.data;
+    if (task?.status === "FAILED") {
+      throw new Error(`Background task ${id} failed: ${task.errorMessage ?? "unknown error"}`);
+    }
     return task?.status ?? "MISSING";
   }, { timeout: 15_000, intervals: [100, 200, 400, 800] }).toBe("COMPLETED");
 
