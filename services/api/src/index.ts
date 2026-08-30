@@ -5,6 +5,7 @@ import { enforceRbacPolicy } from "./middleware/rbac";
 import { authRoutes } from "./routes/auth";
 import { authWorkflowRoutes } from "./routes/auth-workflows";
 import { billingRoutes } from "./routes/billing";
+import { expenseRoutes } from "./routes/expenses";
 import { kitchenRoutes } from "./routes/kitchen";
 import { leaveRoutes } from "./routes/leave";
 import { mealConfigRoutes } from "./routes/meals-config";
@@ -40,6 +41,7 @@ const REQUIRED_CORE_TABLES = [
   "bills",
   "payments",
   "refunds",
+  "expenses",
 ] as const;
 
 type ActivityRow = {
@@ -95,7 +97,7 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 44 ||
+      Number(baseline?.permission_count ?? 0) < 49 ||
       Number(baseline?.role_count ?? 0) < 4 ||
       Number(baseline?.grant_count ?? 0) < 1
     ) {
@@ -105,8 +107,8 @@ app.get("/api/ready", async (c) => {
     return c.json({
       status: "ready",
       service: "boardops-api",
-      // Phase 05 remains the last formally closed checkpoint; later integration
-      // migrations extend that verified core without weakening its readiness label.
+      // Phase 05 remains the last formally closed numbered checkpoint; later
+      // integration migrations extend that verified core without weakening it.
       schema: "phase05-rbac",
     });
   } catch {
@@ -132,6 +134,7 @@ app.route("/api", mealOverrideRoutes);
 app.route("/api", leaveRoutes);
 app.route("/api", billingRoutes);
 app.route("/api", paymentRoutes);
+app.route("/api", expenseRoutes);
 
 app.get("/api/dashboard", async (c) => {
   const viewer = await authenticatedPrincipal(c);
