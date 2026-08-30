@@ -137,7 +137,7 @@ const required = {
   seeded_pending_payment: 1,
   integer_money_triggers: 4,
   permissions: 44,
-  role_permissions: 120,
+  role_permissions: 114,
   admin_payment_permissions: 8,
   resident_payment_permissions: 2,
   manager_payment_read: 1,
