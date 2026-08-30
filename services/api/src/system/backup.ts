@@ -150,7 +150,11 @@ export async function createPrivateLogicalBackup(
   const objectKey = `backups/${institutionId}/${createdAt.replace(/[:.]/gu, "-")}-${crypto.randomUUID()}.json`;
 
   await updateProgress(96);
-  await env.FILES.put(objectKey, bytes, {
+  // R2 accepts strings directly. Keeping the object-storage boundary textual
+  // avoids ArrayBufferView transport/serialization differences between local
+  // Miniflare and production workerd while preserving byte-for-byte UTF-8
+  // content used for the size and SHA-256 values above.
+  const stored = await env.FILES.put(objectKey, body, {
     httpMetadata: { contentType: "application/json; charset=utf-8" },
     customMetadata: {
       format: "boardops-d1-logical-backup-v1",
@@ -158,6 +162,9 @@ export async function createPrivateLogicalBackup(
       sha256,
     },
   });
+  if (!stored) {
+    throw new Error("R2 did not confirm the logical backup write");
+  }
   await updateProgress(99);
 
   return {
