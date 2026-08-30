@@ -57,6 +57,23 @@ CREATE UNIQUE INDEX payments_idempotency_idx
   ON payments(institution_id, user_id, idempotency_key)
   WHERE idempotency_key IS NOT NULL;
 
+-- SQLite uses dynamic typing, so INTEGER affinity by itself is insufficient for
+-- an accounting boundary. Reject REAL/TEXT values even when they are numerically
+-- positive and would otherwise satisfy the column CHECK.
+CREATE TRIGGER payments_integer_money_insert
+BEFORE INSERT ON payments
+WHEN typeof(NEW.amount_minor) <> 'integer'
+BEGIN
+  SELECT RAISE(ABORT, 'payments.amount_minor must be integer minor units');
+END;
+
+CREATE TRIGGER payments_integer_money_update
+BEFORE UPDATE OF amount_minor ON payments
+WHEN typeof(NEW.amount_minor) <> 'integer'
+BEGIN
+  SELECT RAISE(ABORT, 'payments.amount_minor must be integer minor units');
+END;
+
 -- Future monthly-closing work may create explicit refund obligations before
 -- cash is actually paid out. This table keeps that liability separate from the
 -- REFUNDED payment event that records the completed payout.
@@ -85,6 +102,24 @@ CREATE INDEX refunds_institution_status_idx
   ON refunds(institution_id, status, created_at DESC);
 CREATE INDEX refunds_user_status_idx
   ON refunds(institution_id, user_id, status, created_at DESC);
+
+CREATE TRIGGER refunds_integer_money_insert
+BEFORE INSERT ON refunds
+WHEN typeof(NEW.amount_minor) <> 'integer'
+  OR typeof(NEW.paid_amount_minor) <> 'integer'
+  OR typeof(NEW.remaining_amount_minor) <> 'integer'
+BEGIN
+  SELECT RAISE(ABORT, 'refund money fields must be integer minor units');
+END;
+
+CREATE TRIGGER refunds_integer_money_update
+BEFORE UPDATE OF amount_minor, paid_amount_minor, remaining_amount_minor ON refunds
+WHEN typeof(NEW.amount_minor) <> 'integer'
+  OR typeof(NEW.paid_amount_minor) <> 'integer'
+  OR typeof(NEW.remaining_amount_minor) <> 'integer'
+BEGIN
+  SELECT RAISE(ABORT, 'refund money fields must be integer minor units');
+END;
 
 -- 0009 pre-dated canonical payment rows but its local/historical bills may
 -- already contain a paid balance. Preserve that evidence as one deterministic
@@ -165,10 +200,10 @@ BEGIN
   VALUES (NEW.id || ':role:SUPER_ADMIN', NEW.id, 'SUPER_ADMIN', 'Super Admin', 'System administrator role', 1);
 
   INSERT INTO roles (id, institution_id, role_key, name, description, is_system)
-  VALUES (NEW.id || ':role:ADMIN', NEW.id, 'ADMIN', 'Institution administrator role', 1);
+  VALUES (NEW.id || ':role:ADMIN', NEW.id, 'ADMIN', 'Admin', 'Institution administrator role', 1);
 
   INSERT INTO roles (id, institution_id, role_key, name, description, is_system)
-  VALUES (NEW.id || ':role:MANAGER', NEW.id, 'MANAGER', 'Institution manager role', 1);
+  VALUES (NEW.id || ':role:MANAGER', NEW.id, 'MANAGER', 'Manager', 'Institution manager role', 1);
 
   INSERT INTO roles (id, institution_id, role_key, name, description, is_system)
   VALUES (NEW.id || ':role:USER', NEW.id, 'USER', 'Resident', 'Standard resident role', 1);
