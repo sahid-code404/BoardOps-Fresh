@@ -8,8 +8,10 @@ test("Payments renders real D1 data and recomputes bill state from canonical evi
   await page.getByRole("textbox", { name: "Password", exact: true }).fill("BoardOps@Fresh#2026!A7");
   await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard(?:\?|$)/, { timeout: 5_000 });
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible({ timeout: 5_000 });
 
-  await page.goto("/payments");
+  const primaryNav = page.getByRole("navigation", { name: "Primary navigation" });
+  await primaryNav.getByRole("button", { name: "Payments", exact: true }).click();
   await expect(page).toHaveURL(/\/payments(?:\?|$)/, { timeout: 5_000 });
   await expect(page.getByText("Arjun Rao", { exact: true }).first()).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("RBAC policy missing for endpoint", { exact: true })).toHaveCount(0);
