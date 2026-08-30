@@ -4,7 +4,10 @@ import { enforcePasswordMutationPolicy } from "./middleware/password-policy";
 import { enforceRbacPolicy } from "./middleware/rbac";
 import { authRoutes } from "./routes/auth";
 import { authWorkflowRoutes } from "./routes/auth-workflows";
+import { kitchenRoutes } from "./routes/kitchen";
+import { leaveRoutes } from "./routes/leave";
 import { mealConfigRoutes } from "./routes/meals-config";
+import { mealOverrideRoutes } from "./routes/meal-overrides";
 import { runtimeRoutes } from "./routes/runtime";
 import { userRoutes } from "./routes/users";
 import { user360Routes } from "./routes/user-360";
@@ -27,6 +30,10 @@ const REQUIRED_CORE_TABLES = [
   "permissions",
   "role_permissions",
   "meal_configurations",
+  "meal_entries",
+  "guest_meals",
+  "meal_overrides",
+  "leave_applications",
 ] as const;
 
 type ActivityRow = {
@@ -82,7 +89,7 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 22 ||
+      Number(baseline?.permission_count ?? 0) < 29 ||
       Number(baseline?.role_count ?? 0) < 4 ||
       Number(baseline?.grant_count ?? 0) < 1
     ) {
@@ -114,6 +121,9 @@ app.route("/api", runtimeRoutes);
 app.route("/api", userRoutes);
 app.route("/api", user360Routes);
 app.route("/api", mealConfigRoutes);
+app.route("/api", kitchenRoutes);
+app.route("/api", mealOverrideRoutes);
+app.route("/api", leaveRoutes);
 
 app.get("/api/dashboard", async (c) => {
   const viewer = await authenticatedPrincipal(c);
@@ -147,9 +157,10 @@ app.get("/api/dashboard", async (c) => {
   // but its meaning is now permission-derived instead of role-string-derived.
   const isAdmin = hasPermission(viewer, PERMISSIONS.USERS_READ);
 
-  // Meal configuration now has a real owning table, but meal entries/counting,
-  // billing and expenses still belong to later domain migrations. Do not invent
-  // operational totals for tables that do not yet exist.
+  // Kitchen now owns canonical meal-entry state. Dashboard meal aggregation is
+  // intentionally kept separate so this integration does not invent a second,
+  // inconsistent counting rule; a later dashboard port will reuse the same
+  // confirmed-meal semantics as /api/kitchen.
   return c.json({
     success: true,
     data: {
