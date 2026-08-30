@@ -3,6 +3,18 @@
 PRAGMA foreign_keys = ON;
 BEGIN TRANSACTION;
 
+-- Earlier operational seeds intentionally exercise 0018 submission delivery.
+-- They represent historical fixture events, so mark those two administrator
+-- alerts as read before creating the one deliberately unread shell notice.
+UPDATE notifications
+SET read_at = '2026-08-30T11:59:00.000Z'
+WHERE institution_id = 'inst_boardops_local'
+  AND user_id = 'usr_admin_local'
+  AND delivery_key IN (
+    'leave:leave_riya_pending_local:submitted',
+    'payment:payment_arjun_pending_local:submitted'
+  );
+
 INSERT OR IGNORE INTO announcements (
   id, institution_id, title, body, type, priority, target_audience,
   is_pinned, status, published_at, expires_at, created_by, created_at, updated_at
