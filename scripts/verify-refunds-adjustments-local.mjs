@@ -171,18 +171,26 @@ expectStatementFailure(
   "adjustment integer-money",
 );
 
+// One SQL statement is atomic in D1. The first VALUES row inserts the probe;
+// the second conflicts on id and attempts an UPDATE. The immutable UPDATE
+// trigger must abort the whole statement, proving the rule without explicit
+// BEGIN/ROLLBACK (which Wrangler local D1 intentionally rejects).
 expectStatementFailure(
-  `BEGIN;
-   INSERT INTO adjustments (
+  `INSERT INTO adjustments (
      id, institution_id, adjustment_number, user_id, entity_type, entity_id,
      amount_minor, reason, idempotency_key, created_by
-   ) VALUES (
+   ) VALUES
+   (
      'probe_immutable_adjustment', 'inst_boardops_local', 'ADJ-PROBE-IMMUTABLE',
      'usr_resident_riya_local', 'Expense', 'expense_grocery_aug_2026_local',
      1234, 'Probe immutable adjustment', 'probe-adjustment-immutable', 'usr_admin_local'
-   );
-   UPDATE adjustments SET reason = 'Rewritten reason' WHERE id = 'probe_immutable_adjustment';
-   ROLLBACK;`,
+   ),
+   (
+     'probe_immutable_adjustment', 'inst_boardops_local', 'ADJ-PROBE-IMMUTABLE-2',
+     'usr_resident_riya_local', 'Expense', 'expense_grocery_aug_2026_local',
+     1234, 'Rewritten reason', 'probe-adjustment-immutable-2', 'usr_admin_local'
+   )
+   ON CONFLICT(id) DO UPDATE SET reason = excluded.reason;`,
   "adjustments are immutable",
   "adjustment immutability",
 );
