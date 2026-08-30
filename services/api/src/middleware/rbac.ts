@@ -44,7 +44,9 @@ const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["GET /api/bills", PERMISSIONS.BILLS_READ],
   ["POST /api/bills", PERMISSIONS.BILLS_GENERATE],
   ["DELETE /api/bills", PERMISSIONS.BILLS_DELETE],
-  ["GET /api/billing-cycles/readiness", PERMISSIONS.BILLING_READINESS],
+  ["GET /api/billing-cycles/readiness", PERMISSIONS.BILLING_CYCLES_READ],
+  ["GET /api/billing-cycles", PERMISSIONS.BILLING_CYCLES_READ],
+  ["POST /api/billing-cycles", PERMISSIONS.BILLING_CYCLES_CLOSE],
   ["GET /api/payments", PERMISSIONS.PAYMENTS_READ],
   ["POST /api/payments", PERMISSIONS.PAYMENTS_CREATE],
   ["GET /api/payments/refund", PERMISSIONS.PAYMENTS_REFUND],
@@ -121,6 +123,9 @@ function dynamicPolicy(method: Method, path: string): DynamicPolicy {
   }
   if (method === "POST" && /^\/api\/bills\/[^/]+\/void$/u.test(path)) {
     return PERMISSIONS.BILLS_VOID;
+  }
+  if (method === "POST" && /^\/api\/billing-cycles\/[^/]+\/rollback$/u.test(path)) {
+    return PERMISSIONS.BILLING_CYCLES_ROLLBACK;
   }
   if (method === "GET" && /^\/api\/payments\/[^/]+$/u.test(path)) {
     return PERMISSIONS.PAYMENTS_READ;
