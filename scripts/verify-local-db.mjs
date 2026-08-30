@@ -14,6 +14,11 @@ SELECT
   (SELECT COUNT(*) FROM permissions) AS permissions,
   (SELECT COUNT(*) FROM role_permissions) AS role_permissions,
   (SELECT COUNT(*) FROM meal_configurations WHERE institution_id = 'inst_boardops_local') AS meal_configurations,
+  (SELECT COUNT(*) FROM meal_entries WHERE institution_id = 'inst_boardops_local') AS meal_entries,
+  (SELECT COUNT(*) FROM guest_meals WHERE institution_id = 'inst_boardops_local') AS guest_meals,
+  (SELECT COUNT(*) FROM meal_overrides WHERE institution_id = 'inst_boardops_local') AS meal_overrides,
+  (SELECT COUNT(*) FROM leave_applications WHERE institution_id = 'inst_boardops_local') AS leave_applications,
+  (SELECT COUNT(*) FROM leave_applications WHERE id = 'leave_riya_pending_local' AND status = 'PENDING') AS seeded_pending_leave,
   (SELECT COUNT(*) FROM users WHERE id = 'usr_admin_local' AND email = 'admin@boardops.local' AND role = 'ADMIN' AND status = 'ACTIVE') AS seeded_admin,
   (SELECT COUNT(*) FROM registration_requests WHERE user_id = 'usr_resident_kabir_local' AND cycle = 1 AND status = 'PENDING_REVIEW') AS seeded_registration,
   (SELECT COUNT(*) FROM accounting_periods WHERE institution_id = 'inst_boardops_local' AND status = 'OPEN') AS open_periods,
@@ -58,7 +63,40 @@ SELECT
      JOIN permissions p ON p.id = rp.permission_id
     WHERE r.institution_id = 'inst_boardops_local'
       AND r.role_key = 'USER'
-      AND p.permission_key IN ('meals.config.create','meals.config.update','meals.config.delete')) AS resident_meal_mutations;
+      AND p.permission_key IN ('meals.config.create','meals.config.update','meals.config.delete')) AS resident_meal_mutations,
+  (SELECT COUNT(*)
+     FROM roles r
+     JOIN role_permissions rp ON rp.role_id = r.id
+     JOIN permissions p ON p.id = rp.permission_id
+    WHERE r.institution_id = 'inst_boardops_local'
+      AND r.role_key = 'ADMIN'
+      AND p.permission_key IN (
+        'kitchen.read','kitchen.guest.create','kitchen.guest.delete','meals.override',
+        'leave.read','leave.create','leave.decide'
+      )) AS admin_meal_operations,
+  (SELECT COUNT(*)
+     FROM roles r
+     JOIN role_permissions rp ON rp.role_id = r.id
+     JOIN permissions p ON p.id = rp.permission_id
+    WHERE r.institution_id = 'inst_boardops_local'
+      AND r.role_key = 'MANAGER'
+      AND p.permission_key = 'kitchen.read') AS manager_kitchen_read,
+  (SELECT COUNT(*)
+     FROM roles r
+     JOIN role_permissions rp ON rp.role_id = r.id
+     JOIN permissions p ON p.id = rp.permission_id
+    WHERE r.institution_id = 'inst_boardops_local'
+      AND r.role_key = 'USER'
+      AND p.permission_key IN ('leave.read','leave.create')) AS resident_leave_permissions,
+  (SELECT COUNT(*)
+     FROM roles r
+     JOIN role_permissions rp ON rp.role_id = r.id
+     JOIN permissions p ON p.id = rp.permission_id
+    WHERE r.institution_id = 'inst_boardops_local'
+      AND r.role_key = 'USER'
+      AND p.permission_key IN (
+        'kitchen.read','kitchen.guest.create','kitchen.guest.delete','meals.override','leave.decide'
+      )) AS resident_privileged_meal_operations;
 `;
 
 const result = spawnSync(
@@ -111,13 +149,20 @@ const required = {
   open_periods: 1,
   audit_events: 1,
   roles: 4,
-  permissions: 22,
-  role_permissions: 62,
+  permissions: 29,
+  role_permissions: 81,
   meal_configurations: 3,
+  meal_entries: 3,
+  guest_meals: 1,
+  leave_applications: 1,
+  seeded_pending_leave: 1,
   admin_users_read: 1,
   resident_dashboard_read: 1,
   admin_meal_permissions: 4,
   resident_meal_read: 1,
+  admin_meal_operations: 7,
+  manager_kitchen_read: 1,
+  resident_leave_permissions: 2,
 };
 
 for (const [field, minimum] of Object.entries(required)) {
@@ -136,5 +181,9 @@ if (Number(row.resident_meal_mutations ?? -1) !== 0) {
   console.error(`[BoardOps] RBAC least-privilege invariant failed: resident_meal_mutations=${row.resident_meal_mutations} (expected 0)`);
   process.exit(1);
 }
+if (Number(row.resident_privileged_meal_operations ?? -1) !== 0) {
+  console.error(`[BoardOps] RBAC least-privilege invariant failed: resident_privileged_meal_operations=${row.resident_privileged_meal_operations} (expected 0)`);
+  process.exit(1);
+}
 
-console.log("[BoardOps] Local database + RBAC + meal configuration core verified:", row);
+console.log("[BoardOps] Local database + RBAC + meal configuration + kitchen operations verified:", row);
