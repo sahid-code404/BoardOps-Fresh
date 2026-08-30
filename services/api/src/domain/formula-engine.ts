@@ -88,19 +88,20 @@ function tokenize(expression: string): Token[] {
   };
 
   while (index < expression.length) {
-    const ch = expression[index];
+    const ch = expression.charAt(index);
     if (/\s/u.test(ch)) {
       index += 1;
       continue;
     }
 
-    if (/[0-9]/u.test(ch) || (ch === "." && /[0-9]/u.test(expression[index + 1] ?? ""))) {
+    if (/[0-9]/u.test(ch) || (ch === "." && /[0-9]/u.test(expression.charAt(index + 1)))) {
       const start = index;
       let value = "";
       let dots = 0;
-      while (index < expression.length && /[0-9.]/u.test(expression[index])) {
-        if (expression[index] === ".") dots += 1;
-        value += expression[index];
+      while (index < expression.length && /[0-9.]/u.test(expression.charAt(index))) {
+        const current = expression.charAt(index);
+        if (current === ".") dots += 1;
+        value += current;
         index += 1;
       }
       if (dots > 1) throw new Error(`Invalid number "${value}" at position ${start}`);
@@ -113,8 +114,8 @@ function tokenize(expression: string): Token[] {
       const quote = ch;
       index += 1;
       let value = "";
-      while (index < expression.length && expression[index] !== quote) {
-        value += expression[index];
+      while (index < expression.length && expression.charAt(index) !== quote) {
+        value += expression.charAt(index);
         index += 1;
       }
       if (index >= expression.length) throw new Error(`Unterminated string at position ${start}`);
@@ -126,8 +127,8 @@ function tokenize(expression: string): Token[] {
     if (/[A-Za-z_]/u.test(ch)) {
       const start = index;
       let value = "";
-      while (index < expression.length && /[A-Za-z0-9_]/u.test(expression[index])) {
-        value += expression[index];
+      while (index < expression.length && /[A-Za-z0-9_]/u.test(expression.charAt(index))) {
+        value += expression.charAt(index);
         index += 1;
       }
       push("IDENT", value, start);
@@ -171,13 +172,16 @@ function tokenize(expression: string): Token[] {
 
 function parseFixed(raw: string): bigint {
   const value = raw.trim();
-  const match = /^([+-])?(\d+)(?:\.(\d{0,6}))?$/u.exec(value);
+  const match = /^([+-])?(?:(\d+)(?:\.(\d{0,6}))?|\.(\d{1,6}))$/u.exec(value);
   if (!match) {
     throw new Error(`Numeric value "${raw}" must use at most ${SCALE_DIGITS} decimal places`);
   }
+
   const sign = match[1] === "-" ? -1n : 1n;
-  const whole = BigInt(match[2]);
-  const fraction = BigInt((match[3] ?? "").padEnd(SCALE_DIGITS, "0") || "0");
+  const wholeRaw = match[2] ?? "0";
+  const fractionRaw = match[3] ?? match[4] ?? "";
+  const whole = BigInt(wholeRaw);
+  const fraction = BigInt(fractionRaw.padEnd(SCALE_DIGITS, "0") || "0");
   return sign * (whole * SCALE + fraction);
 }
 
@@ -263,7 +267,9 @@ class Parser {
   constructor(private readonly tokens: Token[]) {}
 
   private peek(): Token {
-    return this.tokens[this.position] ?? this.tokens[this.tokens.length - 1];
+    const token = this.tokens[this.position] ?? this.tokens.at(-1);
+    if (!token) throw new Error("Formula token stream is empty");
+    return token;
   }
 
   private next(): Token {
@@ -432,6 +438,12 @@ type EvalState = {
   resolvedValues: Record<string, string>;
 };
 
+function requiredArg(args: readonly bigint[], index: number, functionName: string): bigint {
+  const value = args[index];
+  if (value === undefined) throw new Error(`${functionName} argument ${index + 1} is missing`);
+  return value;
+}
+
 function evaluateNode(node: Ast, state: EvalState): bigint {
   switch (node.kind) {
     case "number":
@@ -485,27 +497,38 @@ function evaluateNode(node: Ast, state: EvalState): bigint {
     case "call": {
       const args = node.args.map((arg) => evaluateNode(arg, state));
       switch (node.name) {
-        case "ROUND":
+        case "ROUND": {
           if (args.length < 1 || args.length > 2) throw new Error("ROUND(x, n?) requires 1 or 2 arguments");
-          return roundToPlaces(args[0], args.length === 2 ? integerPart(args[1]) : 0n);
+          const value = requiredArg(args, 0, "ROUND");
+          const places = args.length === 2 ? integerPart(requiredArg(args, 1, "ROUND")) : 0n;
+          return roundToPlaces(value, places);
+        }
         case "FLOOR":
           if (args.length !== 1) throw new Error("FLOOR(x) requires 1 argument");
-          return floorFixed(args[0]);
+          return floorFixed(requiredArg(args, 0, "FLOOR"));
         case "CEIL":
           if (args.length !== 1) throw new Error("CEIL(x) requires 1 argument");
-          return ceilFixed(args[0]);
-        case "ABS":
+          return ceilFixed(requiredArg(args, 0, "CEIL"));
+        case "ABS": {
           if (args.length !== 1) throw new Error("ABS(x) requires 1 argument");
-          return args[0] < 0n ? -args[0] : args[0];
-        case "MIN":
+          const value = requiredArg(args, 0, "ABS");
+          return value < 0n ? -value : value;
+        }
+        case "MIN": {
           if (args.length === 0) throw new Error("MIN requires at least 1 argument");
-          return args.reduce((minimum, value) => value < minimum ? value : minimum);
-        case "MAX":
+          const first = requiredArg(args, 0, "MIN");
+          return args.slice(1).reduce((minimum, value) => value < minimum ? value : minimum, first);
+        }
+        case "MAX": {
           if (args.length === 0) throw new Error("MAX requires at least 1 argument");
-          return args.reduce((maximum, value) => value > maximum ? value : maximum);
+          const first = requiredArg(args, 0, "MAX");
+          return args.slice(1).reduce((maximum, value) => value > maximum ? value : maximum, first);
+        }
         case "IF":
           if (args.length !== 3) throw new Error("IF(cond, then, else) requires 3 arguments");
-          return args[0] !== 0n ? args[1] : args[2];
+          return requiredArg(args, 0, "IF") !== 0n
+            ? requiredArg(args, 1, "IF")
+            : requiredArg(args, 2, "IF");
         case "SUM":
           return args.reduce((sum, value) => sum + value, 0n);
         case "AVG":
@@ -515,33 +538,41 @@ function evaluateNode(node: Ast, state: EvalState): bigint {
           return BigInt(args.length) * SCALE;
         case "ROUNDUP":
           if (args.length !== 1) throw new Error("ROUNDUP(x) requires 1 argument");
-          return ceilFixed(args[0]);
+          return ceilFixed(requiredArg(args, 0, "ROUNDUP"));
         case "ROUNDDOWN":
           if (args.length !== 1) throw new Error("ROUNDDOWN(x) requires 1 argument");
-          return floorFixed(args[0]);
+          return floorFixed(requiredArg(args, 0, "ROUNDDOWN"));
         case "AND":
           return args.every((value) => value !== 0n) ? SCALE : 0n;
         case "OR":
           return args.some((value) => value !== 0n) ? SCALE : 0n;
         case "NOT":
           if (args.length !== 1) throw new Error("NOT(x) requires 1 argument");
-          return args[0] === 0n ? SCALE : 0n;
+          return requiredArg(args, 0, "NOT") === 0n ? SCALE : 0n;
         case "POWER":
           if (args.length !== 2) throw new Error("POWER(x, y) requires 2 arguments");
-          return powFixed(args[0], args[1]);
-        case "SQRT":
+          return powFixed(requiredArg(args, 0, "POWER"), requiredArg(args, 1, "POWER"));
+        case "SQRT": {
           if (args.length !== 1) throw new Error("SQRT(x) requires 1 argument");
-          if (args[0] < 0n) throw new Error("SQRT requires a non-negative value");
-          return integerSqrt(args[0] * SCALE);
-        case "MOD":
+          const value = requiredArg(args, 0, "SQRT");
+          if (value < 0n) throw new Error("SQRT requires a non-negative value");
+          return integerSqrt(value * SCALE);
+        }
+        case "MOD": {
           if (args.length !== 2) throw new Error("MOD(x, y) requires 2 arguments");
-          if (args[1] === 0n) throw new Error("MOD division by zero");
-          return args[0] % args[1];
+          const left = requiredArg(args, 0, "MOD");
+          const right = requiredArg(args, 1, "MOD");
+          if (right === 0n) throw new Error("MOD division by zero");
+          return left % right;
+        }
         case "COALESCE":
           return args.find((value) => value !== 0n) ?? 0n;
-        case "NULLIF":
+        case "NULLIF": {
           if (args.length !== 2) throw new Error("NULLIF(x, y) requires 2 arguments");
-          return args[0] === args[1] ? 0n : args[0];
+          const left = requiredArg(args, 0, "NULLIF");
+          const right = requiredArg(args, 1, "NULLIF");
+          return left === right ? 0n : left;
+        }
         default:
           throw new Error(`Unsupported function ${node.name}`);
       }
@@ -608,9 +639,12 @@ export function normalizeNumericVariable(value: string, maxDecimals: number): st
   const trimmed = value.trim();
   const match = /^([+-])?(\d+)(?:\.(\d+))?$/u.exec(trimmed);
   if (!match || (match[3]?.length ?? 0) > maxDecimals) return null;
+  const wholeRaw = match[2];
+  if (!wholeRaw) return null;
+
   try {
     const sign = match[1] === "-" ? "-" : "";
-    const whole = BigInt(match[2]).toString();
+    const whole = BigInt(wholeRaw).toString();
     const fraction = (match[3] ?? "").replace(/0+$/u, "");
     return `${sign}${whole}${fraction ? `.${fraction}` : ""}`;
   } catch {
