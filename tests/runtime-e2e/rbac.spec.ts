@@ -93,6 +93,42 @@ test("RBAC is database-driven, cookie-only and fail-closed", async ({ browser })
       requiredPermission: "users.status_change",
     });
 
+    // Meal definitions are resident-safe read data used by the future meal-entry
+    // experience, but configuration mutations remain an administrator concern.
+    const residentMealRead = await residentApi.get(`${API}/api/meals/config`);
+    expect(residentMealRead.ok()).toBeTruthy();
+    const residentMealBody = await residentMealRead.json() as {
+      success: boolean;
+      data: Array<{ name: string; status: string }>;
+    };
+    expect(residentMealBody.success).toBe(true);
+    expect(residentMealBody.data).toHaveLength(3);
+    expect(residentMealBody.data.every((meal) => meal.status === "ACTIVE")).toBe(true);
+
+    const deniedMealCreate = await residentApi.post(`${API}/api/meals/config`, {
+      data: {
+        name: "resident_forbidden_meal",
+        displayName: "Resident Forbidden Meal",
+        icon: "🍽️",
+        color: "#8b5cf6",
+        mealType: "REGULAR",
+        displayOrder: 99,
+        defaultState: "OFF",
+        defaultVisibility: "VISIBLE",
+        cutoffStrategy: "SAME_DAY",
+        cutoffOffsetMinutes: 0,
+        cutoffTime: "16:00",
+        startTime: "18:00",
+        endTime: "19:00",
+      },
+    });
+    expect(deniedMealCreate.status()).toBe(403);
+    await expect(deniedMealCreate.json()).resolves.toMatchObject({
+      success: false,
+      error: "Permission denied",
+      requiredPermission: "meals.config.create",
+    });
+
     // The RBAC boundary must not inherit the Phase 04 bearer compatibility
     // path. A raw value copied from the HttpOnly cookie and replayed only as a
     // bearer header must be rejected when no cookie is present.
