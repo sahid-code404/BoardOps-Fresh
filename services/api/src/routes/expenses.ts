@@ -482,8 +482,8 @@ expenseRoutes.delete("/expenses/:id", async (c) => {
   );
   if (periodError) return periodError;
 
-  const body = await readObjectBody(c).catch(() => ({}));
-  const reason = body ? normalizeOptionalText(body.reason, 500) : null;
+  const body = await readObjectBody(c);
+  const reason = body ? normalizeOptionalText(body["reason"], 500) : null;
   const deletedOn = new Date();
   const scheduledFor = new Date(deletedOn.getTime() + 7 * 24 * 60 * 60 * 1000);
   const now = deletedOn.toISOString();
