@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-08-30 — Phase 04 authentication core verified
+- CI run `33297620321` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed verification, Worker/API smoke, real-D1 browser runtime smoke, and the complete Phase 02 visual regression suite at verification head `f04cc0f384f9083c1ba8bc9448ca1c3b24f5464b`.
+- Added immutable `0003_auth_core.sql` and `0004_auth_workflows.sql` for digested server sessions, login history, registration-review cycles, and one-time authentication challenges.
+- Authentication now uses opaque HttpOnly cookie sessions whose raw credentials are never stored in D1 or browser localStorage; account bootstrap waits for `/api/auth/me` before mounting the authenticated shell.
+- Completed registration persistence, email verification, protected applicant status polling, administrator approval/reject/request-changes, correction resubmission, and mandatory email re-verification when the corrected address changes.
+- Hardened the registration review state machine so pending users cannot bypass approval via generic activation, approvals cannot skip requested corrections, and rejected registrations cannot bypass rejection through the normal restore path.
+- Added non-enumerating password recovery/reset with expiring challenges, shared password policy enforcement, and revocation of old sessions after reset.
+- Suspending, deactivating, or archiving an account revokes its existing server sessions; browser coverage proves the pre-disable credential remains rejected even after account reactivation.
+- Protected the last active administrator from disable/demotion operations that would strand the institution without an administrator.
+- Completed real-runtime Profile security actions including active-session presentation/revocation, password change, audited profile mutation, and avatar R2 round-trip.
+- Production auth-email delivery remains intentionally fail-closed until a real provider is configured; CI proves unavailable delivery does not create a partial registration mutation. Optional 2FA is not claimed by this phase.
+- Phase 04 is closed as VERIFIED. Fine-grained permission-based backend RBAC remains Phase 05 work. No production deployment was performed.
+
 ## 2026-08-29 — Phase 02 frontend golden-master port verified
 - CI run `33272421363` passed the frozen install, TypeScript, unit tests, production builds, clean D1 reset/migrate/seed verification, Worker smoke, real-D1 authenticated browser runtime smoke, and the complete Phase 02 visual browser gate at implementation head `3349f8c715ba3fee3891fa8117c7cf67bc20b3c5`.
 - Canonical browser routes now cover every audited top-level golden-master view, with `/` canonicalized to `/dashboard`, browser Back/Forward synchronization, and guarded runtime route values.
