@@ -18,6 +18,7 @@ import { paymentRoutes } from "./routes/payments";
 import { refundAdjustmentRoutes } from "./routes/refunds-adjustments";
 import { reportRoutes } from "./routes/reports";
 import { runtimeRoutes } from "./routes/runtime";
+import { settingsPoliciesHolidaysRoutes } from "./routes/settings-policies-holidays";
 import { userRoutes } from "./routes/users";
 import { user360Routes } from "./routes/user-360";
 import { variableFormulaRoutes } from "./routes/variables-formulas";
@@ -60,6 +61,9 @@ const REQUIRED_CORE_TABLES = [
   "formula_versions",
   "announcements",
   "notifications",
+  "settings",
+  "policies",
+  "holidays",
 ] as const;
 
 type ActivityRow = {
@@ -116,9 +120,9 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 74 ||
+      Number(baseline?.permission_count ?? 0) < 85 ||
       Number(baseline?.role_count ?? 0) < 4 ||
-      Number(baseline?.grant_count ?? 0) < 182
+      Number(baseline?.grant_count ?? 0) < 212
     ) {
       throw new Error("RBAC baseline is incomplete");
     }
@@ -144,9 +148,10 @@ app.get("/api/ready", async (c) => {
 
 app.route("/api/auth", authRoutes);
 app.route("/api/auth", authWorkflowRoutes);
-// Canonical communication/report routes must precede runtime compatibility placeholders.
+// Canonical communication/report/settings routes must precede runtime compatibility placeholders.
 app.route("/api", notificationAnnouncementRoutes);
 app.route("/api", reportRoutes);
+app.route("/api", settingsPoliciesHolidaysRoutes);
 app.route("/api", runtimeRoutes);
 app.route("/api", userRoutes);
 app.route("/api", user360Routes);
@@ -244,6 +249,18 @@ app.get("/api/dashboard", async (c) => {
       isAdmin,
     },
   });
+});
+
+app.onError((error, c) => {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("meal booking disabled by active holiday")) {
+    return c.json(
+      { success: false, error: "Meal booking is disabled for this holiday" },
+      409,
+    );
+  }
+  console.error("[BoardOps] Unhandled API error", error);
+  return c.json({ success: false, error: "Internal server error" }, 500);
 });
 
 export default app;

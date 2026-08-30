@@ -33,6 +33,14 @@ const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["GET /api/reports/outstanding", PERMISSIONS.REPORTS_READ],
   ["GET /api/reports/residents", PERMISSIONS.REPORTS_READ],
   ["GET /api/reports/export", PERMISSIONS.REPORTS_EXPORT],
+  ["GET /api/settings", PERMISSIONS.SETTINGS_READ],
+  ["POST /api/settings", PERMISSIONS.SETTINGS_WRITE],
+  ["GET /api/institution", PERMISSIONS.INSTITUTION_READ],
+  ["PUT /api/institution", PERMISSIONS.INSTITUTION_UPDATE],
+  ["GET /api/policies", PERMISSIONS.POLICIES_READ],
+  ["PUT /api/policies", PERMISSIONS.POLICIES_UPDATE],
+  ["GET /api/holidays", PERMISSIONS.HOLIDAYS_READ],
+  ["POST /api/holidays", PERMISSIONS.HOLIDAYS_CREATE],
   ["GET /api/auth/me", PERMISSIONS.PROFILE_READ_SELF],
   ["GET /api/auth/profile", PERMISSIONS.PROFILE_READ_SELF],
   ["PUT /api/auth/profile", PERMISSIONS.PROFILE_UPDATE_SELF],
@@ -93,6 +101,15 @@ function dynamicPolicy(method: Method, path: string): DynamicPolicy {
   }
   if (method === "DELETE" && /^\/api\/announcements\/[^/]+$/u.test(path)) {
     return PERMISSIONS.ANNOUNCEMENTS_ARCHIVE;
+  }
+  if (method === "DELETE" && /^\/api\/settings\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.SETTINGS_DELETE;
+  }
+  if (method === "PATCH" && /^\/api\/holidays\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.HOLIDAYS_UPDATE;
+  }
+  if (method === "DELETE" && /^\/api\/holidays\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.HOLIDAYS_ARCHIVE;
   }
   if (method === "GET" && /^\/api\/users\/[^/]+\/360$/u.test(path)) {
     return PERMISSIONS.USERS_READ;
