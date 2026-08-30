@@ -12,6 +12,9 @@ const CORE_TABLES = [
   "login_history",
   "registration_requests",
   "auth_challenges",
+  "roles",
+  "permissions",
+  "role_permissions",
 ];
 
 function mockDb(tableNames = CORE_TABLES): D1Database {
@@ -20,6 +23,12 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
       if (sql.includes("SELECT 1 AS ok")) {
         return {
           first: async () => ({ ok: 1 }),
+        };
+      }
+
+      if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
+        return {
+          first: async () => ({ permission_count: 18, role_count: 4, grant_count: 1 }),
         };
       }
 
@@ -46,7 +55,7 @@ describe("health endpoint", () => {
 });
 
 describe("readiness endpoint", () => {
-  it("requires the complete Phase 04 auth workflow D1 schema", async () => {
+  it("requires the complete Phase 05 RBAC D1 schema and baseline", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
@@ -57,22 +66,22 @@ describe("readiness endpoint", () => {
     await expect(response.json()).resolves.toEqual({
       status: "ready",
       service: "boardops-api",
-      schema: "phase04-auth-workflows",
+      schema: "phase05-rbac",
     });
   });
 
-  it("fails closed when a required auth workflow table is missing", async () => {
+  it("fails closed when a required Phase 05 RBAC table is missing", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
-      { DB: mockDb(CORE_TABLES.filter((name) => name !== "auth_challenges")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "role_permissions")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({
       status: "not_ready",
       service: "boardops-api",
-      schema: "phase04-auth-workflows",
+      schema: "phase05-rbac",
     });
   });
 });
