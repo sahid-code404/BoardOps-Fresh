@@ -128,13 +128,18 @@ if (!row) {
   process.exit(1);
 }
 
+// Expenses owns exact assertions for its own evidence and grants. Global RBAC
+// totals are checkpoint minimums because later modules are expected to add
+// permissions without invalidating this already-verified domain.
+const minimum = {
+  permissions: 50,
+  role_permissions: 128,
+};
 const exact = {
   seeded_grocery: 1,
   seeded_utilities: 1,
   august_expenses_minor: 450000,
   expense_guards: 4,
-  permissions: 50,
-  role_permissions: 128,
   admin_expense_permissions: 5,
   resident_expense_read: 1,
   resident_expense_mutations: 0,
@@ -145,6 +150,13 @@ const exact = {
 if (Number(row.expenses ?? 0) < 2) {
   console.error(`[BoardOps] Expenses invariant failed: expenses=${row.expenses} (expected >= 2)`);
   process.exit(1);
+}
+for (const [field, expected] of Object.entries(minimum)) {
+  const value = Number(row[field] ?? -1);
+  if (!Number.isFinite(value) || value < expected) {
+    console.error(`[BoardOps] Expenses baseline invariant failed: ${field}=${row[field]} (expected >= ${expected})`);
+    process.exit(1);
+  }
 }
 for (const [field, expected] of Object.entries(exact)) {
   const value = Number(row[field] ?? -1);
