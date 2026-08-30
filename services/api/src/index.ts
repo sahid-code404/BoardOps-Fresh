@@ -6,6 +6,7 @@ import { authRoutes } from "./routes/auth";
 import { authWorkflowRoutes } from "./routes/auth-workflows";
 import { runtimeRoutes } from "./routes/runtime";
 import { userRoutes } from "./routes/users";
+import { user360Routes } from "./routes/user-360";
 import type { AppEnv } from "./types";
 
 const app = new Hono<AppEnv>();
@@ -107,6 +108,7 @@ app.route("/api/auth", authRoutes);
 app.route("/api/auth", authWorkflowRoutes);
 app.route("/api", runtimeRoutes);
 app.route("/api", userRoutes);
+app.route("/api", user360Routes);
 
 app.get("/api/dashboard", async (c) => {
   const viewer = await authenticatedPrincipal(c);
