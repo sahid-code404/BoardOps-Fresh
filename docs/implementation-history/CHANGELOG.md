@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-08-30 — Payments core implementation verified
+- CI run `33306270289` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/invariant verification, Worker/API smoke, the full real-D1 Playwright runtime suite, and the complete Phase 02 visual regression suite at implementation verification head `e3d5450ca146b92008025fcc3b0f31e9d3ec64d5`.
+- Added immutable `0010_payments_core.sql` with canonical institution-scoped payments/refunds, integer minor-unit storage, explicit indexes/constraints, and D1 triggers that reject REAL/non-integer money values instead of trusting SQLite INTEGER affinity.
+- Existing non-zero bill paid balances are migrated into deterministic approved payment evidence, while clean local resets seed equivalent canonical history after Billing fixtures so upgrade and clean-install paths preserve the same accounting authority.
+- Payment approval/rejection/void/delete/restore recomputes bill paid/due state from canonical payment evidence. Approved amounts cannot be edited in place, repeated approval is idempotent, and restore preserves the exact pre-delete state rather than silently reactivating financial evidence.
+- Resident payment submission is self-scoped and idempotency-key protected; major-unit input is validated to at most two decimals and converted to integer minor units before persistence.
+- Refund handling only associates a refund with a bill when that bill contains sufficient overpayment, preventing unallocated resident credit refunds from incorrectly reopening a settled bill.
+- Expanded fail-closed RBAC to 44 permissions / 114 deterministic role grants: Admin/Super Admin receive payment/refund administration, USER receives only `payments.read` + `payments.create`, and MANAGER receives read-only payment access.
+- Clean-D1 verification proves canonical ₹5,000 historical payment evidence, the ₹2,500 pending lifecycle fixture, exact bill arithmetic, four integer-money enforcement triggers, and least-privilege grants.
+- Real-runtime browser coverage proves the administrator payment lifecycle plus resident self-scope, ₹123.45 minor-unit conversion, idempotency replay, permission-specific mutation denial, and live-shell Payments UI rendering. No production deployment was performed.
+- Payments implementation is VERIFIED. Formal checkpoint closure is contingent on the latest documentation-head CI run also remaining fully green.
+
+## 2026-08-30 — Billing core implementation verified
+- CI run `33304568070` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/invariant verification, Worker/API smoke, real-D1 Playwright runtime smoke, and the complete Phase 02 visual regression suite at implementation verification head `a058e1983419b02a00b1977382dcd20bc17e582e`.
+- Added immutable `0009_billing_core.sql` with immutable billing snapshots and bill records backed by integer minor-unit accounting fields, arithmetic constraints, targeted indexes, and snapshot/bill immutability enforcement.
+- Bill generation is snapshot-driven and idempotent: rerunning a generated period does not re-price an existing bill, and generation is rejected when accounting-period/readiness conditions are not satisfied.
+- Billing routes expose readiness, period bill reads/generation, explicit financial voiding, soft deletion, deletion-queue reads, and restoration while preserving historical financial state.
+- The imported golden Billing UI keeps its visual/workflow behavior, but the legacy body-less DELETE used by its Void control is routed to the explicit financial void endpoint so void and soft delete remain distinct accounting actions.
+- Billing RBAC is explicit and fail-closed: administrators receive billing mutations while resident/manager access remains read-only where required.
+- Clean-D1 verification proves deterministic June/July snapshots, the seeded July bill, bill arithmetic, immutability triggers, and least-privilege Billing grants.
+- Real-runtime browser coverage proves snapshot readiness, bill generation, idempotent regeneration, financial void, soft-delete/restore semantics, closed-period rejection, and visible real D1 Billing data. No production deployment was performed.
+- Billing implementation is VERIFIED. Formal checkpoint closure is contingent on the latest documentation-head CI run also remaining fully green.
+
 ## 2026-08-30 — Phase 05 permission-based RBAC verified
 - CI run `33298914080` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/invariant verification, Worker/API smoke, real-D1 Playwright runtime smoke, and the complete Phase 02 visual regression suite at implementation verification head `aa7c5acbd759f88cf2c2f939a32b4d5b6cf3b1f2`.
 - Added immutable `0005_rbac.sql` with institution-scoped roles, 18 canonical permissions, and explicit role-permission grants; `users.role` remains only the compatibility role key while D1 grants are authoritative for protected backend authorization.
