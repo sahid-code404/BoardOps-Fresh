@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-08-30 — Reports / Exports implementation verified
+- CI run `33328815790` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset through all 19 migrations, deterministic invariant verification, Worker/API readiness smoke, **24/24 real-D1 Playwright runtime tests**, and **46/46 visual tests** at implementation verification head `23d6d589df21311b29e1e9738198f1521092ee70`.
+- Added immutable `0019_reports_exports.sql` with fail-closed `reports.read` / `reports.export`, Admin/Super Admin-only grants, and future-role bootstrap. Current clean-D1 RBAC baseline is **74 permissions / 182 grants**.
+- Added canonical five-surface Reports APIs (Financial, Meals, Purchases, Outstanding, Residents) that query existing D1 authorities instead of introducing a reporting ledger or mutable financial snapshot.
+- Financial and resident reports derive from canonical integer-money Bills, Payments, Refunds, Expenses and existing canonical correction evidence; meal reports consume canonical meal, guest, and override evidence.
+- Purchases remains a truthful empty report/export boundary until the separate Products/Purchases owning module is implemented; Reports does not invent purchase evidence or silently substitute Expenses.
+- Report periods are validated and bounded using the institution timezone. CSV exports are deterministic, institution-scoped, permission-protected, and generated from the same canonical evidence as the JSON report surfaces.
+- Reports is a genuine lazy `/reports` route and is deliberately excluded from priority preloads. No materialized report store or eager first-paint report work was added.
+- Dedicated runtime coverage proves canonical deterministic values, all five APIs, CSV output, invalid-period rejection, resident permission-specific denial, and authenticated-shell rendering.
+- Dedicated visual coverage proves the five-tab Reports UX, canonical fixture values, truthful empty Purchases, and `/reports` across the responsive/theme route matrix.
+- One visual failure exposed a real router omission: the Reports loader existed but `LazyViewRouter` had no `reports` case, so the shell title rendered while Dashboard content mounted. The final fix mounts the Reports chunk lazily; no report, accounting, or authorization rule was weakened.
+- Reports / Exports implementation is VERIFIED. Formal project-record closure is contingent on the latest documentation-head CI run also remaining fully green. Products/Purchases remains AUDITED. No production deployment was performed, and the golden repository remained read-only.
+
 ## 2026-08-30 — Notifications / Announcements implementation verified
 - CI run `33325585962` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset through all 18 migrations, deterministic invariant verification, Worker/API readiness smoke, **23/23 real-D1 Playwright runtime tests**, and **42/42 visual tests** at implementation verification head `18495eaf7139dc468effffd8386b07b7e5226692`.
 - Added immutable `0017_notifications_announcements.sql` with durable institution/user-scoped inbox evidence, audience-scoped announcements, stable per-recipient delivery keys, published-announcement immutability, durable no-hard-delete history, and fail-closed read/publish/archive permissions.

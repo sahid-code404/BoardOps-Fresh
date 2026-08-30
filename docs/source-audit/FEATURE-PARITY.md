@@ -17,7 +17,7 @@
 | Billing cycles/snapshots/bills | billing/closing | billing | Required | Workflow intent | immutable snapshot-only billing | clean D1 + runtime + visual | VERIFIED |
 | Monthly closing | monthly-closing | monthly-closing | Required | User workflow | resumable fail-closed state machine + immutable Formula/version snapshot + D1 source locks | clean D1 + runtime + visual | VERIFIED |
 | Notifications/announcements | notifications | notifications | Required | Required | durable idempotent self-scoped delivery + transactional domain-event fan-out | clean D1 + runtime + visual | VERIFIED |
-| Reports/exports | reports/system | reports | Required | Required | lazy/background work | planned | AUDITED |
+| Reports/exports | reports/system | reports | Required | Required | canonical lazy D1 read models + deterministic scoped CSV export | clean D1 + runtime + visual | VERIFIED |
 | Settings/policies/holidays | settings/calendar | settings | Required | Required | validation/permissions | planned | AUDITED |
 | Profile/personalization | auth/personalization | profile | Required | Required | secure persistence | planned | AUDITED |
 | Audit/system/background tasks | audit/system | audit/system | Required | Required | immutable audit + Cloudflare background primitives | planned | AUDITED |
