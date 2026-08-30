@@ -28,7 +28,7 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
     };
 
     const julyBefore = await request("/api/bills?month=6&year=2026");
-    const juneReadiness = await request("/api/billing-cycles/readiness?month=5&year=2026");
+    const juneClosingReadiness = await request("/api/billing-cycles/readiness?month=5&year=2026");
     const juneGenerated = await request("/api/bills", {
       method: "POST",
       body: JSON.stringify({ month: 5, year: 2026, dueDate: "2026-12-10" }),
@@ -62,7 +62,7 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
 
     return {
       julyBefore,
-      juneReadiness,
+      juneClosingReadiness,
       juneGenerated,
       juneAfter,
       juneRegenerated,
@@ -92,12 +92,15 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
     ]),
   );
 
-  expect(result.juneReadiness.status).toBe(200);
-  expect(result.juneReadiness.body).toMatchObject({ success: true, data: { canClose: true } });
-  expect(result.juneReadiness.body.data.items).toEqual(
+  // `/billing-cycles/readiness` is the Monthly Closing contract now. June has
+  // an immutable Billing-Core snapshot but no cycle-owned closing workflow, so
+  // closing must fail closed while direct snapshot bill generation remains valid.
+  expect(result.juneClosingReadiness.status).toBe(200);
+  expect(result.juneClosingReadiness.body).toMatchObject({ success: true, data: { canClose: false } });
+  expect(result.juneClosingReadiness.body.data.items).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ key: "snapshot", status: "ready" }),
-      expect.objectContaining({ key: "residents", status: "ready", count: 1 }),
+      expect.objectContaining({ key: "cycle", status: "error" }),
+      expect.objectContaining({ key: "snapshot", status: "error" }),
     ]),
   );
 
