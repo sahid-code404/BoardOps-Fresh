@@ -170,14 +170,20 @@ test("registration UI survives verification, correction, reverification, resubmi
     });
     expect(suspend.ok()).toBeTruthy();
 
-    const suspendedMe = await page.context().request.get(`${API}/api/auth/me`);
-    expect(suspendedMe.status()).toBe(401);
+    // Use a protected endpoint that does not clear the browser cookie on 401.
+    // This proves the status gate immediately rejects the disabled account while
+    // retaining the exact credential for the reactivation check below.
+    const suspendedDashboard = await page.context().request.get(`${API}/api/dashboard`);
+    expect(suspendedDashboard.status()).toBe(401);
 
     const reactivate = await adminApi.patch(`${API}/api/users/${applicant!.id}`, {
       data: { action: "ACTIVATE", reason: "Restore after session revocation verification" },
     });
     expect(reactivate.ok()).toBeTruthy();
 
+    // The same pre-suspension cookie must still fail after the account becomes
+    // ACTIVE again. If this ever returns 200, the disable path only hid the
+    // session behind account status instead of actually revoking it in D1.
     const reusedRevokedSession = await page.context().request.get(`${API}/api/auth/me`);
     expect(reusedRevokedSession.status()).toBe(401);
   } finally {
