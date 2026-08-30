@@ -1,10 +1,12 @@
 # Phase 05 — Permission-Based RBAC Checkpoint
 
 ## Status
-VERIFIED IMPLEMENTATION — permission-based backend RBAC is implemented and all functional/visual verification gates are green on the implementation head recorded below. This documentation commit must also pass the full latest-head CI gate before Phase 05 is declared formally closed.
+VERIFIED — permission-based backend RBAC is implemented, the implementation verification head passed the complete functional/visual gate, and the documentation verification head also passed the complete latest-head CI gate. Phase 05 is formally closed.
 
 Implementation verification head: `aa7c5acbd759f88cf2c2f939a32b4d5b6cf3b1f2`  
-Implementation CI run: `33298914080`
+Implementation CI run: `33298914080`  
+Documentation verification head: `2bad3e059f7f03bee2a5f328d438651f95d8510e`  
+Documentation CI run: `33299148953`
 
 No production deployment was performed.
 
@@ -79,7 +81,7 @@ The real-D1 Playwright RBAC suite proves the backend boundary rather than relyin
 - An administrator calling an unmapped future API route receives `403 RBAC policy missing for endpoint`.
 
 ## Verification gates
-CI run `33298914080` passed all implementation exit gates at head `aa7c5acbd759f88cf2c2f939a32b4d5b6cf3b1f2`:
+CI run `33298914080` passed all implementation exit gates at head `aa7c5acbd759f88cf2c2f939a32b4d5b6cf3b1f2`, and CI run `33299148953` repeated the complete gate successfully on documentation head `2bad3e059f7f03bee2a5f328d438651f95d8510e`:
 - deterministic lockfile validation
 - frozen dependency installation
 - TypeScript typecheck
@@ -111,4 +113,4 @@ CI run `33298914080` passed all implementation exit gates at head `aa7c5acbd759f
 - Optional 2FA and a real production authentication-email provider remain outside this phase, as already documented by Phase 04.
 
 ## Final status
-IMPLEMENTATION VERIFIED — documentation-head CI pending. Phase 05 must be declared formally VERIFIED and closed only after the latest documentation head passes the complete CI suite.
+VERIFIED — Phase 05 permission-based RBAC is formally closed. The implementation and documentation verification heads both passed the complete CI gate, with no production deployment performed.
