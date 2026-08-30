@@ -28,6 +28,13 @@ export const PERMISSIONS = {
   MEALS_CONFIG_CREATE: "meals.config.create",
   MEALS_CONFIG_UPDATE: "meals.config.update",
   MEALS_CONFIG_DELETE: "meals.config.delete",
+  KITCHEN_READ: "kitchen.read",
+  KITCHEN_GUEST_CREATE: "kitchen.guest.create",
+  KITCHEN_GUEST_DELETE: "kitchen.guest.delete",
+  MEALS_OVERRIDE: "meals.override",
+  LEAVE_READ: "leave.read",
+  LEAVE_CREATE: "leave.create",
+  LEAVE_DECIDE: "leave.decide",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
