@@ -116,9 +116,14 @@ if (!row) {
   process.exit(1);
 }
 
-const expected = {
+// Funds owns exact assertions for its derived accounting inputs and permission
+// grants. Global RBAC totals are checkpoint minimums so later modules can add
+// permissions without invalidating this already-verified domain.
+const minimum = {
   permissions: 50,
   role_permissions: 128,
+};
+const exact = {
   admin_funds_read: 1,
   super_admin_funds_read: 1,
   manager_funds_read: 0,
@@ -130,7 +135,14 @@ const expected = {
   august_bills: 0,
 };
 
-for (const [field, value] of Object.entries(expected)) {
+for (const [field, value] of Object.entries(minimum)) {
+  const actual = Number(row[field] ?? -1);
+  if (!Number.isFinite(actual) || actual < value) {
+    console.error(`[BoardOps] Funds baseline invariant failed: ${field}=${row[field]} (expected >= ${value})`);
+    process.exit(1);
+  }
+}
+for (const [field, value] of Object.entries(exact)) {
   const actual = Number(row[field] ?? -1);
   if (actual !== value) {
     console.error(`[BoardOps] Funds invariant failed: ${field}=${row[field]} (expected ${value})`);
