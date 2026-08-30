@@ -16,10 +16,11 @@ test("visual Formula Engine renders deterministic Variables and Formula versions
   await expect(page.getByRole("tab", { name: "Formulas", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create Variable", exact: true })).toBeVisible();
 
-  await expect(page.getByText("Total", { exact: true })).toBeVisible();
-  await expect(page.getByText("System", { exact: true })).toBeVisible();
-  await expect(page.getByText("Custom", { exact: true })).toBeVisible();
-  await expect(page.getByText("Categories", { exact: true })).toBeVisible();
+  const statsBar = page.locator(".grid-kpi").first();
+  await expect(statsBar.getByText("Total", { exact: true })).toBeVisible();
+  await expect(statsBar.getByText("System", { exact: true })).toBeVisible();
+  await expect(statsBar.getByText("Custom", { exact: true })).toBeVisible();
+  await expect(statsBar.getByText("Categories", { exact: true })).toBeVisible();
   await expect(page.getByText("Monthly Room Rent", { exact: true })).toBeVisible();
   await expect(page.getByText("Cleaning Charges", { exact: true })).toBeVisible();
 
