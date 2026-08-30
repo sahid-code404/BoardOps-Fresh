@@ -16,6 +16,10 @@ const CORE_TABLES = [
   "permissions",
   "role_permissions",
   "meal_configurations",
+  "meal_entries",
+  "guest_meals",
+  "meal_overrides",
+  "leave_applications",
 ];
 
 function mockDb(tableNames = CORE_TABLES): D1Database {
@@ -29,7 +33,7 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
 
       if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
         return {
-          first: async () => ({ permission_count: 22, role_count: 4, grant_count: 62 }),
+          first: async () => ({ permission_count: 29, role_count: 4, grant_count: 81 }),
         };
       }
 
@@ -56,7 +60,7 @@ describe("health endpoint", () => {
 });
 
 describe("readiness endpoint", () => {
-  it("requires the complete RBAC + meal configuration D1 schema and baseline", async () => {
+  it("requires the complete RBAC + meal operations D1 schema and baseline", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
@@ -71,11 +75,11 @@ describe("readiness endpoint", () => {
     });
   });
 
-  it("fails closed when a required core table is missing", async () => {
+  it("fails closed when a required meal-operations table is missing", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
-      { DB: mockDb(CORE_TABLES.filter((name) => name !== "meal_configurations")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "meal_entries")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
 
     expect(response.status).toBe(503);
