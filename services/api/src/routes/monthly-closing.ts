@@ -1027,6 +1027,7 @@ monthlyClosingRoutes.post("/billing-cycles", async (c) => {
     if (!cycle) return c.json({ success: false, error: "Unable to establish billing cycle" }, 500);
 
     if (cycle.status === "PREPARING") {
+      const preparingCycleId = cycle.id;
       try {
         const draft = await createDraft(c, principal, month, year, readiness);
         const draftJson = JSON.stringify(draft);
@@ -1046,11 +1047,11 @@ monthlyClosingRoutes.post("/billing-cycles", async (c) => {
             draft.inputs.guestRevenueMinor,
             draft.inputs.totalMealChargesMinor,
             draftNow,
-            cycle.id,
+            preparingCycleId,
             principal.institutionId,
           )
           .run();
-        await addCycleEvent(c, principal, cycle.id, "PREPARING", "SNAPSHOT_CREATED", null, {
+        await addCycleEvent(c, principal, preparingCycleId, "PREPARING", "SNAPSHOT_CREATED", null, {
           residentCount: draft.residents.length,
           variableVersions: draft.variables.map((variable) => variable.versionId),
           formulaVersions: [draft.formulas.mealCharges.versionId, draft.formulas.totalBill.versionId],
@@ -1062,8 +1063,8 @@ monthlyClosingRoutes.post("/billing-cycles", async (c) => {
         await c.env.DB.prepare(
           `UPDATE billing_cycles SET status = 'FAILED', error_message = ?, updated_at = ?
             WHERE id = ? AND institution_id = ? AND published_snapshot_id IS NULL`,
-        ).bind(message.slice(0, 2000), failedAt, cycle.id, principal.institutionId).run();
-        await addCycleEvent(c, principal, cycle.id, "PREPARING", "FAILED", message, {});
+        ).bind(message.slice(0, 2000), failedAt, preparingCycleId, principal.institutionId).run();
+        await addCycleEvent(c, principal, preparingCycleId, "PREPARING", "FAILED", message, {});
         cycle = await loadCycle(c, principal.institutionId, month, year);
         if (!cycle) return c.json({ success: false, error: message }, 500);
         return c.json({ success: false, error: message, details: closingResult(cycle, false, message) }, 422);
