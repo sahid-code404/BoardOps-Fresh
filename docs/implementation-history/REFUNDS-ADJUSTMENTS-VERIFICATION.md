@@ -4,7 +4,9 @@ Date: 2026-08-30
 
 ## Status
 
-Refunds/adjustments is **VERIFIED** at implementation verification head:
+**VERIFIED — formally closed.** The implementation verification head and the documentation verification head both passed the complete required CI gate.
+
+Implementation verification head:
 
 `8c13b08c2f2087e8cbc4035a53ec4de8ce9825b6`
 
@@ -12,7 +14,15 @@ Implementation CI run:
 
 `33312728702`
 
-All required implementation gates passed:
+Documentation verification head:
+
+`ad0d2dffcc61a259a0175399598fb99e1b3fc7b6`
+
+Documentation CI run:
+
+`33313102401`
+
+Both verification heads passed:
 
 - deterministic lockfile validation
 - frozen dependency install
@@ -157,6 +167,6 @@ No fake production balance or refund fixture was introduced to satisfy runtime b
 
 ## Closure
 
-Refunds/adjustments implementation is VERIFIED at `8c13b08c2f2087e8cbc4035a53ec4de8ce9825b6` with implementation CI run `33312728702` fully green.
+Refunds/adjustments is formally **VERIFIED and closed**. Implementation head `8c13b08c2f2087e8cbc4035a53ec4de8ce9825b6` passed CI run `33312728702`, and documentation verification head `ad0d2dffcc61a259a0175399598fb99e1b3fc7b6` passed CI run `33313102401` with the complete build, clean-D1, runtime and visual gates.
 
-Formal project-record closure is contingent on the CI run for the latest documentation head remaining fully green. The next domain must be selected from the audited project plan/source inventory rather than inferred from UI order alone.
+No production deployment was performed. The next domain must be selected from the audited project plan/source inventory rather than inferred from UI order alone.
