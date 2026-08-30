@@ -1,6 +1,7 @@
 "use client";
 
 import { VISUAL_FIXTURES_ENABLED, visualFixtureApiFetch } from "@/lib/visual-fixtures";
+import { visualFundsFixtureResponse } from "@/lib/visual-funds-fixture";
 import { visualUser360FixtureResponse } from "@/lib/visual-user-360-fixture";
 
 const API_BASE = "/api";
@@ -21,11 +22,13 @@ type FetchOpts = RequestInit & {
 
 export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
   if (VISUAL_FIXTURES_ENABLED) {
-    // User 360 has a composite response contract. Route it before the generic
-    // visual users handler so visual mode cannot accidentally return a plain
-    // user record for `/users/:id/360` and hide frontend/backend drift.
+    // Composite response contracts are routed before the generic fixture switch
+    // so visual mode cannot hide frontend/backend drift behind an empty fallback
+    // or a simpler resource shape.
     const user360 = visualUser360FixtureResponse<T>(path);
     if (user360 !== undefined) return user360;
+    const funds = visualFundsFixtureResponse<T>(path, opts);
+    if (funds !== undefined) return funds;
     return visualFixtureApiFetch<T>(path, opts);
   }
 
