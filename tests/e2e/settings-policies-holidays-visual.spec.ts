@@ -16,7 +16,7 @@ test("Settings, Policies, Appearance, and Calendar preserve the golden Settings 
 
   await main.getByRole("tab", { name: "Policies", exact: true }).click();
   await expect(page.getByText("Institution Profile", { exact: true })).toBeVisible();
-  await expect(page.getByDisplayValue("BoardOps Residence")).toBeVisible();
+  await expect(page.getByLabel("Institution Name", { exact: true })).toHaveValue("BoardOps Residence");
   await expect(page.getByText("Meal Policies", { exact: true })).toBeVisible();
   await expect(page.getByText("Payment Policies", { exact: true })).toBeVisible();
   await expect(page.getByText("Meal → Allow Late Change", { exact: true })).toBeVisible();
