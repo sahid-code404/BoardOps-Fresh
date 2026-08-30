@@ -20,7 +20,7 @@
 | Reports/exports | reports/system | reports | Required | Required | canonical lazy D1 read models + deterministic scoped CSV export | clean D1 + runtime + visual | VERIFIED |
 | Settings/policies/holidays | settings/calendar | settings | Required | Required | validated institution settings/policies + durable holiday meal guards + least-privilege RBAC | clean D1 + runtime + visual | VERIFIED |
 | Profile/personalization | auth/personalization | profile | Required | Required | cookie-only avatar flow + validated self-scoped persistence + durable theme preference | clean D1 + runtime + visual | VERIFIED |
-| Audit/system/background tasks | audit/system | audit/system | Required | Required | immutable audit + Cloudflare background primitives | planned | AUDITED |
+| Audit/system/background tasks | audit/system | audit/system | Required | Required | immutable audit + durable Workers-native task history + institution-scoped cleanup + private redacted logical D1 backup | clean D1 + runtime + visual | VERIFIED |
 | Roles/permissions | schema/routes/UI | permissions | Recognizable role UX | Replace internals | explicit RBAC permissions | planned | AUDITED |
 
 `IMPLEMENTED`/`VERIFIED` are intentionally not used before the owning phase is built and tested.
