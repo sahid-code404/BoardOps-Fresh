@@ -203,16 +203,11 @@ export function ProfileView() {
     mutationFn: async (file: File) => {
       const formData = new FormData();
       formData.append("avatar", file);
-      const res = await fetch("/api/auth/avatar", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${useAuthStore.getState().token}`,
-        },
-        body: formData,
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error || "Upload failed");
-      return json.data as { avatarUrl: string };
+      const res = await api.postForm<{ success: boolean; data: { avatarUrl: string } }>(
+        "/auth/avatar",
+        formData,
+      );
+      return res.data;
     },
     onSuccess: (data) => {
       if (me) {
