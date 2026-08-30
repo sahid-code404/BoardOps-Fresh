@@ -87,6 +87,15 @@ test("registration UI survives verification, correction, reverification, resubmi
     expect(applicant).toMatchObject({ status: "PENDING", emailVerified: true });
     expect(applicant?.id).toBeTruthy();
 
+    const activationBypass = await adminApi.patch(`${API}/api/users/${applicant!.id}`, {
+      data: { action: "ACTIVATE", reason: "Pending registration must not bypass approval" },
+    });
+    expect(activationBypass.status()).toBe(422);
+    await expect(activationBypass.json()).resolves.toMatchObject({
+      success: false,
+      error: "Only suspended or inactive users can be activated",
+    });
+
     const requestChanges = await adminApi.patch(`${API}/api/users/${applicant!.id}/request-changes`, {
       data: {
         fields: ["room", "email"],
@@ -211,6 +220,13 @@ test("rejected registration remains visible to the applicant with its reason", a
       data: { reason },
     });
     expect(reject.ok()).toBeTruthy();
+
+    const rejectedRestore = await adminApi.post(`${API}/api/users/${applicant!.id}/restore`);
+    expect(rejectedRestore.status()).toBe(422);
+    await expect(rejectedRestore.json()).resolves.toMatchObject({
+      success: false,
+      error: "Rejected registrations cannot be restored directly",
+    });
 
     await expect(page.getByText("Registration rejected", { exact: true })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("Application rejected", { exact: true })).toBeVisible();
