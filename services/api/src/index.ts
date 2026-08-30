@@ -6,6 +6,7 @@ import { authRoutes } from "./routes/auth";
 import { authWorkflowRoutes } from "./routes/auth-workflows";
 import { billingRoutes } from "./routes/billing";
 import { expenseRoutes } from "./routes/expenses";
+import { fundRoutes } from "./routes/funds";
 import { kitchenRoutes } from "./routes/kitchen";
 import { leaveRoutes } from "./routes/leave";
 import { mealConfigRoutes } from "./routes/meals-config";
@@ -97,7 +98,7 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 49 ||
+      Number(baseline?.permission_count ?? 0) < 50 ||
       Number(baseline?.role_count ?? 0) < 4 ||
       Number(baseline?.grant_count ?? 0) < 1
     ) {
@@ -135,6 +136,7 @@ app.route("/api", leaveRoutes);
 app.route("/api", billingRoutes);
 app.route("/api", paymentRoutes);
 app.route("/api", expenseRoutes);
+app.route("/api", fundRoutes);
 
 app.get("/api/dashboard", async (c) => {
   const viewer = await authenticatedPrincipal(c);
