@@ -2,7 +2,8 @@
 -- Applied after the canonical operational/accounting/formula seeds.
 -- May 2026 is intentionally OPEN with no snapshot or bill so the runtime suite
 -- can prove the complete close lifecycle without disturbing June/July Billing
--- Core fixtures.
+-- Core fixtures. April is a deliberately FAILED, unpublished closing attempt so
+-- rollback can be proven without manufacturing internal state through an API.
 PRAGMA foreign_keys = ON;
 BEGIN TRANSACTION;
 
@@ -12,6 +13,50 @@ UPDATE users
    SET created_at = '2026-05-01T00:00:00.000Z'
  WHERE id = 'usr_resident_riya_local'
    AND institution_id = 'inst_boardops_local';
+
+-- April is locked by a failed pre-publication cycle. It has no snapshot or bill
+-- and is intentionally rollbackable. The immutable event stays after rollback.
+INSERT INTO accounting_periods (
+  id, institution_id, period_key, starts_on, ends_on, status,
+  opened_at, closing_started_at, closed_at, created_at, updated_at
+) VALUES (
+  'period_2026_04_local', 'inst_boardops_local', '2026-04',
+  '2026-04-01', '2026-04-30', 'CLOSING',
+  '2026-04-01T00:00:00.000Z', '2026-05-01T00:05:00.000Z', NULL,
+  '2026-04-01T00:00:00.000Z', '2026-05-01T00:06:00.000Z'
+)
+ON CONFLICT(institution_id, period_key) DO UPDATE SET
+  status = 'CLOSING',
+  closing_started_at = excluded.closing_started_at,
+  closed_at = NULL,
+  updated_at = excluded.updated_at;
+
+INSERT OR IGNORE INTO billing_cycles (
+  id, institution_id, period_month, period_year, status, attempt_count,
+  draft_snapshot_json, published_snapshot_id,
+  total_expenses_minor, total_resident_meals, total_guest_meals,
+  guest_revenue_minor, meal_charge_minor, bills_generated,
+  refund_queue_total_minor, outstanding_due_minor,
+  due_date, started_by, started_at, closed_by, closed_at, error_message,
+  created_at, updated_at
+) VALUES (
+  'cycle_2026_04_failed_local', 'inst_boardops_local', 3, 2026, 'FAILED', 1,
+  NULL, NULL,
+  0, 0, 0, 0, 0, 0, 0, 0,
+  '2026-05-10T00:00:00.000Z', 'usr_admin_local', '2026-05-01T00:05:00.000Z',
+  NULL, NULL, 'Deterministic pre-publication failure for rollback verification',
+  '2026-05-01T00:05:00.000Z', '2026-05-01T00:06:00.000Z'
+);
+
+INSERT OR IGNORE INTO billing_cycle_events (
+  id, institution_id, billing_cycle_id, from_status, to_status,
+  actor_user_id, reason, metadata_json, created_at
+) VALUES (
+  'cycle_event_2026_04_failed_local', 'inst_boardops_local',
+  'cycle_2026_04_failed_local', 'PREPARING', 'FAILED', 'usr_admin_local',
+  'Deterministic unpublished failure', '{"fixture":true,"published":false}',
+  '2026-05-01T00:06:00.000Z'
+);
 
 INSERT INTO accounting_periods (
   id, institution_id, period_key, starts_on, ends_on, status,
