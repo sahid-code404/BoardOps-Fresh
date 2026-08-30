@@ -12,6 +12,7 @@ import { kitchenRoutes } from "./routes/kitchen";
 import { leaveRoutes } from "./routes/leave";
 import { mealConfigRoutes } from "./routes/meals-config";
 import { mealOverrideRoutes } from "./routes/meal-overrides";
+import { monthlyClosingRoutes } from "./routes/monthly-closing";
 import { paymentRoutes } from "./routes/payments";
 import { refundAdjustmentRoutes } from "./routes/refunds-adjustments";
 import { runtimeRoutes } from "./routes/runtime";
@@ -43,6 +44,8 @@ const REQUIRED_CORE_TABLES = [
   "leave_applications",
   "billing_snapshots",
   "bills",
+  "billing_cycles",
+  "billing_cycle_events",
   "payments",
   "refunds",
   "refund_transactions",
@@ -109,7 +112,7 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 64 ||
+      Number(baseline?.permission_count ?? 0) < 67 ||
       Number(baseline?.role_count ?? 0) < 4 ||
       Number(baseline?.grant_count ?? 0) < 1
     ) {
@@ -144,6 +147,10 @@ app.route("/api", mealConfigRoutes);
 app.route("/api", kitchenRoutes);
 app.route("/api", mealOverrideRoutes);
 app.route("/api", leaveRoutes);
+// Monthly Closing owns /billing-cycles. It is mounted before Billing Core so
+// its live-input readiness contract supersedes the older snapshot-required
+// generation readiness route while /bills remains owned by Billing Core.
+app.route("/api", monthlyClosingRoutes);
 app.route("/api", billingRoutes);
 // Refund/adjustment routes intentionally precede the legacy Payments router so
 // their richer canonical /payments/refund and /refunds contracts own those paths.
