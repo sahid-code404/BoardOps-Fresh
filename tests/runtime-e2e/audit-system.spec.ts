@@ -132,7 +132,7 @@ test("Audit, System, and Background Tasks are durable, scoped, asynchronous, and
     expect(backupResponse.status()).toBe(202);
     const backupQueued = await json<{ data: { taskId: string; queued: boolean; output: string } }>(backupResponse);
     expect(backupQueued.data.queued).toBe(true);
-    expect(backupQueued.data.output).toContain("private D1 logical backup");
+    expect(backupQueued.data.output).toMatch(/private D1 logical backup/iu);
     const backupTask = await waitForTask(adminApi, backupQueued.data.taskId);
     const backupResult = JSON.parse(backupTask.result ?? "{}") as {
       objectKey?: string;
@@ -182,6 +182,16 @@ test("Audit, System, and Background Tasks are durable, scoped, asynchronous, and
     await expect(main.getByRole("button", { name: /Backup Database/u })).toBeVisible();
     await expect(main.getByText("Create a redacted D1 logical snapshot in private R2 storage", { exact: true })).toBeVisible();
   } finally {
+    // Every API/browser login created by this test is explicitly revoked before
+    // closing its context. BrowserContext.close() does not revoke server-side
+    // D1 sessions, and leaking those rows makes later session-management tests
+    // observe extra legitimate devices.
+    await Promise.allSettled([
+      shellContext.request.post(`${API}/api/auth/logout`),
+      residentContext.request.post(`${API}/api/auth/logout`),
+      staleSessionContext.request.post(`${API}/api/auth/logout`),
+      adminContext.request.post(`${API}/api/auth/logout`),
+    ]);
     await shellContext.close();
     await residentContext.close();
     await staleSessionContext.close();
