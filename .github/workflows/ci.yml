@@ -114,11 +114,11 @@ jobs:
 
           curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
             http://127.0.0.1:8787/api/dashboard > /tmp/dashboard.json
-          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/dashboard.json','utf8')); if(!x.success||x.data?.isAdmin!==true||x.data?.kpis?.totalUsers!==2||!Array.isArray(x.data?.recentActivity)) process.exit(1)"
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/dashboard.json','utf8')); if(!x.success||x.data?.isAdmin!==true||x.data?.kpis?.totalUsers!==2||x.data?.unreadNotifications!==1||!Array.isArray(x.data?.recentActivity)) process.exit(1)"
 
           curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
             'http://127.0.0.1:8787/api/notifications?unread=true' > /tmp/notifications.json
-          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/notifications.json','utf8')); if(!x.success||x.data?.unreadCount!==0||!Array.isArray(x.data?.notifications)) process.exit(1)"
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/notifications.json','utf8')); const n=x.data?.notifications; if(!x.success||x.data?.unreadCount!==1||!Array.isArray(n)||n.length!==1||n[0]?.title!=='BoardOps local notice') process.exit(1)"
 
           curl --fail --show-error --cookie /tmp/boardops-cookies.txt \
             http://127.0.0.1:8787/api/auth/profile > /tmp/profile.json
