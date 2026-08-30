@@ -50,6 +50,11 @@ export const PERMISSIONS = {
   PAYMENTS_RESTORE: "payments.restore",
   PAYMENTS_REFUND: "payments.refund",
   REFUNDS_READ: "refunds.read",
+  EXPENSES_READ: "expenses.read",
+  EXPENSES_CREATE: "expenses.create",
+  EXPENSES_REPLACE: "expenses.replace",
+  EXPENSES_DELETE: "expenses.delete",
+  EXPENSES_RESTORE: "expenses.restore",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
