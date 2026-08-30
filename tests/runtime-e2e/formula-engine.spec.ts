@@ -45,12 +45,12 @@ test("Formula Engine renders real D1 data and enforces deterministic versioned d
   await sidebar.getByRole("button", { name: "Formula Engine", exact: true }).click();
   await expect(page).toHaveURL(/\/formula-engine(?:\?|$)/, { timeout: 5_000 });
   await expect(page.getByRole("heading", { name: "Formula Engine", exact: true })).toBeVisible({ timeout: 5_000 });
-  await expect(page.getByRole("button", { name: "Variables", exact: true })).toBeVisible({ timeout: 8_000 });
-  await expect(page.getByRole("button", { name: "Formulas", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Variables", exact: true })).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByRole("tab", { name: "Formulas", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create Variable", exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("Monthly Room Rent", { exact: true })).toBeVisible({ timeout: 8_000 });
 
-  await page.getByRole("button", { name: "Formulas", exact: true }).click();
+  await page.getByRole("tab", { name: "Formulas", exact: true }).click();
   await expect(page.getByRole("button", { name: "New Formula", exact: true }).first()).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("Meal Charges", { exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("formula.mealCharges", { exact: true })).toBeVisible();
