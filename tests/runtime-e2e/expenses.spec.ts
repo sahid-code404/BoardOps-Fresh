@@ -23,8 +23,10 @@ test("Expenses renders real D1 data and preserves accounting history through rep
   await expect(page).toHaveURL(/\/dashboard(?:\?|$)/, { timeout: 5_000 });
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible({ timeout: 5_000 });
 
-  // Expenses is a desktop sidebar destination rather than a primary bottom-nav item.
-  await page.getByRole("button", { name: "Expenses", exact: true }).click();
+  // Once the authenticated shell has restored, a canonical route navigation is
+  // stable and does not depend on whether a particular sidebar breakpoint is
+  // currently rendering the secondary Expenses destination.
+  await page.goto("/expenses");
   await expect(page).toHaveURL(/\/expenses(?:\?|$)/, { timeout: 5_000 });
   await expect(page.getByText("Monthly groceries", { exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("Electricity bill", { exact: true })).toBeVisible({ timeout: 8_000 });
@@ -232,6 +234,7 @@ test("Resident can read approved expenses but cannot mutate accounting evidence"
 
   const adminContext = await browser.newContext();
   const residentContext = await browser.newContext();
+  let residentUserId: string | null = null;
 
   try {
     const adminApi = adminContext.request;
@@ -261,13 +264,14 @@ test("Resident can read approved expenses but cannot mutate accounting evidence"
       success: boolean;
       data: { userId: string; email: string };
     };
+    residentUserId = registrationBody.data.userId;
 
     const verify = await residentApi.post(`${API}/api/auth/verify-email`, {
       data: { email: RESIDENT_EMAIL, otp: "424242" },
     });
     expect(verify.ok()).toBeTruthy();
 
-    const approveResident = await adminApi.patch(`${API}/api/users/${registrationBody.data.userId}`, {
+    const approveResident = await adminApi.patch(`${API}/api/users/${residentUserId}`, {
       data: { action: "APPROVE", reason: "Expenses resident runtime verification" },
     });
     expect(approveResident.ok()).toBeTruthy();
@@ -341,6 +345,14 @@ test("Resident can read approved expenses but cannot mutate accounting evidence"
       requiredPermission: "expenses.restore",
     });
   } finally {
+    // Runtime tests share one clean D1 reset. Return the temporary approved
+    // resident to an inactive state so later kitchen/billing assertions keep
+    // their deterministic active-resident baseline.
+    if (residentUserId) {
+      await adminContext.request.patch(`${API}/api/users/${residentUserId}`, {
+        data: { action: "DEACTIVATE", reason: "Expenses runtime test cleanup" },
+      }).catch(() => undefined);
+    }
     await residentContext.close();
     await adminContext.close();
   }
