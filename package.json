@@ -12,8 +12,8 @@
     "test": "pnpm -r test",
     "check": "pnpm typecheck && pnpm test && pnpm build",
     "db:migrate:local": "wrangler d1 migrations apply boardops-local --local --persist-to .wrangler/state --config services/api/wrangler.jsonc",
-    "db:seed:local": "wrangler d1 execute boardops-local --local --persist-to .wrangler/state --config services/api/wrangler.jsonc --file scripts/seed-local.sql && wrangler d1 execute boardops-local --local --persist-to .wrangler/state --config services/api/wrangler.jsonc --file scripts/seed-billing-local.sql && wrangler d1 execute boardops-local --local --persist-to .wrangler/state --config services/api/wrangler.jsonc --file scripts/seed-payments-local.sql",
-    "db:verify:local": "node scripts/verify-local-db.mjs && node scripts/verify-billing-local.mjs && node scripts/verify-payments-local.mjs",
+    "db:seed:local": "wrangler d1 execute boardops-local --local --persist-to .wrangler/state --config services/api/wrangler.jsonc --file scripts/seed-local.sql && wrangler d1 execute boardops-local --local --persist-to .wrangler/state --config services/api/wrangler.jsonc --file scripts/seed-billing-local.sql && wrangler d1 execute boardops-local --local --persist-to .wrangler/state --config services/api/wrangler.jsonc --file scripts/seed-payments-local.sql && wrangler d1 execute boardops-local --local --persist-to .wrangler/state --config services/api/wrangler.jsonc --file scripts/seed-expenses-local.sql",
+    "db:verify:local": "node scripts/verify-local-db.mjs && node scripts/verify-billing-local.mjs && node scripts/verify-payments-local.mjs && node scripts/verify-expenses-local.mjs",
     "db:reset:local": "node scripts/reset-local-db.mjs",
     "test:e2e": "playwright test",
     "test:e2e:runtime": "playwright test --config playwright.runtime.config.ts"
