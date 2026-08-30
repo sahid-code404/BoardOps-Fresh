@@ -4,6 +4,7 @@ import { enforcePasswordMutationPolicy } from "./middleware/password-policy";
 import { enforceRbacPolicy } from "./middleware/rbac";
 import { authRoutes } from "./routes/auth";
 import { authWorkflowRoutes } from "./routes/auth-workflows";
+import { billingRoutes } from "./routes/billing";
 import { kitchenRoutes } from "./routes/kitchen";
 import { leaveRoutes } from "./routes/leave";
 import { mealConfigRoutes } from "./routes/meals-config";
@@ -34,6 +35,8 @@ const REQUIRED_CORE_TABLES = [
   "guest_meals",
   "meal_overrides",
   "leave_applications",
+  "billing_snapshots",
+  "bills",
 ] as const;
 
 type ActivityRow = {
@@ -89,7 +92,7 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 29 ||
+      Number(baseline?.permission_count ?? 0) < 35 ||
       Number(baseline?.role_count ?? 0) < 4 ||
       Number(baseline?.grant_count ?? 0) < 1
     ) {
@@ -124,6 +127,7 @@ app.route("/api", mealConfigRoutes);
 app.route("/api", kitchenRoutes);
 app.route("/api", mealOverrideRoutes);
 app.route("/api", leaveRoutes);
+app.route("/api", billingRoutes);
 
 app.get("/api/dashboard", async (c) => {
   const viewer = await authenticatedPrincipal(c);
@@ -138,6 +142,18 @@ app.get("/api/dashboard", async (c) => {
   )
     .bind(viewer.institutionId)
     .first<{ active_count: number | null; pending_count: number | null }>();
+
+  const pendingBillRow = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS pending_bills
+       FROM bills
+      WHERE institution_id = ?
+        AND deleted_on IS NULL
+        AND purged_at IS NULL
+        AND status IN ('GENERATED', 'PARTIALLY_PAID', 'OVERDUE')
+        AND due_amount_minor > 0`,
+  )
+    .bind(viewer.institutionId)
+    .first<{ pending_bills: number | null }>();
 
   const canReadAudit = hasPermission(viewer, PERMISSIONS.AUDIT_READ);
   const activityRows = canReadAudit
@@ -157,10 +173,9 @@ app.get("/api/dashboard", async (c) => {
   // but its meaning is now permission-derived instead of role-string-derived.
   const isAdmin = hasPermission(viewer, PERMISSIONS.USERS_READ);
 
-  // Kitchen now owns canonical meal-entry state. Dashboard meal aggregation is
-  // intentionally kept separate so this integration does not invent a second,
-  // inconsistent counting rule; a later dashboard port will reuse the same
-  // confirmed-meal semantics as /api/kitchen.
+  // Kitchen owns canonical meal-entry state. The remaining financial dashboard
+  // rollups will move onto the same snapshot/accounting sources as their feature
+  // modules; pendingBills is already safe to expose from the canonical bill table.
   return c.json({
     success: true,
     data: {
@@ -173,7 +188,7 @@ app.get("/api/dashboard", async (c) => {
         currentMealCharge: 0,
         totalResidentMeals: 0,
         totalExpenses: 0,
-        pendingBills: 0,
+        pendingBills: Number(pendingBillRow?.pending_bills ?? 0),
       },
       trend: emptySevenDayTrend(),
       expenseBreakdown: [],
