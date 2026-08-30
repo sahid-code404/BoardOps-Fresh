@@ -13,6 +13,7 @@ SELECT
   (SELECT COUNT(*) FROM roles) AS roles,
   (SELECT COUNT(*) FROM permissions) AS permissions,
   (SELECT COUNT(*) FROM role_permissions) AS role_permissions,
+  (SELECT COUNT(*) FROM meal_configurations WHERE institution_id = 'inst_boardops_local') AS meal_configurations,
   (SELECT COUNT(*) FROM users WHERE id = 'usr_admin_local' AND email = 'admin@boardops.local' AND role = 'ADMIN' AND status = 'ACTIVE') AS seeded_admin,
   (SELECT COUNT(*) FROM registration_requests WHERE user_id = 'usr_resident_kabir_local' AND cycle = 1 AND status = 'PENDING_REVIEW') AS seeded_registration,
   (SELECT COUNT(*) FROM accounting_periods WHERE institution_id = 'inst_boardops_local' AND status = 'OPEN') AS open_periods,
@@ -36,7 +37,28 @@ SELECT
      JOIN permissions p ON p.id = rp.permission_id
     WHERE r.institution_id = 'inst_boardops_local'
       AND r.role_key = 'USER'
-      AND p.permission_key = 'users.read') AS resident_users_read;
+      AND p.permission_key = 'users.read') AS resident_users_read,
+  (SELECT COUNT(*)
+     FROM roles r
+     JOIN role_permissions rp ON rp.role_id = r.id
+     JOIN permissions p ON p.id = rp.permission_id
+    WHERE r.institution_id = 'inst_boardops_local'
+      AND r.role_key = 'ADMIN'
+      AND p.permission_key IN ('meals.config.read','meals.config.create','meals.config.update','meals.config.delete')) AS admin_meal_permissions,
+  (SELECT COUNT(*)
+     FROM roles r
+     JOIN role_permissions rp ON rp.role_id = r.id
+     JOIN permissions p ON p.id = rp.permission_id
+    WHERE r.institution_id = 'inst_boardops_local'
+      AND r.role_key = 'USER'
+      AND p.permission_key = 'meals.config.read') AS resident_meal_read,
+  (SELECT COUNT(*)
+     FROM roles r
+     JOIN role_permissions rp ON rp.role_id = r.id
+     JOIN permissions p ON p.id = rp.permission_id
+    WHERE r.institution_id = 'inst_boardops_local'
+      AND r.role_key = 'USER'
+      AND p.permission_key IN ('meals.config.create','meals.config.update','meals.config.delete')) AS resident_meal_mutations;
 `;
 
 const result = spawnSync(
@@ -89,10 +111,13 @@ const required = {
   open_periods: 1,
   audit_events: 1,
   roles: 4,
-  permissions: 18,
-  role_permissions: 52,
+  permissions: 22,
+  role_permissions: 62,
+  meal_configurations: 3,
   admin_users_read: 1,
   resident_dashboard_read: 1,
+  admin_meal_permissions: 4,
+  resident_meal_read: 1,
 };
 
 for (const [field, minimum] of Object.entries(required)) {
@@ -107,5 +132,9 @@ if (Number(row.resident_users_read ?? -1) !== 0) {
   console.error(`[BoardOps] RBAC least-privilege invariant failed: resident_users_read=${row.resident_users_read} (expected 0)`);
   process.exit(1);
 }
+if (Number(row.resident_meal_mutations ?? -1) !== 0) {
+  console.error(`[BoardOps] RBAC least-privilege invariant failed: resident_meal_mutations=${row.resident_meal_mutations} (expected 0)`);
+  process.exit(1);
+}
 
-console.log("[BoardOps] Local database + RBAC core verified:", row);
+console.log("[BoardOps] Local database + RBAC + meal configuration core verified:", row);
