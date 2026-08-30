@@ -36,6 +36,9 @@ const CORE_TABLES = [
   "formula_versions",
   "announcements",
   "notifications",
+  "settings",
+  "policies",
+  "holidays",
 ];
 
 function mockDb(tableNames = CORE_TABLES): D1Database {
@@ -49,7 +52,7 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
 
       if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
         return {
-          first: async () => ({ permission_count: 74, role_count: 4, grant_count: 182 }),
+          first: async () => ({ permission_count: 85, role_count: 4, grant_count: 212 }),
         };
       }
 
@@ -76,7 +79,7 @@ describe("health endpoint", () => {
 });
 
 describe("readiness endpoint", () => {
-  it("requires the complete current RBAC + operational + accounting + formula + communication + reports baseline", async () => {
+  it("requires the complete current RBAC + operational + accounting + formula + communication + reports + settings baseline", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
@@ -211,6 +214,36 @@ describe("readiness endpoint", () => {
       "http://boardops.local/api/ready",
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "notifications")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when authoritative settings storage is missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "settings")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when the policy registry is missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "policies")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when holiday calendar rules are missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "holidays")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
 
     expect(response.status).toBe(503);
