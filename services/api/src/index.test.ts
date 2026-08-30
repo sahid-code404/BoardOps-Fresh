@@ -34,6 +34,8 @@ const CORE_TABLES = [
   "variable_versions",
   "formulas",
   "formula_versions",
+  "announcements",
+  "notifications",
 ];
 
 function mockDb(tableNames = CORE_TABLES): D1Database {
@@ -47,7 +49,7 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
 
       if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
         return {
-          first: async () => ({ permission_count: 67, role_count: 4, grant_count: 164 }),
+          first: async () => ({ permission_count: 72, role_count: 4, grant_count: 178 }),
         };
       }
 
@@ -74,7 +76,7 @@ describe("health endpoint", () => {
 });
 
 describe("readiness endpoint", () => {
-  it("requires the complete current RBAC + operational + accounting + formula schema", async () => {
+  it("requires the complete current RBAC + operational + accounting + formula + communication schema", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
@@ -189,6 +191,26 @@ describe("readiness endpoint", () => {
       "http://boardops.local/api/ready",
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "variable_versions")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when the durable announcements table is missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "announcements")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when durable notification delivery history is missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "notifications")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
 
     expect(response.status).toBe(503);
