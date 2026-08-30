@@ -19,15 +19,13 @@ jobs:
           fetch-depth: 0
       - name: Apply guarded Phase 05 RBAC integration
         run: node scripts/patch-phase05-rbac-integration.mjs
-      - name: Remove one-time patch machinery
-        run: rm scripts/patch-phase05-rbac-integration.mjs .github/workflows/apply-phase05-rbac-integration.yml
-      - name: Commit integrated RBAC boundary
+      - name: Commit integrated RBAC routes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add services/api/src/routes/auth.ts services/api/src/routes/runtime.ts services/api/src/routes/users.ts
           if git diff --cached --quiet; then
-            echo "No Phase 05 integration changes required."
+            echo "No Phase 05 route integration changes required."
             exit 0
           fi
           git commit -m "fix: complete Phase 05 permission boundary integration"
