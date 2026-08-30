@@ -19,7 +19,7 @@
 | Notifications/announcements | notifications | notifications | Required | Required | durable idempotent self-scoped delivery + transactional domain-event fan-out | clean D1 + runtime + visual | VERIFIED |
 | Reports/exports | reports/system | reports | Required | Required | canonical lazy D1 read models + deterministic scoped CSV export | clean D1 + runtime + visual | VERIFIED |
 | Settings/policies/holidays | settings/calendar | settings | Required | Required | validated institution settings/policies + durable holiday meal guards + least-privilege RBAC | clean D1 + runtime + visual | VERIFIED |
-| Profile/personalization | auth/personalization | profile | Required | Required | secure persistence | planned | AUDITED |
+| Profile/personalization | auth/personalization | profile | Required | Required | cookie-only avatar flow + validated self-scoped persistence + durable theme preference | clean D1 + runtime + visual | VERIFIED |
 | Audit/system/background tasks | audit/system | audit/system | Required | Required | immutable audit + Cloudflare background primitives | planned | AUDITED |
 | Roles/permissions | schema/routes/UI | permissions | Recognizable role UX | Replace internals | explicit RBAC permissions | planned | AUDITED |
 
