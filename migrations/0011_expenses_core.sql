@@ -16,6 +16,7 @@ CREATE TABLE expenses (
   description TEXT,
   expense_date TEXT NOT NULL,
   paid_to TEXT,
+  idempotency_key TEXT,
   status TEXT NOT NULL DEFAULT 'APPROVED'
     CHECK (status IN ('APPROVED', 'REVERSED', 'DELETED')),
   replaces_expense_id TEXT,
@@ -51,6 +52,9 @@ CREATE INDEX expenses_deletion_queue_idx
 CREATE INDEX expenses_replacement_idx
   ON expenses(institution_id, replaces_expense_id)
   WHERE replaces_expense_id IS NOT NULL;
+CREATE UNIQUE INDEX expenses_idempotency_idx
+  ON expenses(institution_id, created_by, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
 
 -- INTEGER affinity alone is not an accounting boundary in SQLite/D1.
 CREATE TRIGGER expenses_integer_money_insert
