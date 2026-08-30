@@ -9,7 +9,7 @@
 | Kitchen/counts | kitchen | meals/kitchen | Required | Required | query efficiency | planned | AUDITED |
 | Residents/users | users | residents/users | Required | Required | permission model | planned | AUDITED |
 | Products/purchases | billing feature | purchases | Required | Required | accounting immutability | planned | AUDITED |
-| Expenses | expenses view/API | expenses | Required | Required | integer money + immutability | planned | AUDITED |
+| Expenses | expenses view/API | expenses | Required | Required | integer money + immutability + replacement corrections | clean D1 + runtime + visual | VERIFIED |
 | Payments | payments view/API | payments | Required | Required | integer money + idempotency + immutability | clean D1 + runtime + visual | VERIFIED |
 | Funds | funds/resident ledger | funds | Required | Required | ledger authority | planned | AUDITED |
 | Refunds/adjustments | finance APIs | accounting | Required | Required | reversal/adjustment rules | planned | AUDITED |
