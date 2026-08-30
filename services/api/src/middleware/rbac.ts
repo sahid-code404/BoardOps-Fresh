@@ -3,6 +3,7 @@ import { PERMISSIONS, requirePermission, type PermissionKey } from "../auth/auth
 import type { AppEnv } from "../types";
 
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+type DynamicPolicy = PermissionKey | null | "USER_ACTION" | "PAYMENT_PUT_ACTION";
 
 const PUBLIC_ENDPOINTS = new Set([
   "GET /api/health",
@@ -44,6 +45,11 @@ const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["POST /api/bills", PERMISSIONS.BILLS_GENERATE],
   ["DELETE /api/bills", PERMISSIONS.BILLS_DELETE],
   ["GET /api/billing-cycles/readiness", PERMISSIONS.BILLING_READINESS],
+  ["GET /api/payments", PERMISSIONS.PAYMENTS_READ],
+  ["POST /api/payments", PERMISSIONS.PAYMENTS_CREATE],
+  ["GET /api/payments/refund", PERMISSIONS.PAYMENTS_REFUND],
+  ["POST /api/payments/refund", PERMISSIONS.PAYMENTS_REFUND],
+  ["GET /api/refunds", PERMISSIONS.REFUNDS_READ],
 ]);
 
 const USER_ACTION_PERMISSION: Record<string, PermissionKey> = {
@@ -56,7 +62,7 @@ const USER_ACTION_PERMISSION: Record<string, PermissionKey> = {
   RESTORE: PERMISSIONS.USERS_STATUS_CHANGE,
 };
 
-function dynamicPolicy(method: Method, path: string): PermissionKey | null | "USER_ACTION" {
+function dynamicPolicy(method: Method, path: string): DynamicPolicy {
   if (method === "DELETE" && /^\/api\/auth\/sessions\/[^/]+$/u.test(path)) {
     return PERMISSIONS.SESSIONS_REVOKE_SELF;
   }
@@ -105,10 +111,25 @@ function dynamicPolicy(method: Method, path: string): PermissionKey | null | "US
   if (method === "POST" && /^\/api\/bills\/[^/]+\/void$/u.test(path)) {
     return PERMISSIONS.BILLS_VOID;
   }
+  if (method === "GET" && /^\/api\/payments\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.PAYMENTS_READ;
+  }
+  if (method === "PATCH" && /^\/api\/payments\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.PAYMENTS_DECIDE;
+  }
+  if (method === "PUT" && /^\/api\/payments\/[^/]+$/u.test(path)) {
+    return "PAYMENT_PUT_ACTION";
+  }
+  if (method === "DELETE" && /^\/api\/payments\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.PAYMENTS_DELETE;
+  }
+  if (method === "POST" && /^\/api\/payments\/[^/]+\/restore$/u.test(path)) {
+    return PERMISSIONS.PAYMENTS_RESTORE;
+  }
   return null;
 }
 
-async function permissionForUserAction(c: Context<AppEnv>): Promise<PermissionKey | Response> {
+async function readAction(c: Context<AppEnv>, missingMessage: string): Promise<string | Response> {
   let body: unknown;
   try {
     body = await c.req.raw.clone().json();
@@ -119,6 +140,15 @@ async function permissionForUserAction(c: Context<AppEnv>): Promise<PermissionKe
   const action = typeof body === "object" && body !== null && "action" in body
     ? String((body as Record<string, unknown>).action ?? "")
     : "";
+  if (!action) {
+    return c.json({ success: false, error: missingMessage }, 403);
+  }
+  return action;
+}
+
+async function permissionForUserAction(c: Context<AppEnv>): Promise<PermissionKey | Response> {
+  const action = await readAction(c, "RBAC policy missing for user action");
+  if (action instanceof Response) return action;
   const permission = USER_ACTION_PERMISSION[action];
   if (!permission) {
     return c.json(
@@ -127,6 +157,14 @@ async function permissionForUserAction(c: Context<AppEnv>): Promise<PermissionKe
     );
   }
   return permission;
+}
+
+async function permissionForPaymentPutAction(c: Context<AppEnv>): Promise<PermissionKey | Response> {
+  const action = await readAction(c, "RBAC policy missing for payment action");
+  if (action instanceof Response) return action;
+  if (action === "EDIT") return PERMISSIONS.PAYMENTS_UPDATE;
+  if (action === "VOID") return PERMISSIONS.PAYMENTS_VOID;
+  return c.json({ success: false, error: "RBAC policy missing for payment action" }, 403);
 }
 
 /**
@@ -156,6 +194,10 @@ export async function enforceRbacPolicy(c: Context<AppEnv>, next: Next) {
   let permission = EXACT_POLICIES.get(endpoint) ?? dynamicPolicy(method, path);
   if (permission === "USER_ACTION") {
     const resolved = await permissionForUserAction(c);
+    if (resolved instanceof Response) return resolved;
+    permission = resolved;
+  } else if (permission === "PAYMENT_PUT_ACTION") {
+    const resolved = await permissionForPaymentPutAction(c);
     if (resolved instanceof Response) return resolved;
     permission = resolved;
   }
