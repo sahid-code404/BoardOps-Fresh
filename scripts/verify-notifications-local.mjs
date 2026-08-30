@@ -55,6 +55,20 @@ SELECT
       'roles_bootstrap_notifications_all',
       'roles_bootstrap_announcements_admin'
     )) AS communication_guards,
+  (SELECT COUNT(*) FROM sqlite_master
+    WHERE type = 'trigger' AND name IN (
+      'notifications_leave_submitted',
+      'notifications_leave_decision',
+      'notifications_payment_submitted',
+      'notifications_payment_status',
+      'notifications_meal_override',
+      'notifications_refund_created',
+      'notifications_refund_transaction',
+      'notifications_refund_cancelled',
+      'notifications_registration_review',
+      'notifications_user_status',
+      'notifications_user_role'
+    )) AS event_delivery_triggers,
   (SELECT COUNT(*) FROM permissions
     WHERE permission_key IN (
       'notifications.read_self','notifications.mark_read_self','announcements.read',
@@ -93,8 +107,22 @@ SELECT
     WHERE id = 'announcement_local_welcome' AND status = 'PUBLISHED' AND is_pinned = 1
       AND target_audience = 'ALL') AS seeded_published_announcement,
   (SELECT COUNT(*) FROM notifications
+    WHERE institution_id = 'inst_boardops_local') AS seeded_total_notifications,
+  (SELECT COUNT(*) FROM notifications
     WHERE institution_id = 'inst_boardops_local' AND source_type = 'ANNOUNCEMENT'
-      AND source_id = 'announcement_local_welcome') AS seeded_notifications,
+      AND source_id = 'announcement_local_welcome') AS seeded_announcement_notifications,
+  (SELECT COUNT(*) FROM notifications
+    WHERE institution_id = 'inst_boardops_local'
+      AND delivery_key IN (
+        'leave:leave_riya_pending_local:submitted',
+        'payment:payment_arjun_pending_local:submitted'
+      )) AS seeded_event_notifications,
+  (SELECT COUNT(*) FROM notifications
+    WHERE institution_id = 'inst_boardops_local' AND user_id = 'usr_admin_local'
+      AND delivery_key IN (
+        'leave:leave_riya_pending_local:submitted',
+        'payment:payment_arjun_pending_local:submitted'
+      ) AND read_at = '2026-08-30T11:59:00.000Z') AS seeded_event_notifications_read,
   (SELECT COUNT(*) FROM notifications
     WHERE id = 'notification_local_welcome_riya' AND user_id = 'usr_resident_riya_local' AND read_at IS NULL) AS seeded_riya_unread,
   (SELECT COUNT(*) FROM notifications
@@ -116,6 +144,7 @@ const exact = {
   role_permissions: 178,
   communication_tables: 2,
   communication_guards: 7,
+  event_delivery_triggers: 11,
   communication_permissions: 6,
   admin_communication_permissions: 6,
   super_admin_communication_permissions: 6,
@@ -123,7 +152,10 @@ const exact = {
   resident_communication_permissions: 3,
   seeded_announcements: 1,
   seeded_published_announcement: 1,
-  seeded_notifications: 2,
+  seeded_total_notifications: 4,
+  seeded_announcement_notifications: 2,
+  seeded_event_notifications: 2,
+  seeded_event_notifications_read: 2,
   seeded_riya_unread: 1,
   seeded_admin_unread: 1,
   ineligible_seed_deliveries: 0,
@@ -185,4 +217,4 @@ if (Number(marked?.[0]?.results?.[0]?.marked ?? 0) !== 1) {
 }
 executeJson(`UPDATE notifications SET read_at = NULL WHERE id = 'notification_local_welcome_riya';`);
 
-console.log("[BoardOps] Durable Notifications + Announcements + exact RBAC + idempotent delivery verified:", row);
+console.log("[BoardOps] Durable Notifications + Announcements + transactional idempotent event delivery + exact RBAC verified:", row);
