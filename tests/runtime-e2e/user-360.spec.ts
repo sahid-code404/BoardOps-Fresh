@@ -30,7 +30,7 @@ test("administrator User 360 renders visible real data and explicit unavailable 
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "Riya Sen", exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(dialog.getByText("riya@boardops.local", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("RES-0204", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("RES-0204", { exact: true }).first()).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Close User 360", exact: true })).toHaveCount(1);
 
   const content = dialog.getByTestId("user-360-tab-content");
