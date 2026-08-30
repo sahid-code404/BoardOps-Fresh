@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import {
   Cpu,
+  Database,
   X,
   CheckCircle2,
   XCircle,
@@ -48,12 +49,20 @@ type Task = {
 
 type ApiResponse<T> = { success: boolean; data: T };
 
+type CleanupResult = {
+  taskId: string;
+  queued: boolean;
+  result: { purgedSessions: number } | null;
+  output?: string;
+};
+
 const TYPE_META: Record<string, { label: string; icon: typeof Cpu }> = {
   MONTHLY_CLOSING: { label: "Monthly Closing", icon: CalendarClock },
   REPORT_EXPORT: { label: "Report Export", icon: Download },
   SESSION_CLEANUP: { label: "Session Cleanup", icon: Trash2 },
   BILL_GENERATION: { label: "Bill Generation", icon: Receipt },
   ANNOUNCEMENT_SCHEDULE: { label: "Announcement", icon: Megaphone },
+  SYSTEM_BACKUP: { label: "System Backup", icon: Database },
 };
 
 const STATUS_META: Record<string, { label: string; color: string; icon: typeof Clock }> = {
@@ -81,10 +90,14 @@ export function TasksView() {
   });
 
   const cleanupMutation = useMutation({
-    mutationFn: () => api.post<ApiResponse<{ result: { purgedSessions: number } }>>("/tasks/cleanup"),
+    mutationFn: () => api.post<ApiResponse<CleanupResult>>("/tasks/cleanup"),
     onSuccess: (res) => {
-      const purged = res.data?.result?.purgedSessions ?? 0;
-      toast.success(`Session cleanup complete — ${purged} expired session(s) purged`);
+      if (res.data.queued) {
+        toast.success("Session cleanup queued");
+      } else {
+        const purged = res.data.result?.purgedSessions ?? 0;
+        toast.success(`Session cleanup complete — ${purged} expired session(s) purged`);
+      }
       qc.invalidateQueries({ queryKey: ["tasks"] });
     },
     onError: (e: Error) => toast.error(e.message || "Cleanup failed"),
@@ -219,7 +232,7 @@ export function TasksView() {
                             {t.user && <span>· by {t.user.name}</span>}
                           </div>
                         </div>
-                        {(t.status === "QUEUED" || t.status === "RUNNING") && (
+                        {t.status === "QUEUED" && (
                           <GlassButton variant="ghost" size="sm" className="text-destructive" onClick={() => cancelMutation.mutate(t.id)}>
                             <X className="h-3.5 w-3.5" />
                           </GlassButton>

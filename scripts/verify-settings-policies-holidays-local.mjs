@@ -116,8 +116,8 @@ if (!row) {
 }
 
 const exact = {
-  permissions: 85,
-  role_permissions: 212,
+  permissions: 90,
+  role_permissions: 222,
   settings_domain_permissions: 11,
   settings_count: 4,
   public_settings: 3,

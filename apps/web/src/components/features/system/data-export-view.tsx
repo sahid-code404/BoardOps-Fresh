@@ -11,7 +11,6 @@ import {
   Loader2,
 } from "lucide-react";
 import { GlassCard } from "@/components/glass/glass-card";
-import { GlassButton } from "@/components/glass/glass-button";
 import {
   StaggerGroup,
   StaggerItem,
@@ -50,10 +49,6 @@ type PaymentRow = {
   createdAt: string;
   user: { name: string; email: string; room: string | null };
 };
-
-// ─────────────────────────────────────────────────────────────
-// CSV helpers
-// ─────────────────────────────────────────────────────────────
 
 function escapeCsv(v: unknown): string {
   const s = v === null || v === undefined ? "" : String(v);
@@ -94,10 +89,6 @@ function formatDate(iso: string): string {
     return iso;
   }
 }
-
-// ─────────────────────────────────────────────────────────────
-// Main view
-// ─────────────────────────────────────────────────────────────
 
 export function DataExportView() {
   const [exporting, setExporting] = useState<string | null>(null);
@@ -188,9 +179,9 @@ export function DataExportView() {
   const backupDatabase = async () => {
     setExporting("backup");
     try {
-      const resp = await api.post<ApiResponse<{ output: string }>>("/system/backup");
-      toast.success("Database backup completed", {
-        description: resp.data?.output,
+      const resp = await api.post<ApiResponse<{ taskId: string; queued: boolean; output: string }>>("/system/backup");
+      toast.success(resp.data.queued ? "Database backup queued" : "Database backup completed", {
+        description: resp.data.output,
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to backup database");
@@ -224,7 +215,7 @@ export function DataExportView() {
     {
       key: "backup",
       label: "Backup Database",
-      description: "Run SQLite backup script (saved to /backups)",
+      description: "Create a redacted D1 logical snapshot in private R2 storage",
       icon: Database,
       onClick: backupDatabase,
     },

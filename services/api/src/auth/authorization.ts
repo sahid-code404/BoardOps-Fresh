@@ -8,6 +8,11 @@ const SESSION_COOKIE = "boardops_session";
 export const PERMISSIONS = {
   DASHBOARD_READ: "dashboard.read",
   AUDIT_READ: "audit.read",
+  TASKS_READ: "tasks.read",
+  TASKS_CREATE: "tasks.create",
+  TASKS_CANCEL: "tasks.cancel",
+  TASKS_CLEANUP: "tasks.cleanup",
+  SYSTEM_BACKUP: "system.backup",
   NOTIFICATIONS_READ_SELF: "notifications.read_self",
   NOTIFICATIONS_MARK_READ_SELF: "notifications.mark_read_self",
   ANNOUNCEMENTS_READ: "announcements.read",

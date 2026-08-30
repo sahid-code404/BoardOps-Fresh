@@ -8,6 +8,7 @@ const CORE_TABLES = [
   "idempotency_keys",
   "audit_events",
   "outbox_events",
+  "background_tasks",
   "user_sessions",
   "login_history",
   "registration_requests",
@@ -52,7 +53,7 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
 
       if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
         return {
-          first: async () => ({ permission_count: 85, role_count: 4, grant_count: 212 }),
+          first: async () => ({ permission_count: 90, role_count: 4, grant_count: 222 }),
         };
       }
 
@@ -79,7 +80,7 @@ describe("health endpoint", () => {
 });
 
 describe("readiness endpoint", () => {
-  it("requires the complete current RBAC + operational + accounting + formula + communication + reports + settings baseline", async () => {
+  it("requires the complete current RBAC + operational + accounting + formula + communication + reports + settings + system baseline", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
@@ -92,6 +93,16 @@ describe("readiness endpoint", () => {
       service: "boardops-api",
       schema: "phase05-rbac",
     });
+  });
+
+  it("fails closed when durable background task state is missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "background_tasks")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
   });
 
   it("fails closed when a required meal-operations table is missing", async () => {

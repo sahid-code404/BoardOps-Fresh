@@ -3,6 +3,7 @@ import { authenticatedPrincipal, hasPermission, PERMISSIONS } from "./auth/autho
 import { enforceFormulaDependencyPolicy } from "./middleware/formula-dependencies";
 import { enforcePasswordMutationPolicy } from "./middleware/password-policy";
 import { enforceRbacPolicy } from "./middleware/rbac";
+import { auditSystemRoutes } from "./routes/audit-system";
 import { authRoutes } from "./routes/auth";
 import { authWorkflowRoutes } from "./routes/auth-workflows";
 import { billingRoutes } from "./routes/billing";
@@ -33,6 +34,7 @@ const REQUIRED_CORE_TABLES = [
   "idempotency_keys",
   "audit_events",
   "outbox_events",
+  "background_tasks",
   "user_sessions",
   "login_history",
   "registration_requests",
@@ -120,9 +122,9 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 85 ||
+      Number(baseline?.permission_count ?? 0) < 90 ||
       Number(baseline?.role_count ?? 0) < 4 ||
-      Number(baseline?.grant_count ?? 0) < 212
+      Number(baseline?.grant_count ?? 0) < 222
     ) {
       throw new Error("RBAC baseline is incomplete");
     }
@@ -148,10 +150,11 @@ app.get("/api/ready", async (c) => {
 
 app.route("/api/auth", authRoutes);
 app.route("/api/auth", authWorkflowRoutes);
-// Canonical communication/report/settings routes must precede runtime compatibility placeholders.
+// Canonical communication/report/settings/system routes must precede runtime compatibility placeholders.
 app.route("/api", notificationAnnouncementRoutes);
 app.route("/api", reportRoutes);
 app.route("/api", settingsPoliciesHolidaysRoutes);
+app.route("/api", auditSystemRoutes);
 app.route("/api", runtimeRoutes);
 app.route("/api", userRoutes);
 app.route("/api", user360Routes);

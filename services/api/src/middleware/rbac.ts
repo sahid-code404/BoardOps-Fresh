@@ -23,6 +23,11 @@ const PUBLIC_ENDPOINTS = new Set([
 
 const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["GET /api/dashboard", PERMISSIONS.DASHBOARD_READ],
+  ["GET /api/audit-logs", PERMISSIONS.AUDIT_READ],
+  ["GET /api/tasks", PERMISSIONS.TASKS_READ],
+  ["POST /api/tasks", PERMISSIONS.TASKS_CREATE],
+  ["POST /api/tasks/cleanup", PERMISSIONS.TASKS_CLEANUP],
+  ["POST /api/system/backup", PERMISSIONS.SYSTEM_BACKUP],
   ["GET /api/notifications", PERMISSIONS.NOTIFICATIONS_READ_SELF],
   ["PATCH /api/notifications", PERMISSIONS.NOTIFICATIONS_MARK_READ_SELF],
   ["GET /api/announcements", PERMISSIONS.ANNOUNCEMENTS_READ],
@@ -95,6 +100,12 @@ const USER_ACTION_PERMISSION: Record<string, PermissionKey> = {
 function dynamicPolicy(method: Method, path: string): DynamicPolicy {
   if (method === "DELETE" && /^\/api\/auth\/sessions\/[^/]+$/u.test(path)) {
     return PERMISSIONS.SESSIONS_REVOKE_SELF;
+  }
+  if (method === "GET" && /^\/api\/tasks\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.TASKS_READ;
+  }
+  if (method === "POST" && /^\/api\/tasks\/[^/]+\/cancel$/u.test(path)) {
+    return PERMISSIONS.TASKS_CANCEL;
   }
   if (method === "PATCH" && /^\/api\/announcements\/[^/]+$/u.test(path)) {
     return PERMISSIONS.ANNOUNCEMENTS_UPDATE;
