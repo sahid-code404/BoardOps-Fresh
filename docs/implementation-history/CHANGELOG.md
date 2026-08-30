@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-08-30 — Refunds and adjustments implementation verified
+- CI run `33312728702` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/invariant verification, Worker/API smoke, all 17 real-D1 Playwright runtime tests, and the complete Phase 02 visual regression suite at implementation verification head `8c13b08c2f2087e8cbc4035a53ec4de8ce9825b6`.
+- Added immutable `0013_refunds_adjustments.sql` with durable resident refund obligations, immutable payout transactions, immutable additive adjustments, institution-scoped financial reference sequences, integer minor-unit constraints, and hard-delete/update guards for historical evidence.
+- Outstanding `PENDING` and `PARTIALLY_PAID` refund obligations reserve resident-scoped refundable credit so the same approved credit cannot be promised twice. Partial payouts advance an explicit lifecycle and create canonical `REFUNDED` Payment evidence instead of a second mutable ledger.
+- Refund creation, payout recording, and adjustment creation are idempotency-key protected. Cancellation is limited to unpaid obligations and releases the outstanding reservation; partially paid obligations cannot be silently cancelled.
+- Adjustments are additive signed correction evidence against canonical Payment/Refund/Bill/Expense entities. Runtime verification proves a `-₹25` adjustment does not rewrite the seeded approved ₹3,000 Expense.
+- Current fail-closed RBAC is verified at 55 permissions / 138 deterministic grants. Admin and Super Admin receive all six refund/adjustment permissions; Manager and Resident/User receive none, including for future-institution bootstrap.
+- Clean-D1 verification proves ten financial guards, exact current RBAC counts, integer-money rejection, hard-delete protection, and adjustment immutability through an atomic UPSERT probe compatible with Wrangler local D1.
+- The self-contained runtime test creates its own resident and approved ₹5,000 credit, proves ₹3,000 reservation and over-reservation rejection, idempotent partial→completed payout, canonical `REFUNDED` Payment evidence, cancellation/reservation release, immutable adjustment behavior, and permission-specific resident `403` responses.
+- Two runtime failures during hardening were test-isolation defects, not accounting defects: the first incorrectly assumed Riya owned Arjun's seeded ₹5,000 credit; the second reused an Expenses-test phone number. Both were corrected without weakening production accounting rules.
+- Refunds/adjustments implementation is VERIFIED. Formal project-record closure is contingent on the latest documentation-head CI run also remaining fully green. No production deployment was performed.
+
 ## 2026-08-30 — Expenses core implementation verified
 - CI run `33307956198` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/invariant verification, Worker/API smoke, all 14 real-D1 Playwright runtime tests, and the complete Phase 02 visual regression suite at implementation verification head `95cb15ced29bb801fe080bc0ae608d17a52ec236`.
 - Added immutable `0011_expenses_core.sql` with institution-scoped canonical expenses, integer minor-unit money storage, explicit indexes/constraints, idempotency keys, replacement lineage, and a recoverable operational deletion queue.
