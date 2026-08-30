@@ -32,6 +32,8 @@ const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["GET /api/auth/sessions", PERMISSIONS.SESSIONS_READ_SELF],
   ["DELETE /api/auth/sessions", PERMISSIONS.SESSIONS_REVOKE_SELF],
   ["GET /api/users", PERMISSIONS.USERS_READ],
+  ["GET /api/meals/config", PERMISSIONS.MEALS_CONFIG_READ],
+  ["POST /api/meals/config", PERMISSIONS.MEALS_CONFIG_CREATE],
 ]);
 
 const USER_ACTION_PERMISSION: Record<string, PermissionKey> = {
@@ -68,6 +70,15 @@ function dynamicPolicy(method: Method, path: string): PermissionKey | null | "US
   }
   if (method === "PATCH" && /^\/api\/users\/[^/]+$/u.test(path)) {
     return "USER_ACTION";
+  }
+  if (method === "GET" && /^\/api\/meals\/config\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.MEALS_CONFIG_READ;
+  }
+  if (method === "PUT" && /^\/api\/meals\/config\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.MEALS_CONFIG_UPDATE;
+  }
+  if (method === "DELETE" && /^\/api\/meals\/config\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.MEALS_CONFIG_DELETE;
   }
   return null;
 }
