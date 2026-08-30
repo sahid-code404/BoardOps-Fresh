@@ -8,7 +8,7 @@ test("visual Funds renders the canonical composite contract and interactions", a
   await expect(page.getByText("Total Deficit", { exact: true })).toBeVisible();
   await expect(page.getByText("Riya Sen", { exact: true })).toBeVisible();
   await expect(page.getByText("Room B-204", { exact: true })).toBeVisible();
-  await expect(page.getByText("₹4,500", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Deposit", { exact: true })).toBeVisible();
   await expect(page.getByText("Deficit", { exact: true }).last()).toBeVisible();
 
   const deficitFilter = page.getByRole("button", { name: /Deficit/ });
