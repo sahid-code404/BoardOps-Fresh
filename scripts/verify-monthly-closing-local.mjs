@@ -107,6 +107,13 @@ SELECT
       )) AS non_admin_closing_permissions,
   (SELECT COUNT(*) FROM billing_cycles WHERE institution_id = 'inst_boardops_local') AS seeded_cycles,
   (SELECT COUNT(*) FROM billing_cycle_events WHERE institution_id = 'inst_boardops_local') AS seeded_cycle_events,
+  (SELECT COUNT(*) FROM billing_cycles
+    WHERE id = 'cycle_2026_04_failed_local'
+      AND institution_id = 'inst_boardops_local'
+      AND period_month = 3 AND period_year = 2026
+      AND status = 'FAILED' AND published_snapshot_id IS NULL) AS april_failed_unpublished_cycle,
+  (SELECT COUNT(*) FROM accounting_periods
+    WHERE institution_id = 'inst_boardops_local' AND period_key = '2026-04' AND status = 'CLOSING') AS april_closing_period,
   (SELECT COUNT(*) FROM accounting_periods
     WHERE institution_id = 'inst_boardops_local' AND period_key = '2026-08' AND status = 'OPEN') AS august_open_period,
   (SELECT COUNT(*) FROM formulas
@@ -137,8 +144,10 @@ const exact = {
   admin_closing_permissions: 3,
   super_admin_closing_permissions: 3,
   non_admin_closing_permissions: 0,
-  seeded_cycles: 0,
-  seeded_cycle_events: 0,
+  seeded_cycles: 1,
+  seeded_cycle_events: 1,
+  april_failed_unpublished_cycle: 1,
+  april_closing_period: 1,
   august_open_period: 1,
   required_formulas: 2,
   required_formula_versions: 2,
@@ -201,4 +210,4 @@ if (Number(restored?.[0]?.results?.[0]?.open_count ?? 0) !== 1) {
   process.exit(1);
 }
 
-console.log("[BoardOps] Monthly Closing schema + exact RBAC + source-freeze guards verified:", row);
+console.log("[BoardOps] Monthly Closing schema + exact RBAC + rollback fixture + source-freeze guards verified:", row);
