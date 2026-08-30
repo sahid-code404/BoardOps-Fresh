@@ -91,6 +91,51 @@ ON CONFLICT(id) DO UPDATE SET
   timezone = excluded.timezone,
   updated_at = excluded.updated_at;
 
+-- Real local meal configuration used by the Admin Console and future resident
+-- meal-entry phases. These rows are deterministic and institution-scoped.
+INSERT INTO meal_configurations (
+  id, institution_id, name, display_name, description, icon, color, meal_type,
+  status, display_order, default_state, default_visibility, cutoff_strategy,
+  cutoff_offset_minutes, cutoff_time, start_time, end_time, notes, created_at, updated_at
+) VALUES
+  (
+    'meal_breakfast_local', 'inst_boardops_local', 'breakfast', 'Breakfast',
+    'Daily morning meal', '🍳', '#f59e0b', 'REGULAR', 'ACTIVE', 1, 'ON', 'VISIBLE',
+    'PREVIOUS_DAY', 0, '22:00', '07:30', '09:30', NULL,
+    '2026-08-01T00:00:00.000Z', '2026-08-29T00:00:00.000Z'
+  ),
+  (
+    'meal_lunch_local', 'inst_boardops_local', 'lunch', 'Lunch',
+    'Daily afternoon meal', '🍛', '#10b981', 'REGULAR', 'ACTIVE', 2, 'ON', 'VISIBLE',
+    'SAME_DAY', 0, '09:30', '12:30', '14:30', NULL,
+    '2026-08-01T00:00:00.000Z', '2026-08-29T00:00:00.000Z'
+  ),
+  (
+    'meal_dinner_local', 'inst_boardops_local', 'dinner', 'Dinner',
+    'Daily evening meal', '🍲', '#8b5cf6', 'REGULAR', 'ACTIVE', 3, 'ON', 'VISIBLE',
+    'SAME_DAY', 0, '16:00', '19:30', '21:30', NULL,
+    '2026-08-01T00:00:00.000Z', '2026-08-29T00:00:00.000Z'
+  )
+ON CONFLICT(id) DO UPDATE SET
+  institution_id = excluded.institution_id,
+  name = excluded.name,
+  display_name = excluded.display_name,
+  description = excluded.description,
+  icon = excluded.icon,
+  color = excluded.color,
+  meal_type = excluded.meal_type,
+  status = excluded.status,
+  display_order = excluded.display_order,
+  default_state = excluded.default_state,
+  default_visibility = excluded.default_visibility,
+  cutoff_strategy = excluded.cutoff_strategy,
+  cutoff_offset_minutes = excluded.cutoff_offset_minutes,
+  cutoff_time = excluded.cutoff_time,
+  start_time = excluded.start_time,
+  end_time = excluded.end_time,
+  notes = excluded.notes,
+  updated_at = excluded.updated_at;
+
 INSERT INTO registration_requests (
   id, institution_id, user_id, cycle, status, fields_json,
   reason, fields_needing_correction_json, reviewed_by, reviewed_at,
