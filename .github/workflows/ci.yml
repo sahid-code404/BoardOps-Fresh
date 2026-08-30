@@ -91,7 +91,7 @@ jobs:
 
           curl --fail --show-error http://127.0.0.1:8787/api/health
           curl --fail --show-error http://127.0.0.1:8787/api/ready > /tmp/ready.json
-          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/ready.json','utf8')); if(x.status!=='ready'||x.schema!=='phase04-auth-workflows') process.exit(1)"
+          node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/ready.json','utf8')); if(x.status!=='ready'||x.schema!=='phase05-rbac') process.exit(1)"
           curl --fail --show-error http://127.0.0.1:8787/api/theme > /tmp/theme.json
           node -e "const fs=require('fs'); const x=JSON.parse(fs.readFileSync('/tmp/theme.json','utf8')); if(!x.success||x.data?.glassMode!=='on'||x.data?.blurIntensity!=='normal') process.exit(1)"
 
