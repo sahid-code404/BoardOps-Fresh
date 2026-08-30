@@ -16,6 +16,7 @@ import { refundAdjustmentRoutes } from "./routes/refunds-adjustments";
 import { runtimeRoutes } from "./routes/runtime";
 import { userRoutes } from "./routes/users";
 import { user360Routes } from "./routes/user-360";
+import { variableFormulaRoutes } from "./routes/variables-formulas";
 import type { AppEnv } from "./types";
 
 const app = new Hono<AppEnv>();
@@ -47,6 +48,10 @@ const REQUIRED_CORE_TABLES = [
   "adjustments",
   "financial_reference_sequences",
   "expenses",
+  "variables",
+  "variable_versions",
+  "formulas",
+  "formula_versions",
 ] as const;
 
 type ActivityRow = {
@@ -102,7 +107,7 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 55 ||
+      Number(baseline?.permission_count ?? 0) < 64 ||
       Number(baseline?.role_count ?? 0) < 4 ||
       Number(baseline?.grant_count ?? 0) < 1
     ) {
@@ -144,6 +149,7 @@ app.route("/api", refundAdjustmentRoutes);
 app.route("/api", paymentRoutes);
 app.route("/api", expenseRoutes);
 app.route("/api", fundRoutes);
+app.route("/api", variableFormulaRoutes);
 
 app.get("/api/dashboard", async (c) => {
   const viewer = await authenticatedPrincipal(c);
