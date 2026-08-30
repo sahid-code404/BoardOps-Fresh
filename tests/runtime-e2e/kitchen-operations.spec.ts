@@ -9,6 +9,29 @@ test("Counts uses real D1 meal entries, guests, overrides and leave decisions", 
   await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard(?:\?|$)/, { timeout: 5_000 });
 
+  // Probe the same browser-origin API contract before asserting rendered cards.
+  // If this ever fails, Playwright prints the real status/body instead of
+  // masking a backend problem as a generic "Breakfast not visible" failure.
+  const kitchenProbe = await page.evaluate(async () => {
+    const response = await fetch("/api/kitchen?date=2026-08-30", { credentials: "include" });
+    const body = await response.json().catch(() => null);
+    return { status: response.status, body };
+  });
+  expect(kitchenProbe).toMatchObject({
+    status: 200,
+    body: {
+      success: true,
+      data: {
+        activeUsers: 1,
+        counts: expect.arrayContaining([
+          expect.objectContaining({ id: "meal_breakfast_local", displayName: "Breakfast" }),
+          expect.objectContaining({ id: "meal_lunch_local", displayName: "Lunch" }),
+          expect.objectContaining({ id: "meal_dinner_local", displayName: "Dinner" }),
+        ]),
+      },
+    },
+  });
+
   await page.goto("/kitchen");
   await expect(page).toHaveURL(/\/kitchen(?:\?|$)/, { timeout: 5_000 });
   await expect(page.getByText("Breakfast", { exact: true }).first()).toBeVisible({ timeout: 8_000 });
