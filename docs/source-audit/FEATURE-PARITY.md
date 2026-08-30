@@ -10,11 +10,11 @@
 | Residents/users | users | residents/users | Required | Required | permission model | planned | AUDITED |
 | Products/purchases | billing feature | purchases | Required | Required | accounting immutability | planned | AUDITED |
 | Expenses | expenses view/API | expenses | Required | Required | integer money + immutability | planned | AUDITED |
-| Payments | payments view/API | payments | Required | Required | integer money + idempotency + immutability | planned | AUDITED |
+| Payments | payments view/API | payments | Required | Required | integer money + idempotency + immutability | clean D1 + runtime + visual | VERIFIED |
 | Funds | funds/resident ledger | funds | Required | Required | ledger authority | planned | AUDITED |
 | Refunds/adjustments | finance APIs | accounting | Required | Required | reversal/adjustment rules | planned | AUDITED |
 | Variables/formulas | formula engine/API | formulas | Required | Parser semantics where valid | block invalid fallback | planned | AUDITED |
-| Billing cycles/snapshots/bills | billing/closing | billing | Required | Workflow intent | immutable snapshot-only billing | planned | AUDITED |
+| Billing cycles/snapshots/bills | billing/closing | billing | Required | Workflow intent | immutable snapshot-only billing | clean D1 + runtime + visual | VERIFIED |
 | Monthly closing | monthly-closing | monthly-closing | Required | User workflow | durable state machine | planned | AUDITED |
 | Notifications/announcements | notifications | notifications | Required | Required | delivery idempotency | planned | AUDITED |
 | Reports/exports | reports/system | reports | Required | Required | lazy/background work | planned | AUDITED |
