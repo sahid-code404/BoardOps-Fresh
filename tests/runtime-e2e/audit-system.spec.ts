@@ -174,7 +174,7 @@ test("Audit, System, and Background Tasks are durable, scoped, asynchronous, and
 
     const main = page.locator("main");
     await expect(main.getByRole("tab", { name: "Audit Log", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(main.getByText("SYSTEM_CHECKPOINT", { exact: true }).first()).toBeVisible();
+    await expect(main.getByText(/SYSTEM_CHECKPOINT/u).first()).toBeVisible();
 
     await main.getByRole("tab", { name: "Background Tasks", exact: true }).click();
     await expect(main.getByRole("button", { name: "Run Session Cleanup", exact: true })).toBeVisible();
