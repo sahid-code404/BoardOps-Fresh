@@ -21,6 +21,9 @@ JOIN permissions p ON p.permission_key = 'funds.read'
 WHERE r.role_key IN ('ADMIN', 'SUPER_ADMIN');
 
 -- Keep future institution bootstrap aligned with the complete verified baseline.
+-- Preserve the already-green 0011 bootstrap body verbatim, then add the Funds
+-- grant in a separate statement. This keeps each incremental permission change
+-- small and avoids making the established bootstrap SELECT increasingly brittle.
 DROP TRIGGER IF EXISTS institutions_bootstrap_rbac;
 
 CREATE TRIGGER institutions_bootstrap_rbac
@@ -30,7 +33,7 @@ BEGIN
   VALUES (NEW.id || ':role:SUPER_ADMIN', NEW.id, 'SUPER_ADMIN', 'Super Admin', 'System administrator role', 1);
 
   INSERT INTO roles (id, institution_id, role_key, name, description, is_system)
-  VALUES (NEW.id || ':role:ADMIN', NEW.id, 'ADMIN', 'Institution administrator role', 1);
+  VALUES (NEW.id || ':role:ADMIN', NEW.id, 'ADMIN', 'Admin', 'Institution administrator role', 1);
 
   INSERT INTO roles (id, institution_id, role_key, name, description, is_system)
   VALUES (NEW.id || ':role:MANAGER', NEW.id, 'MANAGER', 'Manager', 'Institution manager role', 1);
@@ -109,9 +112,15 @@ BEGIN
     'expenses.create',
     'expenses.replace',
     'expenses.delete',
-    'expenses.restore',
-    'funds.read'
+    'expenses.restore'
   )
+  WHERE r.institution_id = NEW.id
+    AND r.role_key IN ('ADMIN', 'SUPER_ADMIN');
+
+  INSERT INTO role_permissions (role_id, permission_id)
+  SELECT r.id, p.id
+  FROM roles r
+  JOIN permissions p ON p.permission_key = 'funds.read'
   WHERE r.institution_id = NEW.id
     AND r.role_key IN ('ADMIN', 'SUPER_ADMIN');
 END;
