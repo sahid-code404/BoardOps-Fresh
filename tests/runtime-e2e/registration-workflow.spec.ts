@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 const API = "http://127.0.0.1:8787";
 const ADMIN_EMAIL = "admin@boardops.local";
 const ADMIN_PASSWORD = "BoardOps@Fresh#2026!A7";
+const ADMIN_ID = "usr_admin_local";
 const EMAIL = "browser.phase04@example.test";
 const UPDATED_EMAIL = "browser.phase04.updated@example.test";
 const PASSWORD = "BoardOps@Browser#2026!E1";
@@ -48,6 +49,8 @@ async function registerAndVerify(
 }
 
 test("registration UI survives verification, correction, reverification, resubmit and approval", async ({ page, browser }) => {
+  test.setTimeout(60_000);
+
   await registerAndVerify(page, {
     name: "Browser Phase Four",
     institutionUserId: "RES-BROWSER-P04",
@@ -64,6 +67,15 @@ test("registration UI survives verification, correction, reverification, resubmi
       data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
     });
     expect(login.ok()).toBeTruthy();
+
+    const disableLastAdmin = await adminApi.patch(`${API}/api/users/${ADMIN_ID}`, {
+      data: { action: "SUSPEND", reason: "This must be rejected by the safety invariant" },
+    });
+    expect(disableLastAdmin.status()).toBe(422);
+    await expect(disableLastAdmin.json()).resolves.toMatchObject({
+      success: false,
+      error: "Cannot disable the last active administrator",
+    });
 
     const users = await adminApi.get(`${API}/api/users`, { params: { q: EMAIL } });
     expect(users.ok()).toBeTruthy();
@@ -131,7 +143,34 @@ test("registration UI survives verification, correction, reverification, resubmi
     expect(approve.ok()).toBeTruthy();
 
     await expect(page.getByText("You're approved!", { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole("button", { name: "Continue to sign in", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Continue to sign in", exact: true }).click();
+
+    await page.getByLabel("Email", { exact: true }).fill(UPDATED_EMAIL);
+    await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
+    const applicantLogin = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === "/api/auth/login" && response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    expect((await applicantLogin).status()).toBe(200);
+
+    const activeMe = await page.context().request.get(`${API}/api/auth/me`);
+    expect(activeMe.ok()).toBeTruthy();
+
+    const suspend = await adminApi.patch(`${API}/api/users/${applicant!.id}`, {
+      data: { action: "SUSPEND", reason: "Phase 04 session revocation verification" },
+    });
+    expect(suspend.ok()).toBeTruthy();
+
+    const suspendedMe = await page.context().request.get(`${API}/api/auth/me`);
+    expect(suspendedMe.status()).toBe(401);
+
+    const reactivate = await adminApi.patch(`${API}/api/users/${applicant!.id}`, {
+      data: { action: "ACTIVATE", reason: "Restore after session revocation verification" },
+    });
+    expect(reactivate.ok()).toBeTruthy();
+
+    const reusedRevokedSession = await page.context().request.get(`${API}/api/auth/me`);
+    expect(reusedRevokedSession.status()).toBe(401);
   } finally {
     await adminContext.close();
   }
