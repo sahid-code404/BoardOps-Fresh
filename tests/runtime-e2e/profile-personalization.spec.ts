@@ -161,7 +161,7 @@ test("Profile and Personalization persist self-service data securely", async ({ 
     });
     const uploaded = await avatarResponse;
     expect(uploaded.status()).toBe(200);
-    expect(avatarAuthorization).toBe("Bearer cookie-session");
+    expect(avatarAuthorization).toBeUndefined();
 
     const avatarImage = await page.evaluate(async () => {
       const response = await fetch("/api/auth/avatar/image", { credentials: "include" });
