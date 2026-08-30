@@ -37,11 +37,4 @@ replaceOnce(
   "remove coarse admin authorization",
 );
 
-replaceOnce(
-  ".github/workflows/ci.yml",
-  `x.schema!=='phase04-auth-workflows'`,
-  `x.schema!=='phase05-rbac'`,
-  "CI readiness schema",
-);
-
-console.log("[BoardOps] Phase 05 RBAC integration patch applied.");
+console.log("[BoardOps] Phase 05 RBAC route integration patch applied.");
