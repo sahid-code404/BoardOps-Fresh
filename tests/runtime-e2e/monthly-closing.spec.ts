@@ -199,7 +199,10 @@ test("Monthly Closing fails closed without a compatible canonical formula, then 
     totalAmount: 4860,
     paidAmount: 0,
     dueAmount: 4860,
-    status: "GENERATED",
+    // The due date is intentionally in the past relative to the deterministic
+    // runtime date, so Billing Core immediately applies its canonical OVERDUE
+    // transition when the bill is read after closing.
+    status: "OVERDUE",
     dueDate: "2026-06-10T00:00:00.000Z",
     user: expect.objectContaining({ name: "Riya Sen" }),
   });
