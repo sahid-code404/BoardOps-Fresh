@@ -1,6 +1,7 @@
 "use client";
 
 import { VISUAL_FIXTURES_ENABLED, visualFixtureApiFetch } from "@/lib/visual-fixtures";
+import { visualFormulaEngineFixtureResponse } from "@/lib/visual-formula-engine-fixture";
 import { visualFundsFixtureResponse } from "@/lib/visual-funds-fixture";
 import { visualUser360FixtureResponse } from "@/lib/visual-user-360-fixture";
 
@@ -29,6 +30,8 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
     if (user360 !== undefined) return user360;
     const funds = visualFundsFixtureResponse<T>(path, opts);
     if (funds !== undefined) return funds;
+    const formulas = visualFormulaEngineFixtureResponse<T>(path, opts);
+    if (formulas !== undefined) return formulas;
     return visualFixtureApiFetch<T>(path, opts);
   }
 
