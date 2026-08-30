@@ -20,6 +20,8 @@ const CORE_TABLES = [
   "guest_meals",
   "meal_overrides",
   "leave_applications",
+  "billing_snapshots",
+  "bills",
 ];
 
 function mockDb(tableNames = CORE_TABLES): D1Database {
@@ -33,7 +35,7 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
 
       if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
         return {
-          first: async () => ({ permission_count: 29, role_count: 4, grant_count: 81 }),
+          first: async () => ({ permission_count: 35, role_count: 4, grant_count: 95 }),
         };
       }
 
@@ -60,7 +62,7 @@ describe("health endpoint", () => {
 });
 
 describe("readiness endpoint", () => {
-  it("requires the complete RBAC + meal operations D1 schema and baseline", async () => {
+  it("requires the complete RBAC + meal + billing D1 schema and baseline", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
@@ -88,6 +90,16 @@ describe("readiness endpoint", () => {
       service: "boardops-api",
       schema: "phase05-rbac",
     });
+  });
+
+  it("fails closed when a required billing table is missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "billing_snapshots")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
   });
 });
 
