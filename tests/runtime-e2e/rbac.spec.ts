@@ -93,7 +93,7 @@ test("RBAC is database-driven, cookie-only and fail-closed", async ({ browser })
       requiredPermission: "users.status_change",
     });
 
-    // Meal definitions are resident-safe read data used by the future meal-entry
+    // Meal definitions are resident-safe read data used by the resident meal
     // experience, but configuration mutations remain an administrator concern.
     const residentMealRead = await residentApi.get(`${API}/api/meals/config`);
     expect(residentMealRead.ok()).toBeTruthy();
@@ -127,6 +127,66 @@ test("RBAC is database-driven, cookie-only and fail-closed", async ({ browser })
       success: false,
       error: "Permission denied",
       requiredPermission: "meals.config.create",
+    });
+
+    // Counts exposes institution-wide resident status and is not resident-safe.
+    const deniedKitchen = await residentApi.get(`${API}/api/kitchen?date=2026-08-30`);
+    expect(deniedKitchen.status()).toBe(403);
+    await expect(deniedKitchen.json()).resolves.toMatchObject({
+      success: false,
+      error: "Permission denied",
+      requiredPermission: "kitchen.read",
+    });
+
+    const deniedOverride = await residentApi.post(`${API}/api/meals/override`, {
+      data: {
+        mealId: "meal_breakfast_local",
+        userId: registrationBody.data.userId,
+        serviceDate: "2026-08-30",
+        action: "TURN_OFF",
+        reason: "Resident must never override another meal",
+      },
+    });
+    expect(deniedOverride.status()).toBe(403);
+    await expect(deniedOverride.json()).resolves.toMatchObject({
+      success: false,
+      error: "Permission denied",
+      requiredPermission: "meals.override",
+    });
+
+    // Leave is intentionally self-scoped for residents. The seeded Riya leave
+    // must remain invisible, while the resident can create and read their own.
+    const leaveBefore = await residentApi.get(`${API}/api/leave`);
+    expect(leaveBefore.ok()).toBeTruthy();
+    await expect(leaveBefore.json()).resolves.toMatchObject({ success: true, data: [] });
+
+    const ownLeave = await residentApi.post(`${API}/api/leave`, {
+      data: {
+        startDate: "2026-09-10",
+        endDate: "2026-09-11",
+        reason: "Resident RBAC self-scope verification",
+        mealType: "ALL",
+        mealIds: [],
+      },
+    });
+    expect(ownLeave.status()).toBe(201);
+    const ownLeaveBody = await ownLeave.json() as { success: boolean; data: { id: string; user: { id: string } } };
+    expect(ownLeaveBody).toMatchObject({ success: true, data: { user: { id: registrationBody.data.userId } } });
+
+    const leaveAfter = await residentApi.get(`${API}/api/leave`);
+    expect(leaveAfter.ok()).toBeTruthy();
+    const leaveAfterBody = await leaveAfter.json() as { success: boolean; data: Array<{ id: string; user: { id: string } }> };
+    expect(leaveAfterBody.data).toHaveLength(1);
+    expect(leaveAfterBody.data[0]?.user.id).toBe(registrationBody.data.userId);
+
+    const deniedLeaveDecision = await residentApi.patch(`${API}/api/leave/${ownLeaveBody.data.id}`, {
+      data: { status: "APPROVED" },
+    });
+    expect(deniedLeaveDecision.status()).toBe(403);
+    await expect(deniedLeaveDecision.json()).resolves.toMatchObject({
+      success: false,
+      error: "Permission denied",
+      requiredPermission: "leave.decide",
     });
 
     // The RBAC boundary must not inherit the Phase 04 bearer compatibility
