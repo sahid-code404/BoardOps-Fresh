@@ -91,8 +91,8 @@ ON CONFLICT(id) DO UPDATE SET
   timezone = excluded.timezone,
   updated_at = excluded.updated_at;
 
--- Real local meal configuration used by the Admin Console and future resident
--- meal-entry phases. These rows are deterministic and institution-scoped.
+-- Real local meal configuration used by the Admin Console and resident/kitchen
+-- meal operations. These rows are deterministic and institution-scoped.
 INSERT INTO meal_configurations (
   id, institution_id, name, display_name, description, icon, color, meal_type,
   status, display_order, default_state, default_visibility, cutoff_strategy,
@@ -134,6 +134,75 @@ ON CONFLICT(id) DO UPDATE SET
   start_time = excluded.start_time,
   end_time = excluded.end_time,
   notes = excluded.notes,
+  updated_at = excluded.updated_at;
+
+-- A small, real operational dataset makes the local Counts page immediately
+-- useful. It deliberately includes one confirmed ON, one confirmed OFF, and
+-- one still-editable/default ON state for the active resident.
+INSERT INTO meal_entries (
+  id, institution_id, user_id, meal_id, service_date, status, original_state,
+  editable_until, locked, notes, updated_by, created_at, updated_at
+) VALUES
+  (
+    'entry_riya_breakfast_20260830', 'inst_boardops_local', 'usr_resident_riya_local',
+    'meal_breakfast_local', '2026-08-30', 'ON', 'ON', '2026-08-29T16:30:00.000Z', 1,
+    'Deterministic local confirmed breakfast', 'usr_resident_riya_local',
+    '2026-08-29T16:00:00.000Z', '2026-08-29T16:30:00.000Z'
+  ),
+  (
+    'entry_riya_lunch_20260830', 'inst_boardops_local', 'usr_resident_riya_local',
+    'meal_lunch_local', '2026-08-30', 'OFF', 'OFF', '2026-08-30T04:00:00.000Z', 1,
+    'Deterministic local resident opt-out', 'usr_resident_riya_local',
+    '2026-08-29T16:00:00.000Z', '2026-08-30T04:00:00.000Z'
+  ),
+  (
+    'entry_riya_dinner_20260830', 'inst_boardops_local', 'usr_resident_riya_local',
+    'meal_dinner_local', '2026-08-30', 'ON', 'ON', '2026-08-30T10:30:00.000Z', 0,
+    'Deterministic local dinner selection', 'usr_resident_riya_local',
+    '2026-08-29T16:00:00.000Z', '2026-08-29T16:00:00.000Z'
+  )
+ON CONFLICT(institution_id, user_id, meal_id, service_date) DO UPDATE SET
+  status = excluded.status,
+  original_state = excluded.original_state,
+  editable_until = excluded.editable_until,
+  locked = excluded.locked,
+  notes = excluded.notes,
+  updated_by = excluded.updated_by,
+  updated_at = excluded.updated_at;
+
+INSERT INTO guest_meals (
+  id, institution_id, meal_id, host_user_id, guest_name, guest_count,
+  service_date, notes, created_at
+) VALUES (
+  'guest_local_lunch_20260830', 'inst_boardops_local', 'meal_lunch_local',
+  'usr_admin_local', 'Guest (Lunch)', 2, '2026-08-30',
+  'Deterministic local guest lunch', '2026-08-30T03:30:00.000Z'
+)
+ON CONFLICT(id) DO UPDATE SET
+  meal_id = excluded.meal_id,
+  host_user_id = excluded.host_user_id,
+  guest_name = excluded.guest_name,
+  guest_count = excluded.guest_count,
+  service_date = excluded.service_date,
+  notes = excluded.notes;
+
+INSERT INTO leave_applications (
+  id, institution_id, user_id, start_date, end_date, reason, status,
+  approved_by, meal_type, meal_ids_json, admin_notes, created_at, updated_at
+) VALUES (
+  'leave_riya_pending_local', 'inst_boardops_local', 'usr_resident_riya_local',
+  '2026-09-02', '2026-09-03', 'Family visit', 'PENDING', NULL,
+  'ALL', '[]', NULL, '2026-08-30T02:00:00.000Z', '2026-08-30T02:00:00.000Z'
+)
+ON CONFLICT(id) DO UPDATE SET
+  start_date = excluded.start_date,
+  end_date = excluded.end_date,
+  reason = excluded.reason,
+  status = excluded.status,
+  approved_by = excluded.approved_by,
+  meal_type = excluded.meal_type,
+  meal_ids_json = excluded.meal_ids_json,
+  admin_notes = excluded.admin_notes,
   updated_at = excluded.updated_at;
 
 INSERT INTO registration_requests (
