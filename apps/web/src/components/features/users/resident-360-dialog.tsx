@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { motion, AnimatePresence } from "framer-motion";
 import { format } from "date-fns";
 import {
   X,
@@ -12,7 +11,6 @@ import {
   CreditCard,
   RotateCcw,
   Lock,
-  Shield,
   History,
   IndianRupee,
   TrendingUp,
@@ -20,6 +18,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   Utensils,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Dialog,
@@ -130,20 +129,44 @@ type ActiveRestriction = {
   expiresAt: string | null;
 };
 
+type LoginHistoryEntry = {
+  id: string;
+  success: boolean;
+  ipAddress: string | null;
+  createdAt: string;
+  reason: string | null;
+};
+
+type DataAvailability = {
+  profile: boolean;
+  loginHistory: boolean;
+  fundAccount: boolean;
+  bills: boolean;
+  payments: boolean;
+  refunds: boolean;
+  ledger: boolean;
+  meals: boolean;
+  restrictions: boolean;
+};
+
 type Resident360 = {
   profile: Profile;
   fundAccount: FundAccount | null;
-  restrictions: RestrictionEval;
+  restrictions: RestrictionEval | null;
   activeRestrictions: ActiveRestriction[];
   recentBills: Bill[];
   recentPayments: Payment[];
   recentRefunds: Refund[];
   ledger: LedgerEntry[];
-  mealStats: { currentMonthON: number };
-  loginHistory: { id: string; success: boolean; ipAddress: string | null; createdAt: string; reason: string | null }[];
+  mealStats: { currentMonthON: number } | null;
+  loginHistory: LoginHistoryEntry[];
+  dataAvailability: DataAvailability;
+  contractVersion?: number;
 };
 
 type ApiResponse<T> = { success: boolean; data: T };
+
+type Tab = "overview" | "bills" | "payments" | "ledger" | "restrictions";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -155,11 +178,23 @@ const STATUS_COLORS: Record<string, string> = {
   OVERDUE: "text-destructive",
 };
 
+const TABS: { key: Tab; label: string; icon: typeof UserIcon }[] = [
+  { key: "overview", label: "Overview", icon: UserIcon },
+  { key: "bills", label: "Bills", icon: Receipt },
+  { key: "payments", label: "Payments", icon: CreditCard },
+  { key: "ledger", label: "Ledger", icon: History },
+  { key: "restrictions", label: "Restrictions", icon: Lock },
+];
+
 function formatINR(n: number) {
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
 }
 
-type Tab = "overview" | "bills" | "payments" | "ledger" | "restrictions";
+function monthLabel(month: number | null) {
+  if (month === null) return "—";
+  const index = month >= 1 && month <= 12 ? month - 1 : month;
+  return MONTHS[index] ?? String(month);
+}
 
 export function Resident360Dialog({
   userId,
@@ -172,32 +207,57 @@ export function Resident360Dialog({
 }) {
   const [tab, setTab] = useState<Tab>("overview");
 
-  const { data, isLoading } = useQuery({
+  useEffect(() => {
+    if (open) setTab("overview");
+  }, [open, userId]);
+
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    isFetching,
+  } = useQuery({
     queryKey: ["user-360", userId],
     queryFn: async () => {
       if (!userId) return null;
-      const r = await api.get<ApiResponse<Resident360>>(`/users/${userId}/360`);
-      return r.data;
+      const response = await api.get<ApiResponse<Resident360>>(`/users/${userId}/360`);
+      if (!response?.success || !response.data?.profile) {
+        throw new Error("User 360 returned an invalid response");
+      }
+      return response.data;
     },
     enabled: !!userId && open,
+    retry: 1,
   });
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[92vh] overflow-y-auto p-0">
+    <Dialog open={open} onOpenChange={(value) => !value && onClose()}>
+      <DialogContent
+        showCloseButton={false}
+        className="sm:max-w-2xl max-h-[92vh] overflow-y-auto p-0"
+      >
         <DialogHeader className="sr-only">
           <DialogTitle>Resident 360° View</DialogTitle>
         </DialogHeader>
 
-        {isLoading || !data ? (
-          <div className="p-6 space-y-3">
-            <ShimmerSkeleton className="h-16 rounded-3xl" />
-            <ShimmerSkeleton className="h-32 rounded-3xl" />
-            <ShimmerSkeleton className="h-48 rounded-3xl" />
-          </div>
+        {isLoading ? (
+          <User360Skeleton />
+        ) : isError ? (
+          <User360Error
+            message={error instanceof Error ? error.message : "Unable to load User 360"}
+            retrying={isFetching}
+            onRetry={() => void refetch()}
+          />
+        ) : !data ? (
+          <User360Error
+            message="User 360 returned no data."
+            retrying={isFetching}
+            onRetry={() => void refetch()}
+          />
         ) : (
           <div className="p-4 sm:p-6 space-y-4">
-            {/* Header */}
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
                 <UserAvatar
@@ -210,65 +270,86 @@ export function Resident360Dialog({
                   <h2 className="text-xl font-bold truncate">{data.profile.name}</h2>
                   <p className="text-sm text-muted-foreground truncate">{data.profile.email}</p>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium",
-                      data.profile.status === "ACTIVE" ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
-                    )}>
+                    <span
+                      className={cn(
+                        "text-[10px] px-2 py-0.5 rounded-full font-medium",
+                        data.profile.status === "ACTIVE"
+                          ? "bg-success/15 text-success"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
                       {data.profile.status}
                     </span>
                     {data.profile.room && (
                       <span className="text-[10px] text-muted-foreground">Room {data.profile.room}</span>
                     )}
                     {data.profile.institutionUserId && (
-                      <span className="text-[10px] text-muted-foreground font-mono">{data.profile.institutionUserId}</span>
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {data.profile.institutionUserId}
+                      </span>
                     )}
                   </div>
                 </div>
               </div>
-              <GlassButton variant="ghost" size="sm" onClick={onClose}>
+              <GlassButton
+                variant="ghost"
+                size="icon"
+                aria-label="Close User 360"
+                onClick={onClose}
+              >
                 <X className="h-4 w-4" />
               </GlassButton>
             </div>
 
-            {/* Tabs */}
-            <div className="flex gap-1 p-1 rounded-2xl glass-soft">
-              {([
-                { key: "overview", label: "Overview", icon: UserIcon },
-                { key: "bills", label: "Bills", icon: Receipt },
-                { key: "payments", label: "Payments", icon: CreditCard },
-                { key: "ledger", label: "Ledger", icon: History },
-                { key: "restrictions", label: "Restrictions", icon: Lock },
-              ] as { key: Tab; label: string; icon: typeof UserIcon }[]).map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className={cn(
-                    "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition-all",
-                    tab === t.key ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <t.icon className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">{t.label}</span>
-                </button>
-              ))}
+            <div className="flex gap-1 p-1 rounded-2xl glass-soft" role="tablist" aria-label="User 360 sections">
+              {TABS.map((item) => {
+                const Icon = item.icon;
+                const selected = tab === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    id={`user-360-tab-${item.key}`}
+                    role="tab"
+                    aria-selected={selected}
+                    aria-controls={`user-360-panel-${item.key}`}
+                    onClick={() => setTab(item.key)}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium transition-colors",
+                      selected
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">{item.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Tab content */}
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={tab}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.15 }}
-                className="space-y-3"
-              >
-                {tab === "overview" && <OverviewTab data={data} />}
-                {tab === "bills" && <BillsTab bills={data.recentBills} />}
-                {tab === "payments" && <PaymentsTab payments={data.recentPayments} refunds={data.recentRefunds} />}
-                {tab === "ledger" && <LedgerTab ledger={data.ledger} />}
-                {tab === "restrictions" && <RestrictionsTab data={data} />}
-              </motion.div>
-            </AnimatePresence>
+            {/* Functional content must never depend on an entrance animation.
+                An interrupted Framer Motion opacity animation could strand this
+                entire region at opacity:0 while it still occupied full height. */}
+            <div
+              id={`user-360-panel-${tab}`}
+              role="tabpanel"
+              aria-labelledby={`user-360-tab-${tab}`}
+              data-testid="user-360-tab-content"
+              className="space-y-3 opacity-100"
+            >
+              {tab === "overview" && <OverviewTab data={data} />}
+              {tab === "bills" && <BillsTab bills={data.recentBills} available={data.dataAvailability.bills} />}
+              {tab === "payments" && (
+                <PaymentsTab
+                  payments={data.recentPayments}
+                  refunds={data.recentRefunds}
+                  paymentsAvailable={data.dataAvailability.payments}
+                  refundsAvailable={data.dataAvailability.refunds}
+                />
+              )}
+              {tab === "ledger" && <LedgerTab ledger={data.ledger} available={data.dataAvailability.ledger} />}
+              {tab === "restrictions" && <RestrictionsTab data={data} />}
+            </div>
           </div>
         )}
       </DialogContent>
@@ -276,105 +357,202 @@ export function Resident360Dialog({
   );
 }
 
-function OverviewTab({ data }: { data: Resident360 }) {
-  const fa = data.fundAccount;
-  const re = data.restrictions;
+function User360Skeleton() {
   return (
-    <div className="space-y-3">
-      {/* Financial summary */}
-      {fa && (
-        <GlassCard className="p-4" hover={false}>
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-              <Wallet className="h-3 w-3" /> Resident Fund Account
-            </p>
-            <span className={cn("text-xs font-bold", STATUS_COLORS[fa.financialStatus] || "text-muted-foreground")}>
-              {fa.financialStatus}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Stat label="Available Balance" value={formatINR(fa.availableBalance)} icon={IndianRupee} color="text-success" />
-            <Stat label="Outstanding Due" value={formatINR(fa.outstandingDue)} icon={TrendingDown} color="text-destructive" />
-            <Stat label="Pending Deposits" value={formatINR(fa.pendingDeposits)} icon={TrendingUp} color="text-warning" />
-            <Stat label="Refund Pending" value={formatINR(fa.refundPending)} icon={RotateCcw} color="text-info" />
-          </div>
-          <div className="mt-3 pt-3 border-t border-border grid grid-cols-3 gap-2 text-center">
-            <div>
-              <p className="text-[10px] text-muted-foreground">Total Deposited</p>
-              <p className="text-sm font-bold tabular-nums">{formatINR(fa.totalDeposited)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-muted-foreground">Total Billed</p>
-              <p className="text-sm font-bold tabular-nums">{formatINR(fa.totalBilled)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] text-muted-foreground">Total Refunded</p>
-              <p className="text-sm font-bold tabular-nums">{formatINR(fa.totalRefunded)}</p>
-            </div>
-          </div>
-        </GlassCard>
-      )}
+    <div className="p-6 space-y-3" aria-label="Loading User 360">
+      <ShimmerSkeleton className="h-16 rounded-3xl" />
+      <ShimmerSkeleton className="h-12 rounded-2xl" />
+      <ShimmerSkeleton className="h-48 rounded-3xl" />
+    </div>
+  );
+}
 
-      {/* Meal + restriction summary */}
-      <div className="grid grid-cols-2 gap-3">
-        <GlassCard className="p-4" hover={false}>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-            <Utensils className="h-3.5 w-3.5" /> Meals This Month
-          </div>
-          <p className="text-2xl font-bold tabular-nums">{data.mealStats.currentMonthON}</p>
-          <p className="text-[10px] text-muted-foreground">ON / LOCKED entries</p>
-        </GlassCard>
-        <GlassCard className="p-4" hover={false}>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-            {re.canBookMeals ? <CheckCircle2 className="h-3.5 w-3.5 text-success" /> : <Lock className="h-3.5 w-3.5 text-destructive" />}
-            Meal Booking
-          </div>
-          <p className="text-lg font-bold">
-            {re.canBookMeals ? "Enabled" : "Restricted"}
-          </p>
-          {re.graceDaysRemaining !== null && re.graceDaysRemaining > 0 && (
-            <p className="text-[10px] text-warning">Grace: {re.graceDaysRemaining}d left</p>
-          )}
-        </GlassCard>
-      </div>
-
-      {/* Profile details */}
-      <GlassCard className="p-4" hover={false}>
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Profile</p>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <Detail label="Phone" value={data.profile.phone || "—"} />
-          <Detail label="Gender" value={data.profile.gender || "—"} />
-          <Detail label="Joined" value={format(new Date(data.profile.createdAt), "d MMM yyyy")} />
-          <Detail label="Last Login" value={data.profile.lastLoginAt ? format(new Date(data.profile.lastLoginAt), "d MMM yyyy") : "Never"} />
-          <Detail label="Email Verified" value={data.profile.emailVerified ? "Yes" : "No"} />
-          <Detail label="2FA" value={TWO_FACTOR_AUTH_ENABLED && data.profile.twoFactorEnabled ? "Enabled" : "Disabled"} />
-        </div>
+function User360Error({
+  message,
+  retrying,
+  onRetry,
+}: {
+  message: string;
+  retrying: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="p-6">
+      <GlassCard className="p-6 text-center" hover={false}>
+        <AlertTriangle className="h-9 w-9 text-destructive mx-auto mb-3" />
+        <h3 className="font-semibold">Could not load User 360</h3>
+        <p className="text-sm text-muted-foreground mt-1 mb-4">{message}</p>
+        <GlassButton variant="primary" size="sm" onClick={onRetry} loading={retrying}>
+          <RotateCcw className="h-4 w-4" />
+          Retry
+        </GlassButton>
       </GlassCard>
     </div>
   );
 }
 
-function BillsTab({ bills }: { bills: Bill[] }) {
+function OverviewTab({ data }: { data: Resident360 }) {
+  const fundAccount = data.fundAccount;
+  const restrictions = data.restrictions;
+
+  return (
+    <div className="space-y-3" data-testid="user-360-overview">
+      {data.dataAvailability.fundAccount && fundAccount ? (
+        <GlassCard className="p-4" hover={false}>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+              <Wallet className="h-3 w-3" /> Resident Fund Account
+            </p>
+            <span className={cn("text-xs font-bold", STATUS_COLORS[fundAccount.financialStatus] || "text-muted-foreground")}>
+              {fundAccount.financialStatus}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Stat label="Available Balance" value={formatINR(fundAccount.availableBalance)} icon={IndianRupee} color="text-success" />
+            <Stat label="Outstanding Due" value={formatINR(fundAccount.outstandingDue)} icon={TrendingDown} color="text-destructive" />
+            <Stat label="Pending Deposits" value={formatINR(fundAccount.pendingDeposits)} icon={TrendingUp} color="text-warning" />
+            <Stat label="Refund Pending" value={formatINR(fundAccount.refundPending)} icon={RotateCcw} color="text-info" />
+          </div>
+          <div className="mt-3 pt-3 border-t border-border grid grid-cols-3 gap-2 text-center">
+            <MiniStat label="Total Deposited" value={formatINR(fundAccount.totalDeposited)} />
+            <MiniStat label="Total Billed" value={formatINR(fundAccount.totalBilled)} />
+            <MiniStat label="Total Refunded" value={formatINR(fundAccount.totalRefunded)} />
+          </div>
+        </GlassCard>
+      ) : (
+        <UnavailableCard
+          icon={Wallet}
+          title="Resident Fund Account"
+          description="Financial account data is not part of the current D1 schema yet. This section will populate automatically when the finance domain is introduced."
+        />
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {data.dataAvailability.meals && data.mealStats ? (
+          <GlassCard className="p-4" hover={false}>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              <Utensils className="h-3.5 w-3.5" /> Meals This Month
+            </div>
+            <p className="text-2xl font-bold tabular-nums">{data.mealStats.currentMonthON}</p>
+            <p className="text-[10px] text-muted-foreground">ON / LOCKED entries</p>
+          </GlassCard>
+        ) : (
+          <UnavailableCard
+            compact
+            icon={Utensils}
+            title="Meal activity"
+            description="Meal data is not available in the current schema."
+          />
+        )}
+
+        {data.dataAvailability.restrictions && restrictions ? (
+          <GlassCard className="p-4" hover={false}>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
+              {restrictions.canBookMeals ? (
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+              ) : (
+                <Lock className="h-3.5 w-3.5 text-destructive" />
+              )}
+              Meal Booking
+            </div>
+            <p className="text-lg font-bold">{restrictions.canBookMeals ? "Enabled" : "Restricted"}</p>
+            {restrictions.graceDaysRemaining !== null && restrictions.graceDaysRemaining > 0 && (
+              <p className="text-[10px] text-warning">Grace: {restrictions.graceDaysRemaining}d left</p>
+            )}
+          </GlassCard>
+        ) : (
+          <UnavailableCard
+            compact
+            icon={Lock}
+            title="Restrictions"
+            description="Restriction evaluation is not available in the current schema."
+          />
+        )}
+      </div>
+
+      <GlassCard className="p-4" hover={false}>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Profile</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+          <Detail label="Phone" value={data.profile.phone || "—"} />
+          <Detail label="Gender" value={data.profile.gender || "—"} />
+          <Detail label="Resident ID" value={data.profile.institutionUserId || "—"} />
+          <Detail label="Institution" value={data.profile.institutionName || "—"} />
+          <Detail label="Emergency Contact" value={data.profile.emergencyContact || "—"} />
+          <Detail label="Joined" value={format(new Date(data.profile.createdAt), "d MMM yyyy")} />
+          <Detail label="Last Login" value={data.profile.lastLoginAt ? format(new Date(data.profile.lastLoginAt), "d MMM yyyy, h:mm a") : "Never"} />
+          <Detail label="Email Verified" value={data.profile.emailVerified ? "Yes" : "No"} />
+          <Detail label="2FA" value={TWO_FACTOR_AUTH_ENABLED && data.profile.twoFactorEnabled ? "Enabled" : "Disabled"} />
+        </div>
+      </GlassCard>
+
+      <GlassCard className="p-4" hover={false}>
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <ShieldCheck className="h-3.5 w-3.5" /> Recent Sign-ins
+        </p>
+        {!data.dataAvailability.loginHistory ? (
+          <p className="text-xs text-muted-foreground">Login history is not available.</p>
+        ) : data.loginHistory.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No sign-in history yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {data.loginHistory.map((entry) => (
+              <div key={entry.id} className="flex items-start justify-between gap-3 rounded-xl glass-soft p-2.5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{entry.success ? "Successful sign-in" : "Failed sign-in"}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {format(new Date(entry.createdAt), "d MMM yyyy, h:mm a")}
+                    {entry.ipAddress ? ` · ${entry.ipAddress}` : ""}
+                  </p>
+                  {entry.reason && <p className="text-[10px] text-muted-foreground mt-0.5">{entry.reason}</p>}
+                </div>
+                <span className={cn("text-[10px] font-medium shrink-0", entry.success ? "text-success" : "text-destructive")}>
+                  {entry.success ? "SUCCESS" : "FAILED"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </GlassCard>
+    </div>
+  );
+}
+
+function BillsTab({ bills, available }: { bills: Bill[]; available: boolean }) {
+  if (!available) {
+    return (
+      <UnavailableCard
+        icon={Receipt}
+        title="Billing history"
+        description="Bills are not available in the current D1 schema yet."
+      />
+    );
+  }
   if (bills.length === 0) return <EmptyState icon={Receipt} label="No bills yet" />;
+
   return (
     <div className="space-y-2">
-      {bills.map((b) => (
-        <div key={b.id} className="flex items-center justify-between p-3 rounded-2xl glass-soft">
+      {bills.map((bill) => (
+        <div key={bill.id} className="flex items-center justify-between p-3 rounded-2xl glass-soft">
           <div className="min-w-0">
             <p className="text-sm font-medium">
-              {b.billNumber || "—"} · {MONTHS[b.periodMonth]} {b.periodYear}
+              {bill.billNumber || "—"} · {monthLabel(bill.periodMonth)} {bill.periodYear}
             </p>
             <p className="text-[10px] text-muted-foreground">
-              Total ₹{b.totalAmount} · Paid ₹{b.paidAmount} · Due ₹{b.dueAmount}
-              {b.previousDue > 0 && ` · Prev Due ₹${b.previousDue}`}
+              Total {formatINR(bill.totalAmount)} · Paid {formatINR(bill.paidAmount)} · Due {formatINR(bill.dueAmount)}
+              {bill.previousDue > 0 && ` · Previous ${formatINR(bill.previousDue)}`}
             </p>
           </div>
-          <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0",
-            b.status === "PAID" ? "bg-success/15 text-success" :
-            b.status === "PARTIALLY_PAID" ? "bg-warning/15 text-warning" :
-            "bg-muted text-muted-foreground"
-          )}>
-            {b.status}
+          <span
+            className={cn(
+              "text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0",
+              bill.status === "PAID"
+                ? "bg-success/15 text-success"
+                : bill.status === "PARTIALLY_PAID"
+                  ? "bg-warning/15 text-warning"
+                  : "bg-muted text-muted-foreground",
+            )}
+          >
+            {bill.status}
           </span>
         </div>
       ))}
@@ -382,75 +560,106 @@ function BillsTab({ bills }: { bills: Bill[] }) {
   );
 }
 
-function PaymentsTab({ payments, refunds }: { payments: Payment[]; refunds: Refund[] }) {
+function PaymentsTab({
+  payments,
+  refunds,
+  paymentsAvailable,
+  refundsAvailable,
+}: {
+  payments: Payment[];
+  refunds: Refund[];
+  paymentsAvailable: boolean;
+  refundsAvailable: boolean;
+}) {
+  if (!paymentsAvailable && !refundsAvailable) {
+    return (
+      <UnavailableCard
+        icon={CreditCard}
+        title="Payments & refunds"
+        description="Payment and refund records are not available in the current D1 schema yet."
+      />
+    );
+  }
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="space-y-2">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Recent Payments</p>
-        {payments.length === 0 ? <p className="text-xs text-muted-foreground">No payments yet</p> : (
-          payments.map((p) => (
-            <div key={p.id} className="flex items-center justify-between p-2.5 rounded-xl glass-soft">
+        {!paymentsAvailable ? (
+          <p className="text-xs text-muted-foreground">Payment data is not available.</p>
+        ) : payments.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No payments yet.</p>
+        ) : (
+          payments.map((payment) => (
+            <div key={payment.id} className="flex items-center justify-between p-2.5 rounded-xl glass-soft">
               <div>
-                <p className="text-sm font-medium">₹{p.amount} · {p.method}</p>
+                <p className="text-sm font-medium">{formatINR(payment.amount)} · {payment.method}</p>
                 <p className="text-[10px] text-muted-foreground">
-                  {format(new Date(p.createdAt), "d MMM yyyy")}
-                  {p.effectiveMonth !== null && ` · Effective: ${MONTHS[p.effectiveMonth]} ${p.effectiveYear}`}
+                  {format(new Date(payment.createdAt), "d MMM yyyy")}
+                  {payment.effectiveMonth !== null && ` · Effective: ${monthLabel(payment.effectiveMonth)} ${payment.effectiveYear ?? ""}`}
                 </p>
               </div>
-              <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium",
-                p.status === "APPROVED" ? "bg-success/15 text-success" :
-                p.status === "PENDING" ? "bg-warning/15 text-warning" :
-                "bg-muted text-muted-foreground"
-              )}>
-                {p.status}
+              <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium", payment.status === "APPROVED" ? "bg-success/15 text-success" : payment.status === "PENDING" ? "bg-warning/15 text-warning" : "bg-muted text-muted-foreground")}>
+                {payment.status}
               </span>
             </div>
           ))
         )}
       </div>
-      {refunds.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Recent Refunds</p>
-          {refunds.map((r) => (
-            <div key={r.id} className="flex items-center justify-between p-2.5 rounded-xl glass-soft">
+
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Recent Refunds</p>
+        {!refundsAvailable ? (
+          <p className="text-xs text-muted-foreground">Refund data is not available.</p>
+        ) : refunds.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No refunds yet.</p>
+        ) : (
+          refunds.map((refund) => (
+            <div key={refund.id} className="flex items-center justify-between p-2.5 rounded-xl glass-soft">
               <div>
-                <p className="text-sm font-medium">{r.refundNumber || "—"} · ₹{r.amount}</p>
+                <p className="text-sm font-medium">{refund.refundNumber || "—"} · {formatINR(refund.amount)}</p>
                 <p className="text-[10px] text-muted-foreground">
-                  Paid ₹{r.paidAmount} · Remaining ₹{r.remainingAmount}
+                  Paid {formatINR(refund.paidAmount)} · Remaining {formatINR(refund.remainingAmount)}
                 </p>
               </div>
-              <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium",
-                r.status === "COMPLETED" ? "bg-success/15 text-success" :
-                r.status === "PARTIALLY_PAID" ? "bg-warning/15 text-warning" :
-                "bg-muted text-muted-foreground"
-              )}>
-                {r.status}
+              <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium", refund.status === "COMPLETED" ? "bg-success/15 text-success" : refund.status === "PARTIALLY_PAID" ? "bg-warning/15 text-warning" : "bg-muted text-muted-foreground")}>
+                {refund.status}
               </span>
             </div>
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
     </div>
   );
 }
 
-function LedgerTab({ ledger }: { ledger: LedgerEntry[] }) {
+function LedgerTab({ ledger, available }: { ledger: LedgerEntry[]; available: boolean }) {
+  if (!available) {
+    return (
+      <UnavailableCard
+        icon={History}
+        title="Resident ledger"
+        description="Ledger entries are not available in the current D1 schema yet."
+      />
+    );
+  }
   if (ledger.length === 0) return <EmptyState icon={History} label="No ledger entries yet" />;
+
   return (
     <div className="space-y-1.5">
-      {ledger.map((e) => (
-        <div key={e.id} className="flex items-center justify-between p-2.5 rounded-xl glass-soft">
+      {ledger.map((entry) => (
+        <div key={entry.id} className="flex items-center justify-between p-2.5 rounded-xl glass-soft">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium truncate">{e.description}</p>
+            <p className="text-sm font-medium truncate">{entry.description}</p>
             <p className="text-[10px] text-muted-foreground">
-              {format(new Date(e.createdAt), "d MMM yyyy, h:mm a")} · {e.type}
+              {format(new Date(entry.createdAt), "d MMM yyyy, h:mm a")} · {entry.type}
             </p>
           </div>
           <div className="text-right shrink-0">
-            <p className={cn("text-sm font-bold tabular-nums", e.amount >= 0 ? "text-success" : "text-destructive")}>
-              {e.amount >= 0 ? "+" : ""}{formatINR(e.amount)}
+            <p className={cn("text-sm font-bold tabular-nums", entry.amount >= 0 ? "text-success" : "text-destructive")}>
+              {entry.amount >= 0 ? "+" : ""}{formatINR(entry.amount)}
             </p>
-            <p className="text-[10px] text-muted-foreground">Bal: ₹{Math.round(e.runningBalance)}</p>
+            <p className="text-[10px] text-muted-foreground">Bal: {formatINR(entry.runningBalance)}</p>
           </div>
         </div>
       ))}
@@ -459,53 +668,63 @@ function LedgerTab({ ledger }: { ledger: LedgerEntry[] }) {
 }
 
 function RestrictionsTab({ data }: { data: Resident360 }) {
-  const re = data.restrictions;
+  const restrictions = data.restrictions;
+  if (!data.dataAvailability.restrictions || !restrictions) {
+    return (
+      <UnavailableCard
+        icon={Lock}
+        title="Restriction evaluation"
+        description="Financial and administrative restriction evaluation is not available in the current D1 schema yet."
+      />
+    );
+  }
+
   return (
     <div className="space-y-3">
       <GlassCard className="p-4" hover={false}>
         <div className="flex items-center justify-between mb-2">
           <p className="text-sm font-semibold">Current Status</p>
-          <span className={cn("text-sm font-bold", STATUS_COLORS[re.financialStatus])}>
-            {re.financialStatus}
+          <span className={cn("text-sm font-bold", STATUS_COLORS[restrictions.financialStatus] || "text-muted-foreground")}>
+            {restrictions.financialStatus}
           </span>
         </div>
         <div className="grid grid-cols-2 gap-2 text-sm">
-          <Detail label="Can Book Meals" value={re.canBookMeals ? "Yes" : "No"} />
-          <Detail label="Has Exemption" value={re.hasExemption ? "Yes" : "No"} />
-          <Detail label="Available" value={formatINR(re.availableBalance)} />
-          <Detail label="Required" value={formatINR(re.requiredBalance)} />
-          {re.graceDaysRemaining !== null && (
-            <Detail label="Grace Days" value={`${re.graceDaysRemaining} day(s)`} />
+          <Detail label="Can Book Meals" value={restrictions.canBookMeals ? "Yes" : "No"} />
+          <Detail label="Has Exemption" value={restrictions.hasExemption ? "Yes" : "No"} />
+          <Detail label="Available" value={formatINR(restrictions.availableBalance)} />
+          <Detail label="Required" value={formatINR(restrictions.requiredBalance)} />
+          {restrictions.graceDaysRemaining !== null && (
+            <Detail label="Grace Days" value={`${restrictions.graceDaysRemaining} day(s)`} />
           )}
         </div>
-        {re.restrictionReason && (
+        {restrictions.restrictionReason && (
           <div className="mt-2 p-2 rounded-xl bg-destructive/10 ring-1 ring-destructive/30">
-            <p className="text-xs text-destructive">{re.restrictionReason}</p>
+            <p className="text-xs text-destructive">{restrictions.restrictionReason}</p>
           </div>
         )}
       </GlassCard>
 
-      {data.activeRestrictions.length > 0 && (
+      {data.activeRestrictions.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-2">No active restrictions.</p>
+      ) : (
         <div className="space-y-2">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Active Restrictions</p>
-          {data.activeRestrictions.map((r) => (
-            <div key={r.id} className="p-3 rounded-xl glass-soft">
-              <div className="flex items-center gap-2 mb-1">
-                <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium",
-                  r.type === "FINANCIAL" ? "bg-destructive/15 text-destructive" : "bg-warning/15 text-warning"
-                )}>
-                  {r.type}
+          {data.activeRestrictions.map((restriction) => (
+            <div key={restriction.id} className="p-3 rounded-xl glass-soft">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-medium", restriction.type === "FINANCIAL" ? "bg-destructive/15 text-destructive" : "bg-warning/15 text-warning")}>
+                  {restriction.type}
                 </span>
-                <span className="text-[10px] text-muted-foreground">{r.source}</span>
-                {r.expiresAt && (
+                <span className="text-[10px] text-muted-foreground">{restriction.source}</span>
+                {restriction.expiresAt && (
                   <span className="text-[10px] text-muted-foreground">
-                    Expires: {format(new Date(r.expiresAt), "d MMM yyyy")}
+                    Expires: {format(new Date(restriction.expiresAt), "d MMM yyyy")}
                   </span>
                 )}
               </div>
-              <p className="text-sm">{r.reason}</p>
+              <p className="text-sm">{restriction.reason}</p>
               <p className="text-[10px] text-muted-foreground mt-1">
-                Applied: {format(new Date(r.appliedAt), "d MMM yyyy")}
+                Applied: {format(new Date(restriction.appliedAt), "d MMM yyyy")}
               </p>
             </div>
           ))}
@@ -515,7 +734,44 @@ function RestrictionsTab({ data }: { data: Resident360 }) {
   );
 }
 
-function Stat({ label, value, icon: Icon, color }: { label: string; value: string; icon: typeof IndianRupee; color: string }) {
+function UnavailableCard({
+  icon: Icon,
+  title,
+  description,
+  compact = false,
+}: {
+  icon: typeof Receipt;
+  title: string;
+  description: string;
+  compact?: boolean;
+}) {
+  return (
+    <GlassCard className={cn("border border-border/60", compact ? "p-4" : "p-5")} hover={false}>
+      <div className="flex items-start gap-3">
+        <div className="grid place-items-center h-9 w-9 rounded-xl bg-muted/70 text-muted-foreground shrink-0">
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">{title}</p>
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{description}</p>
+          <p className="text-[10px] text-muted-foreground/80 mt-2">Not available in this phase</p>
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  icon: Icon,
+  color,
+}: {
+  label: string;
+  value: string;
+  icon: typeof IndianRupee;
+  color: string;
+}) {
   return (
     <div className="p-2.5 rounded-xl glass-soft">
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-0.5">
@@ -527,11 +783,20 @@ function Stat({ label, value, icon: Icon, color }: { label: string; value: strin
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-[10px] text-muted-foreground">{label}</p>
-      <p className="text-sm font-medium">{value}</p>
+      <p className="text-sm font-bold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] text-muted-foreground">{label}</p>
+      <p className="text-sm font-medium break-words">{value}</p>
     </div>
   );
 }
