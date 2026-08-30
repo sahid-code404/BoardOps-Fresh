@@ -40,6 +40,10 @@ const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["DELETE /api/kitchen", PERMISSIONS.KITCHEN_GUEST_DELETE],
   ["GET /api/leave", PERMISSIONS.LEAVE_READ],
   ["POST /api/leave", PERMISSIONS.LEAVE_CREATE],
+  ["GET /api/bills", PERMISSIONS.BILLS_READ],
+  ["POST /api/bills", PERMISSIONS.BILLS_GENERATE],
+  ["DELETE /api/bills", PERMISSIONS.BILLS_DELETE],
+  ["GET /api/billing-cycles/readiness", PERMISSIONS.BILLING_READINESS],
 ]);
 
 const USER_ACTION_PERMISSION: Record<string, PermissionKey> = {
@@ -88,6 +92,18 @@ function dynamicPolicy(method: Method, path: string): PermissionKey | null | "US
   }
   if (method === "PATCH" && /^\/api\/leave\/[^/]+$/u.test(path)) {
     return PERMISSIONS.LEAVE_DECIDE;
+  }
+  if (method === "GET" && /^\/api\/bills\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.BILLS_READ;
+  }
+  if (method === "DELETE" && /^\/api\/bills\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.BILLS_DELETE;
+  }
+  if (method === "POST" && /^\/api\/bills\/[^/]+\/restore$/u.test(path)) {
+    return PERMISSIONS.BILLS_RESTORE;
+  }
+  if (method === "POST" && /^\/api\/bills\/[^/]+\/void$/u.test(path)) {
+    return PERMISSIONS.BILLS_VOID;
   }
   return null;
 }
