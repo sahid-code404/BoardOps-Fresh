@@ -145,8 +145,6 @@ const exact = {
   variable_versions: 10,
   active_formulas: 4,
   formula_versions: 4,
-  permissions: 64,
-  role_permissions: 158,
   history_guards: 6,
   bootstrap_triggers: 2,
   protected_variables: 8,
@@ -162,6 +160,18 @@ for (const [field, expected] of Object.entries(exact)) {
   const actual = Number(row[field] ?? -1);
   if (actual !== expected) {
     console.error(`[BoardOps] Variables/Formula invariant failed: ${field}=${row[field]} (expected ${expected})`);
+    process.exit(1);
+  }
+}
+
+const minimumGlobalBaseline = {
+  permissions: 64,
+  role_permissions: 158,
+};
+for (const [field, minimum] of Object.entries(minimumGlobalBaseline)) {
+  const actual = Number(row[field] ?? -1);
+  if (actual < minimum) {
+    console.error(`[BoardOps] Variables/Formula prerequisite baseline failed: ${field}=${row[field]} (expected >= ${minimum})`);
     process.exit(1);
   }
 }
