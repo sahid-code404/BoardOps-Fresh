@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-08-30 — Phase 05 permission-based RBAC verified
+- CI run `33298914080` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/invariant verification, Worker/API smoke, real-D1 Playwright runtime smoke, and the complete Phase 02 visual regression suite at implementation verification head `aa7c5acbd759f88cf2c2f939a32b4d5b6cf3b1f2`.
+- Added immutable `0005_rbac.sql` with institution-scoped roles, 18 canonical permissions, and explicit role-permission grants; `users.role` remains only the compatibility role key while D1 grants are authoritative for protected backend authorization.
+- Added immutable `0006_rbac_institution_bootstrap.sql` so institutions created after the baseline migration automatically receive the canonical roles and least-privilege grants, including clean reset flows where migrations run before the deterministic seed.
+- Added a canonical HttpOnly-cookie-only authorization principal and removed the remaining downstream bearer-session compatibility from protected Phase 04 route helpers.
+- Added fail-closed `/api/*` RBAC middleware: every current protected route/action has an explicit permission mapping and an unmapped future endpoint or user action is rejected rather than accidentally becoming reachable.
+- Residents retain required self-service and dashboard access but do not receive current audit/user-management grants; only Admin/Super Admin receive those permissions.
+- Dashboard audit activity and the compatibility `isAdmin` field are permission-derived rather than hard-coded to an `ADMIN` role string.
+- Clean-D1 readiness now requires the RBAC tables and baseline counts, and database verification explicitly proves the resident has `dashboard.read` but not `users.read`.
+- Real-runtime RBAC coverage proves Admin allow, Resident permission-specific `403` deny, bearer-only replay rejection, and fail-closed rejection of an unmapped API route.
+- The temporary guarded integration patch machinery was removed after the cookie-only/coarse-role cleanup landed. No production deployment was performed.
+- Phase 05 implementation is VERIFIED. Formal phase closure is contingent on the latest documentation-head CI run also remaining fully green.
+
 ## 2026-08-30 — Phase 04 authentication core verified
 - CI run `33297620321` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed verification, Worker/API smoke, real-D1 browser runtime smoke, and the complete Phase 02 visual regression suite at verification head `f04cc0f384f9083c1ba8bc9448ca1c3b24f5464b`.
 - Added immutable `0003_auth_core.sql` and `0004_auth_workflows.sql` for digested server sessions, login history, registration-review cycles, and one-time authentication challenges.
