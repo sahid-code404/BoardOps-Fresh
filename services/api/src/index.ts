@@ -13,6 +13,7 @@ import { leaveRoutes } from "./routes/leave";
 import { mealConfigRoutes } from "./routes/meals-config";
 import { mealOverrideRoutes } from "./routes/meal-overrides";
 import { monthlyClosingRoutes } from "./routes/monthly-closing";
+import { notificationAnnouncementRoutes } from "./routes/notifications-announcements";
 import { paymentRoutes } from "./routes/payments";
 import { refundAdjustmentRoutes } from "./routes/refunds-adjustments";
 import { runtimeRoutes } from "./routes/runtime";
@@ -56,6 +57,8 @@ const REQUIRED_CORE_TABLES = [
   "variable_versions",
   "formulas",
   "formula_versions",
+  "announcements",
+  "notifications",
 ] as const;
 
 type ActivityRow = {
@@ -112,9 +115,9 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 67 ||
+      Number(baseline?.permission_count ?? 0) < 72 ||
       Number(baseline?.role_count ?? 0) < 4 ||
-      Number(baseline?.grant_count ?? 0) < 1
+      Number(baseline?.grant_count ?? 0) < 178
     ) {
       throw new Error("RBAC baseline is incomplete");
     }
@@ -140,6 +143,8 @@ app.get("/api/ready", async (c) => {
 
 app.route("/api/auth", authRoutes);
 app.route("/api/auth", authWorkflowRoutes);
+// Canonical communication routes must precede runtime compatibility placeholders.
+app.route("/api", notificationAnnouncementRoutes);
 app.route("/api", runtimeRoutes);
 app.route("/api", userRoutes);
 app.route("/api", user360Routes);
@@ -174,17 +179,22 @@ app.get("/api/dashboard", async (c) => {
     .bind(viewer.institutionId)
     .first<{ active_count: number | null; pending_count: number | null }>();
 
-  const pendingBillRow = await c.env.DB.prepare(
-    `SELECT COUNT(*) AS pending_bills
-       FROM bills
-      WHERE institution_id = ?
-        AND deleted_on IS NULL
-        AND purged_at IS NULL
-        AND status IN ('GENERATED', 'PARTIALLY_PAID', 'OVERDUE')
-        AND due_amount_minor > 0`,
-  )
-    .bind(viewer.institutionId)
-    .first<{ pending_bills: number | null }>();
+  const [pendingBillRow, unreadRow] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS pending_bills
+         FROM bills
+        WHERE institution_id = ?
+          AND deleted_on IS NULL
+          AND purged_at IS NULL
+          AND status IN ('GENERATED', 'PARTIALLY_PAID', 'OVERDUE')
+          AND due_amount_minor > 0`,
+    ).bind(viewer.institutionId).first<{ pending_bills: number | null }>(),
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS unread_count
+         FROM notifications
+        WHERE institution_id = ? AND user_id = ? AND read_at IS NULL`,
+    ).bind(viewer.institutionId, viewer.id).first<{ unread_count: number | null }>(),
+  ]);
 
   const canReadAudit = hasPermission(viewer, PERMISSIONS.AUDIT_READ);
   const activityRows = canReadAudit
@@ -204,9 +214,6 @@ app.get("/api/dashboard", async (c) => {
   // but its meaning is now permission-derived instead of role-string-derived.
   const isAdmin = hasPermission(viewer, PERMISSIONS.USERS_READ);
 
-  // Kitchen owns canonical meal-entry state. The remaining financial dashboard
-  // rollups will move onto the same snapshot/accounting sources as their feature
-  // modules; pendingBills is already safe to expose from the canonical bill table.
   return c.json({
     success: true,
     data: {
@@ -223,7 +230,7 @@ app.get("/api/dashboard", async (c) => {
       },
       trend: emptySevenDayTrend(),
       expenseBreakdown: [],
-      unreadNotifications: 0,
+      unreadNotifications: Number(unreadRow?.unread_count ?? 0),
       recentActivity: activityRows.results.map((row) => ({
         id: row.id,
         action: row.action,

@@ -134,9 +134,15 @@ if (!row) {
   process.exit(1);
 }
 
+// Global RBAC grows as later checkpoints add explicit permissions. Monthly
+// Closing owns its three grants exactly but only requires the verified 67/164
+// baseline as a floor so a later least-privilege extension cannot break history.
+if (Number(row.permissions ?? 0) < 67 || Number(row.role_permissions ?? 0) < 164) {
+  console.error(`[BoardOps] Monthly Closing RBAC baseline regressed: permissions=${row.permissions}, grants=${row.role_permissions}`);
+  process.exit(1);
+}
+
 const exact = {
-  permissions: 67,
-  role_permissions: 164,
   closing_tables: 2,
   closing_guards: 7,
   source_lock_guards: 9,
@@ -210,4 +216,4 @@ if (Number(restored?.[0]?.results?.[0]?.open_count ?? 0) !== 1) {
   process.exit(1);
 }
 
-console.log("[BoardOps] Monthly Closing schema + exact RBAC + rollback fixture + source-freeze guards verified:", row);
+console.log("[BoardOps] Monthly Closing schema + exact owned RBAC + rollback fixture + source-freeze guards verified:", row);

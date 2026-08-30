@@ -24,6 +24,9 @@ const PUBLIC_ENDPOINTS = new Set([
 const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["GET /api/dashboard", PERMISSIONS.DASHBOARD_READ],
   ["GET /api/notifications", PERMISSIONS.NOTIFICATIONS_READ_SELF],
+  ["PATCH /api/notifications", PERMISSIONS.NOTIFICATIONS_MARK_READ_SELF],
+  ["GET /api/announcements", PERMISSIONS.ANNOUNCEMENTS_READ],
+  ["POST /api/announcements", PERMISSIONS.ANNOUNCEMENTS_CREATE],
   ["GET /api/auth/me", PERMISSIONS.PROFILE_READ_SELF],
   ["GET /api/auth/profile", PERMISSIONS.PROFILE_READ_SELF],
   ["PUT /api/auth/profile", PERMISSIONS.PROFILE_UPDATE_SELF],
@@ -78,6 +81,12 @@ const USER_ACTION_PERMISSION: Record<string, PermissionKey> = {
 function dynamicPolicy(method: Method, path: string): DynamicPolicy {
   if (method === "DELETE" && /^\/api\/auth\/sessions\/[^/]+$/u.test(path)) {
     return PERMISSIONS.SESSIONS_REVOKE_SELF;
+  }
+  if (method === "PATCH" && /^\/api\/announcements\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.ANNOUNCEMENTS_UPDATE;
+  }
+  if (method === "DELETE" && /^\/api\/announcements\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.ANNOUNCEMENTS_ARCHIVE;
   }
   if (method === "GET" && /^\/api\/users\/[^/]+\/360$/u.test(path)) {
     return PERMISSIONS.USERS_READ;
