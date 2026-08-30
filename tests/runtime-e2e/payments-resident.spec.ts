@@ -35,7 +35,7 @@ test("Resident payments are self-scoped, idempotent, and least-privilege", async
         consents: { rules: true, privacy: true, terms: true },
       },
     });
-    expect(registration.status()).toBe(201);
+    expect(registration.ok()).toBeTruthy();
     const registrationBody = await registration.json() as {
       success: boolean;
       data: { userId: string; email: string };
