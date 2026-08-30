@@ -35,6 +35,12 @@ export const PERMISSIONS = {
   LEAVE_READ: "leave.read",
   LEAVE_CREATE: "leave.create",
   LEAVE_DECIDE: "leave.decide",
+  BILLS_READ: "bills.read",
+  BILLING_READINESS: "billing.readiness",
+  BILLS_GENERATE: "bills.generate",
+  BILLS_DELETE: "bills.delete",
+  BILLS_RESTORE: "bills.restore",
+  BILLS_VOID: "bills.void",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
