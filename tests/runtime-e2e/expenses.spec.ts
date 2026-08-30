@@ -125,6 +125,14 @@ test("Expenses renders real D1 data and preserves accounting history through rep
     });
     const approvedAfterRestore = await request("/api/expenses?month=7&year=2026&limit=500");
 
+    // Prove restore above, then return the temporary financial mutation to a
+    // non-active state so later runtime finance tests observe only seed inputs.
+    const cleanupDeleted = await request(`/api/expenses/${replacementId}`, {
+      method: "DELETE",
+      body: JSON.stringify({ reason: "Runtime expense test cleanup" }),
+    });
+    const approvedAfterCleanup = await request("/api/expenses?month=7&year=2026&limit=500");
+
     const closedPeriod = await request("/api/expenses", {
       method: "POST",
       headers: { "Idempotency-Key": "expenses-admin-e2e-closed-v1" },
@@ -153,6 +161,8 @@ test("Expenses renders real D1 data and preserves accounting history through rep
       approvedAfterDelete,
       restored,
       approvedAfterRestore,
+      cleanupDeleted,
+      approvedAfterCleanup,
       closedPeriod,
     };
   });
@@ -223,6 +233,12 @@ test("Expenses renders real D1 data and preserves accounting history through rep
     data: { id: result.replacement.body.data.id, status: "APPROVED", deletedAt: null },
   });
   expect(result.approvedAfterRestore.body.data.some((row: { id: string }) => row.id === result.replacement.body.data.id)).toBe(true);
+  expect(result.cleanupDeleted.status).toBe(200);
+  expect(result.cleanupDeleted.body).toMatchObject({
+    success: true,
+    data: { id: result.replacement.body.data.id, status: "DELETED", deletionReason: "Runtime expense test cleanup" },
+  });
+  expect(result.approvedAfterCleanup.body.data.some((row: { id: string }) => row.id === result.replacement.body.data.id)).toBe(false);
 
   expect(result.closedPeriod.status).toBe(422);
   expect(String(result.closedPeriod.body.error)).toContain("2026-07 is not open");
