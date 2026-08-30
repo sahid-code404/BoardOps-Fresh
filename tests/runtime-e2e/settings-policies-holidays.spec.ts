@@ -306,7 +306,7 @@ test("Settings, Policies, and Holidays are validated, scoped, audited, and fail 
     const main = page.locator("main");
     await main.getByRole("tab", { name: "Policies", exact: true }).click();
     await expect(page.getByText("Institution Profile", { exact: true })).toBeVisible();
-    await expect(page.getByDisplayValue("BoardOps Institute")).toBeVisible();
+    await expect(page.getByLabel("Institution Name", { exact: true })).toHaveValue("BoardOps Institute");
     await expect(page.getByText("Meal Policies", { exact: true })).toBeVisible();
     await expect(page.getByText("Payment Policies", { exact: true })).toBeVisible();
 
