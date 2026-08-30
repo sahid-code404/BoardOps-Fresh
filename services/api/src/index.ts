@@ -16,6 +16,7 @@ import { monthlyClosingRoutes } from "./routes/monthly-closing";
 import { notificationAnnouncementRoutes } from "./routes/notifications-announcements";
 import { paymentRoutes } from "./routes/payments";
 import { refundAdjustmentRoutes } from "./routes/refunds-adjustments";
+import { reportRoutes } from "./routes/reports";
 import { runtimeRoutes } from "./routes/runtime";
 import { userRoutes } from "./routes/users";
 import { user360Routes } from "./routes/user-360";
@@ -115,9 +116,9 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 72 ||
+      Number(baseline?.permission_count ?? 0) < 74 ||
       Number(baseline?.role_count ?? 0) < 4 ||
-      Number(baseline?.grant_count ?? 0) < 178
+      Number(baseline?.grant_count ?? 0) < 182
     ) {
       throw new Error("RBAC baseline is incomplete");
     }
@@ -143,8 +144,9 @@ app.get("/api/ready", async (c) => {
 
 app.route("/api/auth", authRoutes);
 app.route("/api/auth", authWorkflowRoutes);
-// Canonical communication routes must precede runtime compatibility placeholders.
+// Canonical communication/report routes must precede runtime compatibility placeholders.
 app.route("/api", notificationAnnouncementRoutes);
+app.route("/api", reportRoutes);
 app.route("/api", runtimeRoutes);
 app.route("/api", userRoutes);
 app.route("/api", user360Routes);

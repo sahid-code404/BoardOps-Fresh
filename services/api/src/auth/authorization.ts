@@ -14,6 +14,8 @@ export const PERMISSIONS = {
   ANNOUNCEMENTS_CREATE: "announcements.create",
   ANNOUNCEMENTS_UPDATE: "announcements.update",
   ANNOUNCEMENTS_ARCHIVE: "announcements.archive",
+  REPORTS_READ: "reports.read",
+  REPORTS_EXPORT: "reports.export",
   PROFILE_READ_SELF: "profile.read_self",
   PROFILE_UPDATE_SELF: "profile.update_self",
   SESSIONS_READ_SELF: "sessions.read_self",

@@ -139,9 +139,19 @@ if (!row) {
   process.exit(1);
 }
 
+// Notifications owns the 72/178 checkpoint but later least-privilege modules
+// may extend the global baseline. Keep its owned communication invariants exact
+// while requiring the historical global baseline as a floor.
+const minimum = { permissions: 72, role_permissions: 178 };
+for (const [field, expected] of Object.entries(minimum)) {
+  const actual = Number(row[field] ?? -1);
+  if (actual < expected) {
+    console.error(`[BoardOps] Notifications baseline regressed: ${field}=${row[field]} (expected >= ${expected})`);
+    process.exit(1);
+  }
+}
+
 const exact = {
-  permissions: 72,
-  role_permissions: 178,
   communication_tables: 2,
   communication_guards: 7,
   event_delivery_triggers: 11,
@@ -217,4 +227,4 @@ if (Number(marked?.[0]?.results?.[0]?.marked ?? 0) !== 1) {
 }
 executeJson(`UPDATE notifications SET read_at = NULL WHERE id = 'notification_local_welcome_riya';`);
 
-console.log("[BoardOps] Durable Notifications + Announcements + transactional idempotent event delivery + exact RBAC verified:", row);
+console.log("[BoardOps] Durable Notifications + Announcements + transactional idempotent event delivery + owned RBAC verified:", row);

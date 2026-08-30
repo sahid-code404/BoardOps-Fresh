@@ -9,6 +9,7 @@ export const VIEW_PATHS = {
   funds: "/funds",
   "monthly-closing": "/monthly-closing",
   "formula-engine": "/formula-engine",
+  reports: "/reports",
   users: "/users",
   notifications: "/notifications",
   settings: "/settings",

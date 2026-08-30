@@ -43,6 +43,9 @@ export const VIEW_COMPONENT_LOADERS: Record<ViewKey, ViewLoader> = {
   "formula-engine": cached(() =>
     import("@/components/features/variables/formula-engine-view").then((m) => ({ default: m.FormulaEngineView })),
   ),
+  reports: cached(() =>
+    import("@/components/features/reports/reports-view").then((m) => ({ default: m.ReportsView })),
+  ),
   users: cached(() =>
     import("@/components/features/users/users-view").then((m) => ({ default: m.UsersView })),
   ),
