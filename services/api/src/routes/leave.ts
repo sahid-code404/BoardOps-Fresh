@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { authenticatedPrincipal } from "../auth/authorization";
 import { computeEditableUntilIso, enumerateDates, isDateString } from "../meals/engine";
 import type { AppEnv } from "../types";
@@ -59,7 +59,7 @@ function parseStringArray(value: unknown): string[] | null {
   return [...new Set(value.map((item) => item.trim()))];
 }
 
-async function leaveById(c: Parameters<typeof leaveRoutes.get>[1] extends never ? never : any, institutionId: string, id: string) {
+async function leaveById(c: Context<AppEnv>, institutionId: string, id: string): Promise<LeaveRow | null> {
   return c.env.DB.prepare(
     `SELECT l.id, l.institution_id, l.user_id, l.start_date, l.end_date, l.reason,
             l.status, l.approved_by, l.meal_type, l.meal_ids_json, l.admin_notes,
