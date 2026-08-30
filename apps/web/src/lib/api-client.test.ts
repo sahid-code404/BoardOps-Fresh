@@ -71,4 +71,28 @@ describe("apiFetch browser credential policy", () => {
     expect(headers.get("Content-Type")).toBe("application/json");
     expect(init.body).toBe(JSON.stringify({ value: 1 }));
   });
+
+  it("routes the legacy body-less Billing Void action to the explicit void endpoint", async () => {
+    const fetchMock = installBrowserFetchStub();
+
+    await api.delete("/bills/bill-123");
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://boardops.test/api/bills/bill-123/void");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe("{}");
+  });
+
+  it("keeps Billing soft deletion as DELETE when the caller supplies a deletion body", async () => {
+    const fetchMock = installBrowserFetchStub();
+
+    await api.delete("/bills/bill-123", {
+      body: JSON.stringify({ reason: "Duplicate bill" }),
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://boardops.test/api/bills/bill-123");
+    expect(init.method).toBe("DELETE");
+    expect(init.body).toBe(JSON.stringify({ reason: "Duplicate bill" }));
+  });
 });
