@@ -31,7 +31,7 @@ export async function createBackgroundTask(
     id?: string;
     institutionId: string;
     type: RunnableSystemTaskType;
-    payload?: Record<string, unknown> | null;
+    payload?: Record<string, unknown> | null | undefined;
     triggeredBy: string | null;
     maxRetries?: number;
   },
