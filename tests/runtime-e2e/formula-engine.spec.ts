@@ -3,7 +3,8 @@ import { expect, test } from "@playwright/test";
 const API = "http://127.0.0.1:8787";
 const ADMIN_EMAIL = "admin@boardops.local";
 const ADMIN_PASSWORD = "BoardOps@Fresh#2026!A7";
-const RESIDENT_EMAIL = "browser.formula.resident@example.test";
+const RESIDENT_ID = "usr_resident_riya_local";
+const RESIDENT_EMAIL = "riya@boardops.local";
 const RESIDENT_PASSWORD = "BoardOps@Formula#2026!";
 
 const RUNTIME_VARIABLE_KEY = "runtime.formula.rate";
@@ -38,8 +39,12 @@ test("Formula Engine renders real D1 data and enforces deterministic versioned d
   await expect(page).toHaveURL(/\/dashboard(?:\?|$)/, { timeout: 5_000 });
   await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible({ timeout: 5_000 });
 
-  await page.goto("/formula-engine");
+  await page.getByRole("button", { name: "More navigation" }).click();
+  const sidebar = page.getByRole("complementary");
+  await expect(sidebar).toBeInViewport();
+  await sidebar.getByRole("button", { name: "Formula Engine", exact: true }).click();
   await expect(page).toHaveURL(/\/formula-engine(?:\?|$)/, { timeout: 5_000 });
+  await expect(page.getByRole("heading", { name: "Formula Engine", exact: true })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByRole("button", { name: "Variables", exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(page.getByRole("button", { name: "Formulas", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create Variable", exact: true })).toBeVisible({ timeout: 8_000 });
@@ -319,7 +324,6 @@ test("resident receives variables read-only and no Formula Engine administration
 
   const adminContext = await browser.newContext();
   const residentContext = await browser.newContext();
-  let residentUserId: string | null = null;
 
   try {
     const adminApi = adminContext.request;
@@ -330,33 +334,14 @@ test("resident receives variables read-only and no Formula Engine administration
     });
     expect(adminLogin.ok()).toBeTruthy();
 
-    const registration = await residentApi.post(`${API}/api/auth/register`, {
-      data: {
-        name: "Formula Resident",
-        institutionName: "BoardOps Institute",
-        institutionUserId: "RES-FORMULA-E2E",
-        email: RESIDENT_EMAIL,
-        phone: "+919876540630",
-        password: RESIDENT_PASSWORD,
-        confirmPassword: RESIDENT_PASSWORD,
-        room: "FML-630",
-        gender: "OTHER",
-        consents: { rules: true, privacy: true, terms: true },
-      },
+    // Reuse the deterministic active resident instead of registering another
+    // shared-IP identity. This keeps the RBAC proof on the real login/session
+    // path without consuming an email-verification challenge from the serial
+    // runtime suite's rate-limit budget.
+    const setResidentPassword = await adminApi.put(`${API}/api/users/${RESIDENT_ID}`, {
+      data: { password: RESIDENT_PASSWORD },
     });
-    expect(registration.ok()).toBeTruthy();
-    const registrationBody = await registration.json() as { data: { userId: string } };
-    residentUserId = registrationBody.data.userId;
-
-    const verify = await residentApi.post(`${API}/api/auth/verify-email`, {
-      data: { email: RESIDENT_EMAIL, otp: "424242" },
-    });
-    expect(verify.ok()).toBeTruthy();
-
-    const approve = await adminApi.patch(`${API}/api/users/${residentUserId}`, {
-      data: { action: "APPROVE", reason: "Formula Engine least-privilege verification" },
-    });
-    expect(approve.ok()).toBeTruthy();
+    expect(setResidentPassword.ok()).toBeTruthy();
 
     const residentLogin = await residentApi.post(`${API}/api/auth/login`, {
       data: { email: RESIDENT_EMAIL, password: RESIDENT_PASSWORD },
@@ -413,11 +398,6 @@ test("resident receives variables read-only and no Formula Engine administration
       "formulas.test",
     );
   } finally {
-    if (residentUserId) {
-      await adminContext.request.patch(`${API}/api/users/${residentUserId}`, {
-        data: { action: "DEACTIVATE", reason: "Formula Engine runtime test cleanup" },
-      }).catch(() => undefined);
-    }
     await residentContext.close();
     await adminContext.close();
   }
