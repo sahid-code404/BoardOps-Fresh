@@ -50,6 +50,8 @@ const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["GET /api/payments/refund", PERMISSIONS.PAYMENTS_REFUND],
   ["POST /api/payments/refund", PERMISSIONS.PAYMENTS_REFUND],
   ["GET /api/refunds", PERMISSIONS.REFUNDS_READ],
+  ["GET /api/expenses", PERMISSIONS.EXPENSES_READ],
+  ["POST /api/expenses", PERMISSIONS.EXPENSES_CREATE],
 ]);
 
 const USER_ACTION_PERMISSION: Record<string, PermissionKey> = {
@@ -125,6 +127,18 @@ function dynamicPolicy(method: Method, path: string): DynamicPolicy {
   }
   if (method === "POST" && /^\/api\/payments\/[^/]+\/restore$/u.test(path)) {
     return PERMISSIONS.PAYMENTS_RESTORE;
+  }
+  if (method === "GET" && /^\/api\/expenses\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.EXPENSES_READ;
+  }
+  if (method === "PUT" && /^\/api\/expenses\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.EXPENSES_REPLACE;
+  }
+  if (method === "DELETE" && /^\/api\/expenses\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.EXPENSES_DELETE;
+  }
+  if (method === "POST" && /^\/api\/expenses\/[^/]+\/restore$/u.test(path)) {
+    return PERMISSIONS.EXPENSES_RESTORE;
   }
   return null;
 }
