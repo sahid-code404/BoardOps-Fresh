@@ -54,8 +54,9 @@ export function MobileSidebar() {
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
   const setCommandOpen = useAppStore((state) => state.setCommandOpen);
   const user = useAuthStore((state) => state.user);
+  const permissions = useAuthStore((state) => state.permissions);
   const role = user?.role ?? "USER";
-  const groups = groupedNavForRole(role);
+  const groups = groupedNavForRole(role, permissions);
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;

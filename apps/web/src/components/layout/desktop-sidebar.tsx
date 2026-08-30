@@ -14,9 +14,10 @@ export function DesktopSidebar() {
   const view = useAppStore((s) => s.view);
   const setView = useAppStore((s) => s.setView);
   const user = useAuthStore((s) => s.user);
+  const permissions = useAuthStore((s) => s.permissions);
   const setNotificationsOpen = useAppStore((s) => s.setNotificationsOpen);
   const role = user?.role ?? "USER";
-  const items = navForRole(role);
+  const items = navForRole(role, permissions);
   const groups = groupNavItems(items);
 
   return (

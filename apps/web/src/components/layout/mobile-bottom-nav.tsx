@@ -14,9 +14,10 @@ export function MobileBottomNav() {
   const setView = useAppStore((s) => s.setView);
   const setSidebarOpen = useAppStore((s) => s.setSidebarOpen);
   const role = useAuthStore((s) => s.user?.role) ?? "USER";
-  const allItems = navForRole(role);
+  const permissions = useAuthStore((s) => s.permissions);
+  const allItems = navForRole(role, permissions);
   // Show 4 primary items + More button
-  const primaryItems = primaryNav(role).slice(0, 4);
+  const primaryItems = primaryNav(role, permissions).slice(0, 4);
   const hasMore = allItems.length > primaryItems.length;
 
   return (

@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/command";
 import { useAppStore, type ViewKey } from "@/stores/use-app-store";
 import { useAuthStore, type Role } from "@/stores/use-auth-store";
-import { compatibilityNavRole } from "./nav-config";
+import { canAccessView, compatibilityNavRole } from "./nav-config";
 import { useEffect } from "react";
 
 type PaletteItem = {
@@ -64,7 +64,9 @@ export function CommandPalette() {
   const open = useAppStore((state) => state.commandOpen);
   const setOpen = useAppStore((state) => state.setCommandOpen);
   const user = useAuthStore((state) => state.user);
-  const role = compatibilityNavRole(((user?.role as Role) || "USER"));
+  const permissions = useAuthStore((state) => state.permissions);
+  const userRole = ((user?.role as Role) || "USER");
+  const role = compatibilityNavRole(userRole);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -81,7 +83,9 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", handler);
   }, [open, setOpen]);
 
-  const filtered = ITEMS.filter((item) => item.roles.includes(role));
+  const filtered = ITEMS.filter(
+    (item) => item.roles.includes(role) && canAccessView(userRole, permissions, item.view),
+  );
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>

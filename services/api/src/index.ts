@@ -249,6 +249,10 @@ app.get("/api/dashboard", async (c) => {
           ? { name: row.actor_name, email: row.actor_email ?? undefined }
           : null,
       })),
+      // Expose the same canonical grant set used by the Worker middleware so
+      // the shell can hide and block unavailable capabilities without deriving
+      // permissions from a role string. The server remains authoritative.
+      permissions: viewer.permissions,
       isAdmin,
     },
   });

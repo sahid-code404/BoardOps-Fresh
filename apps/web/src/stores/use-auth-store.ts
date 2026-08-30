@@ -27,8 +27,10 @@ export type CurrentUser = {
 type AuthState = {
   user: CurrentUser | null;
   token: string | null;
+  permissions: string[];
   setUser: (u: CurrentUser | null) => void;
   setToken: (t: string | null) => void;
+  setPermissions: (permissions: string[]) => void;
   logout: () => void;
   isAuthenticated: () => boolean;
 };
@@ -40,14 +42,21 @@ type AuthState = {
  *   decide whether to preload authenticated UI. It is not a secret.
  * - A stale legacy token may still exist in older localStorage; `/auth/me`
  *   validates it server-side and the app clears it immediately on failure.
+ *
+ * Roles / Permissions checkpoint:
+ * - `permissions` is presentation state only. The Worker remains authoritative.
+ * - The list is refreshed from the authenticated dashboard principal before the
+ *   shell is allowed to make capability-shaped navigation decisions.
  */
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
       user: null,
       token: null,
+      permissions: [],
       setUser: (u) => set({ user: u }),
       setToken: (t) => set({ token: t }),
+      setPermissions: (permissions) => set({ permissions: [...new Set(permissions)].sort() }),
       logout: () => {
         // Clear the UI immediately, but also revoke the real server session.
         // `keepalive` prevents a route change/tab close immediately after the
@@ -71,7 +80,7 @@ export const useAuthStore = create<AuthState>()(
             // be revalidated on the next authenticated request.
           });
         }
-        set({ user: null, token: null });
+        set({ user: null, token: null, permissions: [] });
       },
       isAuthenticated: () => !!get().token,
     }),

@@ -16,6 +16,7 @@ import { RefreshCw, ShieldX, WifiOff } from "lucide-react";
 import { useAppStore } from "@/stores/use-app-store";
 import { CommandPalette } from "@/components/layout/command-palette";
 import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
+import { canAccessView } from "@/components/layout/nav-config";
 
 type IdleCapableWindow = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
@@ -27,7 +28,9 @@ const ACCOUNT_THEMES = new Set(["light", "dark", "system"]);
 export default function BoardOpsApp() {
   const token = useAuthStore((s) => s.token);
   const user = useAuthStore((s) => s.user);
+  const permissions = useAuthStore((s) => s.permissions);
   const setUser = useAuthStore((s) => s.setUser);
+  const setPermissions = useAuthStore((s) => s.setPermissions);
   const clearAuth = useAuthStore((s) => s.logout);
   const view = useAppStore((s) => s.view);
   const { theme, setTheme } = useTheme();
@@ -41,6 +44,28 @@ export default function BoardOpsApp() {
     queryKey: ["auth-me", token],
     queryFn: async () => {
       const response = await api.get<{ success: boolean; data: CurrentUser }>("/auth/me");
+
+      // The Worker-resolved grant set is the browser's only authorization-shaped
+      // input. `/dashboard` already resolves the canonical principal for every
+      // authenticated role, so its bootstrap payload carries the same grants
+      // used by middleware rather than rebuilding a role matrix in React.
+      try {
+        const authorization = await api.get<{
+          success: boolean;
+          data: { permissions: string[] };
+        }>("/dashboard");
+        setPermissions(authorization.data.permissions ?? []);
+      } catch (authorizationError) {
+        // A valid session with no dashboard grant remains valid but receives no
+        // shell capabilities. Other failures keep the existing outage behavior
+        // instead of rendering a partially authorized application.
+        if (authorizationError instanceof ApiError && authorizationError.status === 403) {
+          setPermissions([]);
+        } else {
+          throw authorizationError;
+        }
+      }
+
       setUser(response.data);
       return response.data;
     },
@@ -156,12 +181,7 @@ export default function BoardOpsApp() {
   }
 
   const userRole = user.role || "USER";
-  const isAdmin = userRole === "ADMIN" || userRole === "SUPER_ADMIN";
-
-  // Permission guard: residents can only access their allowed views.
-  // Phase 05 replaces this compatibility guard with backend-enforced RBAC.
-  const adminOnlyViews = ["meals", "kitchen", "expenses", "funds", "monthly-closing", "formula-engine", "users", "settings", "system"];
-  const isForbidden = !isAdmin && adminOnlyViews.includes(view);
+  const isForbidden = !canAccessView(userRole, permissions, view);
 
   if (isForbidden) {
     return (
@@ -191,7 +211,7 @@ export default function BoardOpsApp() {
     <>
       <AnimatedBackground />
       <AppShell>
-        <LazyViewRouter view={view} isAdmin={isAdmin} />
+        <LazyViewRouter view={view} />
       </AppShell>
       <CommandPalette />
     </>

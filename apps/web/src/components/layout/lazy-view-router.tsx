@@ -42,34 +42,33 @@ function ViewSkeleton() {
   );
 }
 
-export function LazyViewRouter({
-  view,
-  isAdmin,
-}: {
-  view: ViewKey;
-  isAdmin: boolean;
-}) {
+/**
+ * Capability authorization happens once in BoardOpsApp before this router is
+ * mounted. Keep this component presentation-only so a stale role-string gate
+ * cannot disagree with the canonical permission-aware shell boundary.
+ */
+export function LazyViewRouter({ view }: { view: ViewKey }) {
   const content = useMemo(() => {
     switch (view) {
       case "dashboard": return <DashboardView />;
-      case "meals": return isAdmin ? <MealsConfigView /> : null;
+      case "meals": return <MealsConfigView />;
       case "user-meals": return <UserMealsView />;
-      case "kitchen": return isAdmin ? <KitchenView /> : null;
+      case "kitchen": return <KitchenView />;
       case "billing": return <BillingHubView />;
       case "payments": return <PaymentsView />;
-      case "expenses": return isAdmin ? <ExpensesHubView /> : null;
-      case "funds": return isAdmin ? <FundsView /> : null;
-      case "monthly-closing": return isAdmin ? <MonthlyClosingView /> : null;
-      case "formula-engine": return isAdmin ? <FormulaEngineView /> : null;
-      case "reports": return isAdmin ? <ReportsView /> : null;
-      case "users": return isAdmin ? <UsersView /> : null;
+      case "expenses": return <ExpensesHubView />;
+      case "funds": return <FundsView />;
+      case "monthly-closing": return <MonthlyClosingView />;
+      case "formula-engine": return <FormulaEngineView />;
+      case "reports": return <ReportsView />;
+      case "users": return <UsersView />;
       case "notifications": return <NotificationsHubView />;
-      case "settings": return isAdmin ? <SettingsHubView /> : null;
-      case "system": return isAdmin ? <SystemHubView /> : null;
+      case "settings": return <SettingsHubView />;
+      case "system": return <SystemHubView />;
       case "profile": return <ProfileView />;
       default: return <DashboardView />;
     }
-  }, [view, isAdmin]);
+  }, [view]);
 
   return <Suspense fallback={<ViewSkeleton />}>{content}</Suspense>;
 }

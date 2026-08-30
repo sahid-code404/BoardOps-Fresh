@@ -20,6 +20,6 @@ export function groupNavItems(items: NavItem[]): NavGroup[] {
   return groups.filter((group) => group.items.length > 0);
 }
 
-export function groupedNavForRole(role: Role): NavGroup[] {
-  return groupNavItems(navForRole(role));
+export function groupedNavForRole(role: Role, permissions: readonly string[] = []): NavGroup[] {
+  return groupNavItems(navForRole(role, permissions));
 }
