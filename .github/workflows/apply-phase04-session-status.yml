@@ -1,0 +1,36 @@
+name: Apply Phase 04 Session Status
+
+on:
+  push:
+    paths:
+      - ".github/workflows/apply-phase04-session-status.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply guarded Phase 04 session-status patch
+        run: node scripts/patch-phase04-session-status.mjs
+
+      - name: Remove one-time patch machinery
+        run: |
+          rm scripts/patch-phase04-session-status.mjs
+          rm .github/workflows/apply-phase04-session-status.yml
+
+      - name: Commit session-status hardening
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/api/src/routes/auth.ts services/api/src/routes/users.ts scripts/patch-phase04-session-status.mjs .github/workflows/apply-phase04-session-status.yml
+          git diff --cached --check
+          git commit -m "fix: revoke sessions when accounts are disabled"
+          git push origin HEAD:main
