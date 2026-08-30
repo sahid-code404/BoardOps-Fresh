@@ -72,8 +72,6 @@ if (!row) {
 }
 
 const exact = {
-  permissions: 74,
-  role_permissions: 182,
   report_permissions: 2,
   admin_report_permissions: 2,
   super_admin_report_permissions: 2,
@@ -92,6 +90,17 @@ for (const [field, expected] of Object.entries(exact)) {
     console.error(`[BoardOps] Reports invariant failed: ${field}=${row[field]} (expected ${expected})`);
     process.exit(1);
   }
+}
+
+// 74 permissions / 182 grants is the verified Reports checkpoint baseline.
+// Later domains may only grow these global totals; this verifier continues to
+// own the exact Reports grants and canonical source evidence above while the
+// newest domain owns the exact present-day global count.
+if (Number(row.permissions ?? -1) < 74 || Number(row.role_permissions ?? -1) < 182) {
+  console.error(
+    `[BoardOps] Reports checkpoint RBAC floor failed: permissions=${row.permissions}, role_permissions=${row.role_permissions}`,
+  );
+  process.exit(1);
 }
 
 console.log("[BoardOps] Reports / Exports exact RBAC + deterministic canonical source evidence verified:", row);
