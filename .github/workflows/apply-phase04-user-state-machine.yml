@@ -1,0 +1,36 @@
+name: Apply Phase 04 User State Machine
+
+on:
+  push:
+    paths:
+      - ".github/workflows/apply-phase04-user-state-machine.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply guarded Phase 04 user-state patch
+        run: node scripts/patch-phase04-user-state-machine.mjs
+
+      - name: Remove one-time patch machinery
+        run: |
+          rm scripts/patch-phase04-user-state-machine.mjs
+          rm .github/workflows/apply-phase04-user-state-machine.yml
+
+      - name: Commit user-state hardening
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/api/src/routes/users.ts scripts/patch-phase04-user-state-machine.mjs .github/workflows/apply-phase04-user-state-machine.yml
+          git diff --cached --check
+          git commit -m "fix: enforce user status transition invariants"
+          git push origin HEAD:main
