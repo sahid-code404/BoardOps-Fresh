@@ -307,6 +307,21 @@ async function findUserByEmail(c: Context<AppEnv>, email: string): Promise<Regis
     .first<RegistrationUserRow>();
 }
 
+async function findRegistrationUserByEmail(c: Context<AppEnv>, email: string): Promise<RegistrationUserRow | null> {
+  // Registration-access possession is the authorization boundary for status.
+  // Rejected registrations are soft-deleted, but applicants must still be able
+  // to read their terminal rejection state and reason with that scoped token.
+  return c.env.DB.prepare(
+    `SELECT id, institution_id, name, email, phone, status, institution_user_id,
+            email_verified, room, gender, created_at
+     FROM users
+     WHERE lower(email) = ?
+     LIMIT 1`,
+  )
+    .bind(email)
+    .first<RegistrationUserRow>();
+}
+
 function parseCorrectionFields(value: string | null): string[] | null {
   if (!value) return null;
   try {
@@ -538,7 +553,7 @@ authWorkflowRoutes.get("/registration-status", async (c) => {
   const accessToken = registrationToken(c, c.req.query("token"));
   if (!isEmail(email) || !accessToken) return c.json({ success: true, data: { exists: false } });
 
-  const user = await findUserByEmail(c, email);
+  const user = await findRegistrationUserByEmail(c, email);
   if (!user) return c.json({ success: true, data: { exists: false } });
 
   const access = await latestChallenge(c, user.id, "REGISTRATION_ACCESS");

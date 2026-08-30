@@ -308,6 +308,10 @@ userRoutes.patch("/users/:id", async (c) => {
   if (action === "APPROVE") {
     if (user.status !== "PENDING") return c.json({ success: false, error: "Only pending users can be approved" }, 422);
     if (user.email_verified !== 1) return c.json({ success: false, error: "Email must be verified before approval" }, 422);
+    const approvalReview = await latestRegistration(c, user.id);
+    if (!approvalReview || approvalReview.status !== "PENDING_REVIEW") {
+      return c.json({ success: false, error: "Registration is not awaiting approval" }, 409);
+    }
     nextStatus = "ACTIVE";
   } else if (action === "SUSPEND") {
     if (reason.length < 3) return c.json({ success: false, error: "A reason is required" }, 400);
