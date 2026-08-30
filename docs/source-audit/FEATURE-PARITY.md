@@ -15,7 +15,7 @@
 | Refunds/adjustments | finance APIs | accounting | Required | Required | durable credit reservation + immutable additive corrections | clean D1 + runtime + visual | VERIFIED |
 | Variables/formulas | formula engine/API | formulas | Required | Parser semantics where valid | BigInt fixed-point evaluation + runtime identifiers + immutable versions + fail-closed persisted dependencies | clean D1 + unit + runtime + visual | VERIFIED |
 | Billing cycles/snapshots/bills | billing/closing | billing | Required | Workflow intent | immutable snapshot-only billing | clean D1 + runtime + visual | VERIFIED |
-| Monthly closing | monthly-closing | monthly-closing | Required | User workflow | durable state machine | planned | AUDITED |
+| Monthly closing | monthly-closing | monthly-closing | Required | User workflow | resumable fail-closed state machine + immutable Formula/version snapshot + D1 source locks | clean D1 + runtime + visual | VERIFIED |
 | Notifications/announcements | notifications | notifications | Required | Required | delivery idempotency | planned | AUDITED |
 | Reports/exports | reports/system | reports | Required | Required | lazy/background work | planned | AUDITED |
 | Settings/policies/holidays | settings/calendar | settings | Required | Required | validation/permissions | planned | AUDITED |
