@@ -652,12 +652,11 @@ export function AuthScreen() {
             />
           )}
 
-          <AnimatePresence mode="wait">
+          <AnimatePresence initial={false}>
             {mode === "register" && (
               <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
+                initial={false}
+                animate={{ height: "auto" }}
                 className="space-y-4 overflow-hidden"
               >
                 <GlassInput
@@ -1273,8 +1272,8 @@ function AuthLayout({ children }: { children: React.ReactNode }) {
         </motion.div>
 
         <motion.div
-          initial={{ opacity: 0, y: 20, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
+          initial={{ y: 20, scale: 0.98 }}
+          animate={{ y: 0, scale: 1 }}
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
           {children}

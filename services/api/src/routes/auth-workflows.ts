@@ -144,6 +144,13 @@ function logLocalDelivery(c: Context<AppEnv>, purpose: ChallengePurpose, email: 
   return true;
 }
 
+function authEmailDeliveryAvailable(c: Context<AppEnv>): boolean {
+  // Phase 04 has a deterministic local transport only. Non-local environments
+  // must fail closed before any registration/email mutation until a production
+  // mail adapter is explicitly configured in a later deployment checkpoint.
+  return c.env.ENVIRONMENT === "local";
+}
+
 async function checkIssueRateLimit(c: Context<AppEnv>, purpose: ChallengePurpose): Promise<boolean> {
   const cutoff = new Date(Date.now() - ISSUE_WINDOW_MS).toISOString();
   const row = await c.env.DB.prepare(
@@ -293,6 +300,7 @@ async function findUserByEmail(c: Context<AppEnv>, email: string): Promise<Regis
             email_verified, room, gender, created_at
      FROM users
      WHERE lower(email) = ?
+       AND deleted_at IS NULL
      LIMIT 1`,
   )
     .bind(email)
@@ -341,6 +349,9 @@ authWorkflowRoutes.post("/register", async (c) => {
   if (password !== confirmPassword) return c.json({ success: false, error: "Passwords do not match" }, 400);
   const pwdError = passwordError(password);
   if (pwdError) return c.json({ success: false, error: pwdError }, 422);
+  if (!authEmailDeliveryAvailable(c)) {
+    return c.json({ success: false, error: "Email verification delivery is not configured" }, 503);
+  }
   if (!(await checkIssueRateLimit(c, "EMAIL_VERIFY"))) {
     return c.json({ success: false, error: "Too many registration attempts. Please try again later." }, 429);
   }
@@ -459,6 +470,9 @@ authWorkflowRoutes.post("/send-verification", async (c) => {
   if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
   const email = normalizedEmail(body.email);
   if (!isEmail(email)) return c.json({ success: false, error: "Enter a valid email" }, 400);
+  if (!authEmailDeliveryAvailable(c)) {
+    return c.json({ success: true, data: { sent: true, deliveryConfigured: false } });
+  }
 
   const user = await findUserByEmail(c, email);
   if (!user || user.email_verified === 1) return c.json({ success: true, data: { sent: true } });
@@ -630,6 +644,9 @@ authWorkflowRoutes.post("/resubmit", async (c) => {
   if (institutionIdTaken) return c.json({ success: false, error: "This Institution User ID is already taken" }, 409);
 
   const emailChanged = nextEmail !== user.email;
+  if (emailChanged && !authEmailDeliveryAvailable(c)) {
+    return c.json({ success: false, error: "Email verification delivery is not configured" }, 503);
+  }
   const nextCycle = latest.cycle + 1;
   const institution = await c.env.DB.prepare(`SELECT name FROM institutions WHERE id = ? LIMIT 1`)
     .bind(user.institution_id)
@@ -696,6 +713,9 @@ authWorkflowRoutes.post("/forgot-password", async (c) => {
   if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
   const email = normalizedEmail(body.email);
   if (!isEmail(email)) return c.json({ success: false, error: "Enter a valid email" }, 400);
+  if (!authEmailDeliveryAvailable(c)) {
+    return c.json({ success: true, data: { sent: true, deliveryConfigured: false } });
+  }
   if (!(await checkIssueRateLimit(c, "PASSWORD_RESET_OTP"))) {
     return c.json({ success: false, error: "Too many requests. Please try again later." }, 429);
   }
