@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("Profile and Personalization preserve the golden self-service surface", async ({ page }) => {
   await page.goto("/profile");
   await expect(page.getByRole("heading", { name: "My Profile", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "BoardOps Admin", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
   await expect(page.getByText("admin@boardops.local", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Upload avatar", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit Profile", exact: true })).toBeVisible();
@@ -48,7 +48,7 @@ for (const profile of [
     await page.setViewportSize({ width: profile.width, height: profile.height });
     await page.goto("/profile");
     await expect(page.getByRole("heading", { name: "My Profile", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "BoardOps Admin", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Aarav Sharma", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Edit Profile", exact: true })).toBeVisible();
     await expect(page.getByText("Preferences", { exact: true })).toBeVisible();
 
