@@ -22,6 +22,8 @@ const CORE_TABLES = [
   "leave_applications",
   "billing_snapshots",
   "bills",
+  "billing_cycles",
+  "billing_cycle_events",
   "payments",
   "refunds",
   "refund_transactions",
@@ -45,7 +47,7 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
 
       if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
         return {
-          first: async () => ({ permission_count: 64, role_count: 4, grant_count: 158 }),
+          first: async () => ({ permission_count: 67, role_count: 4, grant_count: 164 }),
         };
       }
 
@@ -107,6 +109,26 @@ describe("readiness endpoint", () => {
       "http://boardops.local/api/ready",
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "billing_snapshots")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when the monthly-closing cycle table is missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "billing_cycles")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when monthly-closing transition history is missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "billing_cycle_events")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
 
     expect(response.status).toBe(503);
