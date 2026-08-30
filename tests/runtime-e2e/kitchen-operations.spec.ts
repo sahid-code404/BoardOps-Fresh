@@ -80,6 +80,26 @@ test("Counts uses real D1 meal entries, guests, overrides and leave decisions", 
         reason: "Runtime kitchen override verification",
       }),
     });
+    const lock = await request("/api/meals/override", {
+      method: "POST",
+      body: JSON.stringify({
+        mealId: "meal_lunch_local",
+        userId: "usr_resident_riya_local",
+        serviceDate: "2026-08-30",
+        action: "LOCK",
+        reason: "Runtime lock-state preservation verification",
+      }),
+    });
+    const unlock = await request("/api/meals/override", {
+      method: "POST",
+      body: JSON.stringify({
+        mealId: "meal_lunch_local",
+        userId: "usr_resident_riya_local",
+        serviceDate: "2026-08-30",
+        action: "UNLOCK",
+        reason: "Runtime unlock-state preservation verification",
+      }),
+    });
     const afterOverride = await request("/api/kitchen?date=2026-08-30");
 
     const leaveBefore = await request("/api/leave");
@@ -89,7 +109,19 @@ test("Counts uses real D1 meal entries, guests, overrides and leave decisions", 
     });
     const futureKitchen = await request("/api/kitchen?date=2026-09-02");
 
-    return { before, guestCreated, afterGuest, guestDeleted, override, afterOverride, leaveBefore, leaveDecision, futureKitchen };
+    return {
+      before,
+      guestCreated,
+      afterGuest,
+      guestDeleted,
+      override,
+      lock,
+      unlock,
+      afterOverride,
+      leaveBefore,
+      leaveDecision,
+      futureKitchen,
+    };
   });
 
   expect(result.before.status).toBe(200);
@@ -115,6 +147,16 @@ test("Counts uses real D1 meal entries, guests, overrides and leave decisions", 
   expect(result.override.body).toMatchObject({
     success: true,
     data: { mealId: "meal_lunch_local", userId: "usr_resident_riya_local", status: "ON", originalState: "OFF" },
+  });
+  expect(result.lock.status).toBe(200);
+  expect(result.lock.body).toMatchObject({
+    success: true,
+    data: { status: "ON", originalState: "OFF", locked: true },
+  });
+  expect(result.unlock.status).toBe(200);
+  expect(result.unlock.body).toMatchObject({
+    success: true,
+    data: { status: "ON", originalState: "OFF", locked: false },
   });
   const lunchAfterOverride = result.afterOverride.body.data.counts.find((meal: { id: string }) => meal.id === "meal_lunch_local");
   expect(lunchAfterOverride.on).toBe(1);
