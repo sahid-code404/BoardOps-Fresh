@@ -7,21 +7,36 @@ export type MealTiming = {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
 const TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/u;
 
+function dateParts(value: string): { year: number; month: number; day: number } {
+  return {
+    year: Number(value.slice(0, 4)),
+    month: Number(value.slice(5, 7)),
+    day: Number(value.slice(8, 10)),
+  };
+}
+
+function timeParts(value: string): { hour: number; minute: number } {
+  return {
+    hour: Number(value.slice(0, 2)),
+    minute: Number(value.slice(3, 5)),
+  };
+}
+
 export function isDateString(value: string): boolean {
   if (!DATE_RE.test(value)) return false;
-  const [year, month, day] = value.split("-").map(Number);
+  const { year, month, day } = dateParts(value);
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 export function addDays(date: string, days: number): string {
-  const [year, month, day] = date.split("-").map(Number);
+  const { year, month, day } = dateParts(date);
   const value = new Date(Date.UTC(year, month - 1, day + days));
   return value.toISOString().slice(0, 10);
 }
 
 export function monthBounds(date: string): { start: string; end: string } {
-  const [year, month] = date.split("-").map(Number);
+  const { year, month } = dateParts(date);
   const end = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
   return { start: `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-01`, end };
 }
@@ -53,8 +68,8 @@ function zonedParts(instantMs: number, timeZone: string) {
 /** Convert a wall-clock time in an IANA timezone to one unambiguous UTC ISO instant. */
 export function zonedDateTimeIso(date: string, time: string, timeZone: string): string {
   if (!isDateString(date) || !TIME_RE.test(time)) throw new Error("Invalid local date/time");
-  const [year, month, day] = date.split("-").map(Number);
-  const [hour, minute] = time.split(":").map(Number);
+  const { year, month, day } = dateParts(date);
+  const { hour, minute } = timeParts(time);
   const desiredAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
   let instant = desiredAsUtc;
 
