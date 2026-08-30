@@ -72,6 +72,16 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
   return body as T;
 }
 
+function expenseWriteOpts(path: string, method: "POST" | "PUT", opts?: FetchOpts): FetchOpts | undefined {
+  const isCreate = method === "POST" && path === "/expenses";
+  const isReplacement = method === "PUT" && /^\/expenses\/[^/]+$/u.test(path);
+  if (!isCreate && !isReplacement) return opts;
+
+  const headers = new Headers(opts?.headers);
+  if (!headers.has("Idempotency-Key")) headers.set("Idempotency-Key", crypto.randomUUID());
+  return { ...opts, headers };
+}
+
 function deleteRequest<T>(path: string, opts?: FetchOpts): Promise<T> {
   // The imported golden Billing screen contains one legacy ambiguity: its Void
   // action calls DELETE /bills/:id with no request options, while its real
@@ -93,12 +103,24 @@ function deleteRequest<T>(path: string, opts?: FetchOpts): Promise<T> {
 
 export const api = {
   get: <T>(path: string, opts?: FetchOpts) => apiFetch<T>(path, { ...opts, method: "GET" }),
-  post: <T>(path: string, data?: unknown, opts?: FetchOpts) =>
-    apiFetch<T>(path, { ...opts, method: "POST", body: data ? JSON.stringify(data) : undefined }),
+  post: <T>(path: string, data?: unknown, opts?: FetchOpts) => {
+    const writeOpts = expenseWriteOpts(path, "POST", opts);
+    return apiFetch<T>(path, {
+      ...writeOpts,
+      method: "POST",
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  },
   postForm: <T>(path: string, data: FormData, opts?: FetchOpts) =>
     apiFetch<T>(path, { ...opts, method: "POST", body: data }),
-  put: <T>(path: string, data?: unknown, opts?: FetchOpts) =>
-    apiFetch<T>(path, { ...opts, method: "PUT", body: data ? JSON.stringify(data) : undefined }),
+  put: <T>(path: string, data?: unknown, opts?: FetchOpts) => {
+    const writeOpts = expenseWriteOpts(path, "PUT", opts);
+    return apiFetch<T>(path, {
+      ...writeOpts,
+      method: "PUT",
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  },
   patch: <T>(path: string, data?: unknown, opts?: FetchOpts) =>
     apiFetch<T>(path, { ...opts, method: "PATCH", body: data ? JSON.stringify(data) : undefined }),
   delete: deleteRequest,
