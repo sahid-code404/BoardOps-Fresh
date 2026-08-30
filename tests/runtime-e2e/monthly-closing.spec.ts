@@ -6,6 +6,7 @@ const ADMIN_PASSWORD = "BoardOps@Fresh#2026!A7";
 const RESIDENT_ID = "usr_resident_riya_local";
 const RESIDENT_EMAIL = "riya@boardops.local";
 const RESIDENT_PASSWORD = "BoardOps@Closing#2026!";
+const MEAL_FORMULA_ID = "formula_meal_charges_local";
 
 async function expectPermissionDenied(response: import("@playwright/test").APIResponse, permission: string) {
   expect(response.status()).toBe(403);
@@ -16,8 +17,8 @@ async function expectPermissionDenied(response: import("@playwright/test").APIRe
   });
 }
 
-test("Monthly Closing publishes formula-derived May bills once and closes the accounting period", async ({ page }) => {
-  test.setTimeout(60_000);
+test("Monthly Closing fails closed without a compatible canonical formula, then publishes May exactly once", async ({ page }) => {
+  test.setTimeout(70_000);
 
   await page.goto("/");
   await page.getByRole("textbox", { name: "Email", exact: true }).fill(ADMIN_EMAIL);
@@ -40,7 +41,7 @@ test("Monthly Closing publishes formula-derived May bills once and closes the ac
   await page.getByRole("button", { name: "Previous month", exact: true }).click();
   await expect(page.getByRole("button", { name: /Close May 2026/u })).toBeVisible({ timeout: 8_000 });
 
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async ({ formulaId }) => {
     const request = async (path: string, init?: RequestInit) => {
       const response = await fetch(path, {
         credentials: "include",
@@ -51,6 +52,41 @@ test("Monthly Closing publishes formula-derived May bills once and closes the ac
     };
 
     const readinessBefore = await request("/api/billing-cycles/readiness?month=4&year=2026");
+    const formulas = await request("/api/formulas");
+    const canonicalMeal = formulas.body?.data?.find((formula: { id: string }) => formula.id === formulaId);
+    const originalExpression = canonicalMeal?.expression as string | undefined;
+
+    // The Formula Engine can parse this expression, but Monthly Closing cannot
+    // resolve `unsupported_count` to an active meal type. This is the canonical
+    // fail-closed proof for ACC-001: no fallback arithmetic is permitted.
+    const incompatibleFormula = originalExpression
+      ? await request(`/api/formulas/${formulaId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            expression: `${originalExpression} + unsupported_count`,
+            changeNote: "Monthly Closing runtime fail-closed probe",
+          }),
+        })
+      : null;
+    const incompatibleReadiness = await request("/api/billing-cycles/readiness?month=4&year=2026");
+    const blockedClose = await request("/api/billing-cycles", {
+      method: "POST",
+      body: JSON.stringify({ month: 4, year: 2026, dueDate: "2026-06-10" }),
+    });
+    const cyclesAfterBlocked = await request("/api/billing-cycles");
+    const billsAfterBlocked = await request("/api/bills?month=4&year=2026");
+
+    const restoredFormula = originalExpression
+      ? await request(`/api/formulas/${formulaId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            expression: originalExpression,
+            changeNote: "Restore canonical formula after Monthly Closing fail-closed probe",
+          }),
+        })
+      : null;
+    const readinessRestored = await request("/api/billing-cycles/readiness?month=4&year=2026");
+
     const close = await request("/api/billing-cycles", {
       method: "POST",
       body: JSON.stringify({ month: 4, year: 2026, dueDate: "2026-06-10" }),
@@ -73,6 +109,14 @@ test("Monthly Closing publishes formula-derived May bills once and closes the ac
 
     return {
       readinessBefore,
+      canonicalMeal,
+      incompatibleFormula,
+      incompatibleReadiness,
+      blockedClose,
+      cyclesAfterBlocked,
+      billsAfterBlocked,
+      restoredFormula,
+      readinessRestored,
       close,
       cyclesAfter,
       billsAfter,
@@ -81,7 +125,7 @@ test("Monthly Closing publishes formula-derived May bills once and closes the ac
       readinessAfter,
       billsFinal,
     };
-  });
+  }, { formulaId: MEAL_FORMULA_ID });
 
   expect(result.readinessBefore.status).toBe(200);
   expect(result.readinessBefore.body).toMatchObject({ success: true, data: { canClose: true } });
@@ -89,12 +133,42 @@ test("Monthly Closing publishes formula-derived May bills once and closes the ac
     expect.objectContaining({ key: "period", status: "ready" }),
     expect.objectContaining({ key: "residents", status: "ready", count: 1 }),
     expect.objectContaining({ key: "meals", status: "ready", count: 4 }),
+    expect.objectContaining({ key: "expenses", status: "ready", count: 0, amount: 0 }),
     expect.objectContaining({ key: "payments", status: "ready", count: 0 }),
     expect.objectContaining({ key: "formula", status: "ready" }),
     expect.objectContaining({ key: "variables", status: "ready", count: 5 }),
   ]));
   expect(result.readinessBefore.body.data.items.find((item: { key: string }) => item.key === "formula")?.detail)
     .toContain("formula.mealCharges v1 and formula.totalBill v1");
+
+  expect(result.canonicalMeal).toMatchObject({ id: MEAL_FORMULA_ID, key: "formula.mealCharges", status: "ACTIVE" });
+  expect(result.incompatibleFormula).toMatchObject({
+    status: 200,
+    body: { success: true, data: { id: MEAL_FORMULA_ID, version: 2 } },
+  });
+  expect(result.incompatibleReadiness.status).toBe(200);
+  expect(result.incompatibleReadiness.body.data.canClose).toBe(false);
+  expect(result.incompatibleReadiness.body.data.items).toEqual(expect.arrayContaining([
+    expect.objectContaining({ key: "formula", status: "error" }),
+  ]));
+  expect(result.blockedClose).toMatchObject({
+    status: 422,
+    body: { success: false, error: "Monthly closing readiness failed" },
+  });
+  expect(result.cyclesAfterBlocked.status).toBe(200);
+  expect(result.cyclesAfterBlocked.body.data.some((cycle: { periodMonth: number; periodYear: number }) =>
+    cycle.periodMonth === 4 && cycle.periodYear === 2026)).toBe(false);
+  expect(result.billsAfterBlocked.status).toBe(200);
+  expect(result.billsAfterBlocked.body.data).toHaveLength(0);
+
+  expect(result.restoredFormula).toMatchObject({
+    status: 200,
+    body: { success: true, data: { id: MEAL_FORMULA_ID, version: 3 } },
+  });
+  expect(result.readinessRestored).toMatchObject({
+    status: 200,
+    body: { success: true, data: { canClose: true } },
+  });
 
   expect(result.close.status).toBe(200);
   expect(result.close.body).toMatchObject({
@@ -103,8 +177,10 @@ test("Monthly Closing publishes formula-derived May bills once and closes the ac
       success: true,
       status: "CLOSED",
       summary: {
+        totalExpenses: 0,
         totalResidentMeals: 4,
         totalGuestMeals: 0,
+        guestRevenue: 0,
         mealCharge: 210,
         billsGenerated: 1,
         outstandingDue: 4860,
@@ -165,6 +241,16 @@ test("Monthly Closing publishes formula-derived May bills once and closes the ac
   expect(result.readinessAfter.body.data.items).toEqual(expect.arrayContaining([
     expect.objectContaining({ key: "cycle", status: "error" }),
   ]));
+
+  // Re-render the real UI after the API close to prove the golden surface can
+  // consume the durable cycle/history contract rather than only testing JSON.
+  await page.goto("/monthly-closing");
+  await page.getByRole("button", { name: "Previous month", exact: true }).click();
+  await page.getByRole("button", { name: "Previous month", exact: true }).click();
+  await expect(page.getByText("Status:", { exact: true })).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByText("Closed", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("This cycle is closed", { exact: true })).toBeVisible();
+  await expect(page.getByText("RBAC policy missing for endpoint", { exact: true })).toHaveCount(0);
 });
 
 test("resident cannot read, close, or roll back institution Monthly Closing", async ({ browser }) => {
