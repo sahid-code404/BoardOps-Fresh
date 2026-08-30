@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-08-31 — Roles / Permissions implementation verified
+- CI run `33341631331` completed successfully with deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset through all 22 migrations, deterministic invariant verification, Worker/API readiness smoke, **28/28 real-D1 Playwright runtime tests**, and **54/54 visual tests** at implementation verification head `7a16838e4efd5f81b28ae5b8f0aa30f48f8ca0d0`.
+- Added immutable `0022_roles_permissions_integrity.sql` to harden the canonical D1 role/grant model without introducing a second authorization store or client-side role matrix.
+- Clean-D1 verification owns the current **90 permissions / 222 grants** baseline and proves 4 canonical system roles, 0 unresolved user roles, 10 integrity guards, one active administrator fixture, Admin/Super Admin `users.role_assign`, and zero non-admin role-assignment grants.
+- Runtime coverage proves Resident/User denial for protected user administration, live `USER → MANAGER → USER` grant resolution for an already-authenticated principal without logout/login, and preservation of fail-closed permission-specific API authorization.
+- Visual coverage keeps `/users`, `/user-meals`, and the full phone/tablet/desktop/theme route matrix healthy while preserving recognizable role/user-management UX; UI visibility remains convenience/parity behavior rather than the security boundary.
+- Verification hardening isolated the synthetic registration through the production `cf-connecting-ip` rate-limit boundary, removed an invalid API-login→frontend-session assumption, and archived the synthetic resident after the RBAC scenario so later accounting tests retain the canonical active-user population. No authorization, rate-limit, session, accounting, or domain rule was weakened.
+- Roles / Permissions implementation is VERIFIED. Formal project-record closure is contingent on the latest documentation-head CI run also remaining fully green. No production deployment was performed, and the golden repository remained read-only.
+
 ## 2026-08-31 — Audit / System / Background Tasks implementation verified
 - CI run `33338230610` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset through all 21 migrations, deterministic invariant verification, Worker/API readiness smoke, **27/27 real-D1 Playwright runtime tests**, and **54/54 visual tests** at implementation verification head `56e7faeebe22df01cdbb786b9cc0f8dfd85adb59`.
 - Added immutable `0021_audit_system_background_tasks.sql`; `audit_events` remains the single append-only audit authority while `background_tasks` adds durable Workers-native operational history with transition, terminal-immutability and no-hard-delete guards.
@@ -121,7 +130,7 @@
 
 ## 2026-08-30 — Billing core implementation verified
 - CI run `33304568070` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/invariant verification, Worker/API smoke, real-D1 Playwright runtime smoke, and the complete Phase 02 visual regression suite at implementation verification head `a058e1983419b02a00b1977382dcd20bc17e582e`.
-- Added immutable `0009_billing_core.sql` with immutable billing snapshots and bill records backed by integer minor-unit accounting fields, arithmetic constraints, targeted indexes, and snapshot/bill immutability enforcement.
+- Added immutable `0009_billing_core.sql` with immutable billing snapshots and bill records backed by integer minor-unit accounting fields, arithmetic constraints, targeted indexes/constraints, and snapshot/bill immutability enforcement.
 - Bill generation is snapshot-driven and idempotent: rerunning a generated period does not re-price an existing bill, and generation is rejected when accounting-period/readiness conditions are not satisfied.
 - Billing routes expose readiness, period bill reads/generation, explicit financial voiding, soft deletion, deletion-queue reads, and restoration while preserving historical financial state.
 - The imported golden Billing UI keeps its visual/workflow behavior, but the legacy body-less DELETE used by its Void control is routed to the explicit financial void endpoint so void and soft delete remain distinct accounting actions.
