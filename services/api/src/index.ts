@@ -4,6 +4,7 @@ import { enforcePasswordMutationPolicy } from "./middleware/password-policy";
 import { enforceRbacPolicy } from "./middleware/rbac";
 import { authRoutes } from "./routes/auth";
 import { authWorkflowRoutes } from "./routes/auth-workflows";
+import { mealConfigRoutes } from "./routes/meals-config";
 import { runtimeRoutes } from "./routes/runtime";
 import { userRoutes } from "./routes/users";
 import { user360Routes } from "./routes/user-360";
@@ -25,6 +26,7 @@ const REQUIRED_CORE_TABLES = [
   "roles",
   "permissions",
   "role_permissions",
+  "meal_configurations",
 ] as const;
 
 type ActivityRow = {
@@ -80,7 +82,7 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 18 ||
+      Number(baseline?.permission_count ?? 0) < 22 ||
       Number(baseline?.role_count ?? 0) < 4 ||
       Number(baseline?.grant_count ?? 0) < 1
     ) {
@@ -90,6 +92,8 @@ app.get("/api/ready", async (c) => {
     return c.json({
       status: "ready",
       service: "boardops-api",
+      // Phase 05 remains the last formally closed checkpoint; later integration
+      // migrations extend that verified core without weakening its readiness label.
       schema: "phase05-rbac",
     });
   } catch {
@@ -109,6 +113,7 @@ app.route("/api/auth", authWorkflowRoutes);
 app.route("/api", runtimeRoutes);
 app.route("/api", userRoutes);
 app.route("/api", user360Routes);
+app.route("/api", mealConfigRoutes);
 
 app.get("/api/dashboard", async (c) => {
   const viewer = await authenticatedPrincipal(c);
@@ -142,10 +147,9 @@ app.get("/api/dashboard", async (c) => {
   // but its meaning is now permission-derived instead of role-string-derived.
   const isAdmin = hasPermission(viewer, PERMISSIONS.USERS_READ);
 
-  // Phase 05 deliberately exposes only values backed by tables that already
-  // exist in D1. Meal, expense, billing and notification totals stay zero until
-  // their owning phases introduce canonical schemas; we do not invent fixture
-  // money or operational counts in the real runtime.
+  // Meal configuration now has a real owning table, but meal entries/counting,
+  // billing and expenses still belong to later domain migrations. Do not invent
+  // operational totals for tables that do not yet exist.
   return c.json({
     success: true,
     data: {
