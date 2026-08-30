@@ -33,7 +33,7 @@ test("visual Monthly Closing preserves readiness and immutable-close contract", 
   await expect(dialog.getByText("Residents", { exact: true })).toBeVisible();
   await expect(dialog.getByText(/Due Date \(optional/u)).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: /^Close /u })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Execute Closing", exact: true })).toBeVisible();
 
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toHaveCount(0);
