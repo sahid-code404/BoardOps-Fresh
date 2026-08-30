@@ -1,7 +1,7 @@
-import { Hono, type Context } from "hono";
-import { getCookie } from "hono/cookie";
-import { tokenDigest } from "./auth/crypto";
+import { Hono } from "hono";
+import { authenticatedPrincipal, hasPermission, PERMISSIONS } from "./auth/authorization";
 import { enforcePasswordMutationPolicy } from "./middleware/password-policy";
+import { enforceRbacPolicy } from "./middleware/rbac";
 import { authRoutes } from "./routes/auth";
 import { authWorkflowRoutes } from "./routes/auth-workflows";
 import { runtimeRoutes } from "./routes/runtime";
@@ -21,15 +21,10 @@ const REQUIRED_CORE_TABLES = [
   "login_history",
   "registration_requests",
   "auth_challenges",
+  "roles",
+  "permissions",
+  "role_permissions",
 ] as const;
-
-const SESSION_COOKIE = "boardops_session";
-
-type Viewer = {
-  id: string;
-  institution_id: string;
-  role: "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "USER";
-};
 
 type ActivityRow = {
   id: string;
@@ -38,36 +33,6 @@ type ActivityRow = {
   actor_name: string | null;
   actor_email: string | null;
 };
-
-function readSessionToken(c: Context<AppEnv>): string | null {
-  const cookie = getCookie(c, SESSION_COOKIE);
-  if (cookie) return cookie;
-
-  const authorization = c.req.header("authorization");
-  if (!authorization?.toLowerCase().startsWith("bearer ")) return null;
-  return authorization.slice(7).trim() || null;
-}
-
-async function currentViewer(c: Context<AppEnv>): Promise<Viewer | null> {
-  const token = readSessionToken(c);
-  if (!token) return null;
-
-  const digest = await tokenDigest(token);
-  const now = new Date().toISOString();
-  return c.env.DB.prepare(
-    `SELECT u.id, u.institution_id, u.role
-     FROM user_sessions s
-     JOIN users u ON u.id = s.user_id
-     WHERE s.token_digest = ?
-       AND s.revoked_at IS NULL
-       AND s.expires_at > ?
-       AND u.deleted_at IS NULL
-       AND u.status = 'ACTIVE'
-     LIMIT 1`,
-  )
-    .bind(digest, now)
-    .first<Viewer>();
-}
 
 function emptySevenDayTrend() {
   const today = new Date();
@@ -86,6 +51,7 @@ app.use("*", async (c, next) => {
 });
 
 app.use("/api/*", enforcePasswordMutationPolicy);
+app.use("/api/*", enforceRbacPolicy);
 
 app.get("/api/health", (c) => c.json({ status: "ok", service: "boardops-api" }));
 
@@ -106,17 +72,31 @@ app.get("/api/ready", async (c) => {
       throw new Error(`Missing database core tables: ${missing.join(", ")}`);
     }
 
+    const baseline = await c.env.DB.prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM permissions) AS permission_count,
+         (SELECT COUNT(*) FROM roles) AS role_count,
+         (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
+    ).first<{ permission_count: number; role_count: number; grant_count: number }>();
+    if (
+      Number(baseline?.permission_count ?? 0) < 18 ||
+      Number(baseline?.role_count ?? 0) < 4 ||
+      Number(baseline?.grant_count ?? 0) < 1
+    ) {
+      throw new Error("RBAC baseline is incomplete");
+    }
+
     return c.json({
       status: "ready",
       service: "boardops-api",
-      schema: "phase04-auth-workflows",
+      schema: "phase05-rbac",
     });
   } catch {
     return c.json(
       {
         status: "not_ready",
         service: "boardops-api",
-        schema: "phase04-auth-workflows",
+        schema: "phase05-rbac",
       },
       503,
     );
@@ -129,7 +109,7 @@ app.route("/api", runtimeRoutes);
 app.route("/api", userRoutes);
 
 app.get("/api/dashboard", async (c) => {
-  const viewer = await currentViewer(c);
+  const viewer = await authenticatedPrincipal(c);
   if (!viewer) return c.json({ success: false, error: "Authentication required" }, 401);
 
   const summary = await c.env.DB.prepare(
@@ -139,23 +119,28 @@ app.get("/api/dashboard", async (c) => {
      FROM users
      WHERE institution_id = ?`,
   )
-    .bind(viewer.institution_id)
+    .bind(viewer.institutionId)
     .first<{ active_count: number | null; pending_count: number | null }>();
 
-  const activityRows = await c.env.DB.prepare(
-    `SELECT a.id, a.action, a.created_at, u.name AS actor_name, u.email AS actor_email
-     FROM audit_events a
-     LEFT JOIN users u ON u.id = a.actor_user_id
-     WHERE a.institution_id = ?
-     ORDER BY a.created_at DESC
-     LIMIT 6`,
-  )
-    .bind(viewer.institution_id)
-    .all<ActivityRow>();
+  const canReadAudit = hasPermission(viewer, PERMISSIONS.AUDIT_READ);
+  const activityRows = canReadAudit
+    ? await c.env.DB.prepare(
+        `SELECT a.id, a.action, a.created_at, u.name AS actor_name, u.email AS actor_email
+         FROM audit_events a
+         LEFT JOIN users u ON u.id = a.actor_user_id
+         WHERE a.institution_id = ?
+         ORDER BY a.created_at DESC
+         LIMIT 6`,
+      )
+        .bind(viewer.institutionId)
+        .all<ActivityRow>()
+    : { results: [] as ActivityRow[] };
 
-  const isAdmin = viewer.role === "ADMIN" || viewer.role === "SUPER_ADMIN";
+  // `isAdmin` remains a compatibility response field for the golden frontend,
+  // but its meaning is now permission-derived instead of role-string-derived.
+  const isAdmin = hasPermission(viewer, PERMISSIONS.USERS_READ);
 
-  // Phase 04 deliberately exposes only values backed by tables that already
+  // Phase 05 deliberately exposes only values backed by tables that already
   // exist in D1. Meal, expense, billing and notification totals stay zero until
   // their owning phases introduce canonical schemas; we do not invent fixture
   // money or operational counts in the real runtime.
@@ -176,16 +161,14 @@ app.get("/api/dashboard", async (c) => {
       trend: emptySevenDayTrend(),
       expenseBreakdown: [],
       unreadNotifications: 0,
-      recentActivity: isAdmin
-        ? activityRows.results.map((row) => ({
-            id: row.id,
-            action: row.action,
-            createdAt: row.created_at,
-            actor: row.actor_name
-              ? { name: row.actor_name, email: row.actor_email ?? undefined }
-              : null,
-          }))
-        : [],
+      recentActivity: activityRows.results.map((row) => ({
+        id: row.id,
+        action: row.action,
+        createdAt: row.created_at,
+        actor: row.actor_name
+          ? { name: row.actor_name, email: row.actor_email ?? undefined }
+          : null,
+      })),
       isAdmin,
     },
   });
