@@ -84,19 +84,26 @@ mealOverrideRoutes.post("/meals/override", async (c) => {
     }
   }
 
-  const previousStatus = existing?.status ?? null;
-  const newStatus: "ON" | "OFF" | "LOCKED" = action === "TURN_ON"
-    ? "ON"
-    : action === "TURN_OFF"
-      ? "OFF"
-      : action === "LOCK"
-        ? "LOCKED"
-        : existing?.status === "LOCKED"
-          ? "ON"
-          : existing?.status ?? "ON";
   const entryId = existing?.id ?? crypto.randomUUID();
   const beforeEnrollment = isBeforeEnrollment(serviceDate, targetUser.created_at, meal, timeZone);
   const originalState: "ON" | "OFF" = existing?.original_state ?? (beforeEnrollment ? "OFF" : meal.default_state);
+  const previousStatus = existing?.status ?? null;
+
+  // Locking is metadata, not meal state. Historically LOCK wrote the sentinel
+  // status "LOCKED", erasing whether the meal was ON or OFF; UNLOCK then guessed
+  // ON. Preserve ON/OFF in status and carry lock state only in the dedicated
+  // boolean. Legacy sentinel rows are recovered from their immutable
+  // original_state rather than guessed.
+  const preservedStatus: "ON" | "OFF" = existing?.status === "ON" || existing?.status === "OFF"
+    ? existing.status
+    : existing?.status === "LOCKED"
+      ? existing.original_state
+      : originalState;
+  const newStatus: "ON" | "OFF" = action === "TURN_ON"
+    ? "ON"
+    : action === "TURN_OFF"
+      ? "OFF"
+      : preservedStatus;
   const locked = action === "LOCK" ? 1 : action === "UNLOCK" ? 0 : existing?.locked ?? 0;
   const now = new Date().toISOString();
   const overrideId = crypto.randomUUID();
