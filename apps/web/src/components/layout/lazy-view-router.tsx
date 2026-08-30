@@ -18,6 +18,7 @@ const ExpensesHubView = lazy(VIEW_COMPONENT_LOADERS.expenses);
 const FundsView = lazy(VIEW_COMPONENT_LOADERS.funds);
 const MonthlyClosingView = lazy(VIEW_COMPONENT_LOADERS["monthly-closing"]);
 const FormulaEngineView = lazy(VIEW_COMPONENT_LOADERS["formula-engine"]);
+const ReportsView = lazy(VIEW_COMPONENT_LOADERS.reports);
 const UsersView = lazy(VIEW_COMPONENT_LOADERS.users);
 const NotificationsHubView = lazy(VIEW_COMPONENT_LOADERS.notifications);
 const SettingsHubView = lazy(VIEW_COMPONENT_LOADERS.settings);
@@ -60,6 +61,7 @@ export function LazyViewRouter({
       case "funds": return isAdmin ? <FundsView /> : null;
       case "monthly-closing": return isAdmin ? <MonthlyClosingView /> : null;
       case "formula-engine": return isAdmin ? <FormulaEngineView /> : null;
+      case "reports": return isAdmin ? <ReportsView /> : null;
       case "users": return isAdmin ? <UsersView /> : null;
       case "notifications": return <NotificationsHubView />;
       case "settings": return isAdmin ? <SettingsHubView /> : null;
