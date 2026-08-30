@@ -377,11 +377,19 @@ export function ProfileView() {
                       key={opt.value}
                       whileTap={{ scale: 0.94 }}
                       whileHover={{ scale: 1.03 }}
-                      onClick={() => {
-                        setTheme(opt.value);
-                        api.put("/auth/profile", { theme: opt.value }).catch(() => {});
-                        if (me) setUser({ ...me, theme: opt.value });
-                        qc.invalidateQueries({ queryKey: ["auth", "me"] });
+                      onClick={async () => {
+                        try {
+                          const res = await api.put<{ success: boolean; data: Partial<MeUser> }>(
+                            "/auth/profile",
+                            { theme: opt.value },
+                          );
+                          const persistedTheme = res.data.theme || opt.value;
+                          setTheme(persistedTheme);
+                          if (me) setUser({ ...me, theme: persistedTheme });
+                          await qc.invalidateQueries({ queryKey: ["auth", "me"] });
+                        } catch (e: unknown) {
+                          toast.error((e as Error).message || "Failed to update theme");
+                        }
                       }}
                       className={cn(
                         "relative flex flex-col items-center gap-1.5 py-2.5 rounded-xl border-2 transition-all",
