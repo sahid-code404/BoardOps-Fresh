@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { authenticatedPrincipal, hasPermission, PERMISSIONS } from "./auth/authorization";
+import { enforceFormulaDependencyPolicy } from "./middleware/formula-dependencies";
 import { enforcePasswordMutationPolicy } from "./middleware/password-policy";
 import { enforceRbacPolicy } from "./middleware/rbac";
 import { authRoutes } from "./routes/auth";
@@ -80,6 +81,7 @@ app.use("*", async (c, next) => {
 
 app.use("/api/*", enforcePasswordMutationPolicy);
 app.use("/api/*", enforceRbacPolicy);
+app.use("/api/*", enforceFormulaDependencyPolicy);
 
 app.get("/api/health", (c) => c.json({ status: "ok", service: "boardops-api" }));
 
