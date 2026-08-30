@@ -1,0 +1,124 @@
+import { getCookie } from "hono/cookie";
+import type { Context } from "hono";
+import { tokenDigest } from "./crypto";
+import type { AppEnv } from "../types";
+
+const SESSION_COOKIE = "boardops_session";
+
+export const PERMISSIONS = {
+  DASHBOARD_READ: "dashboard.read",
+  AUDIT_READ: "audit.read",
+  NOTIFICATIONS_READ_SELF: "notifications.read_self",
+  PROFILE_READ_SELF: "profile.read_self",
+  PROFILE_UPDATE_SELF: "profile.update_self",
+  SESSIONS_READ_SELF: "sessions.read_self",
+  SESSIONS_REVOKE_SELF: "sessions.revoke_self",
+  PASSWORD_CHANGE_SELF: "password.change_self",
+  AVATAR_UPDATE_SELF: "avatar.update_self",
+  USERS_READ: "users.read",
+  USERS_APPROVE: "users.approve",
+  USERS_REQUEST_CHANGES: "users.request_changes",
+  USERS_REJECT: "users.reject",
+  USERS_STATUS_CHANGE: "users.status_change",
+  USERS_ROLE_ASSIGN: "users.role_assign",
+  USERS_UPDATE: "users.update",
+  USERS_DELETE: "users.delete",
+  USERS_RESTORE: "users.restore",
+} as const;
+
+export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+export type RoleKey = "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "USER";
+
+export type AuthPrincipal = {
+  id: string;
+  institutionId: string;
+  role: RoleKey;
+  permissions: PermissionKey[];
+};
+
+type PrincipalRow = {
+  id: string;
+  institution_id: string;
+  role: RoleKey;
+};
+
+type PermissionRow = {
+  permission_key: string;
+};
+
+export async function permissionsForRole(
+  c: Context<AppEnv>,
+  institutionId: string,
+  role: RoleKey,
+): Promise<PermissionKey[]> {
+  const rows = await c.env.DB.prepare(
+    `SELECT p.permission_key
+     FROM roles r
+     JOIN role_permissions rp ON rp.role_id = r.id
+     JOIN permissions p ON p.id = rp.permission_id
+     WHERE r.institution_id = ? AND r.role_key = ?
+     ORDER BY p.permission_key`,
+  )
+    .bind(institutionId, role)
+    .all<PermissionRow>();
+
+  return rows.results
+    .map((row) => row.permission_key)
+    .filter((key): key is PermissionKey => Object.values(PERMISSIONS).includes(key as PermissionKey));
+}
+
+export async function authenticatedPrincipal(c: Context<AppEnv>): Promise<AuthPrincipal | null> {
+  // Phase 05 deliberately finishes the browser credential migration from the
+  // source audit: protected authorization accepts only the server-managed
+  // HttpOnly cookie. Bearer fallback is not part of the canonical RBAC path.
+  const token = getCookie(c, SESSION_COOKIE)?.trim();
+  if (!token) return null;
+
+  const digest = await tokenDigest(token);
+  const row = await c.env.DB.prepare(
+    `SELECT u.id, u.institution_id, u.role
+     FROM user_sessions s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.token_digest = ?
+       AND s.revoked_at IS NULL
+       AND s.expires_at > ?
+       AND u.deleted_at IS NULL
+       AND u.status = 'ACTIVE'
+     LIMIT 1`,
+  )
+    .bind(digest, new Date().toISOString())
+    .first<PrincipalRow>();
+
+  if (!row) return null;
+  return {
+    id: row.id,
+    institutionId: row.institution_id,
+    role: row.role,
+    permissions: await permissionsForRole(c, row.institution_id, row.role),
+  };
+}
+
+export async function requirePermission(
+  c: Context<AppEnv>,
+  permission: PermissionKey,
+): Promise<{ principal: AuthPrincipal } | Response> {
+  const principal = await authenticatedPrincipal(c);
+  if (!principal) {
+    return c.json({ success: false, error: "Authentication required" }, 401);
+  }
+  if (!principal.permissions.includes(permission)) {
+    return c.json(
+      {
+        success: false,
+        error: "Permission denied",
+        requiredPermission: permission,
+      },
+      403,
+    );
+  }
+  return { principal };
+}
+
+export function hasPermission(principal: AuthPrincipal, permission: PermissionKey): boolean {
+  return principal.permissions.includes(permission);
+}
