@@ -55,6 +55,7 @@ export const PERMISSIONS = {
   EXPENSES_REPLACE: "expenses.replace",
   EXPENSES_DELETE: "expenses.delete",
   EXPENSES_RESTORE: "expenses.restore",
+  FUNDS_READ: "funds.read",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
