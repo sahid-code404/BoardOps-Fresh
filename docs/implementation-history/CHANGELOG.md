@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-08-30 — Variables / Formula Engine implementation verified
+- CI run `33319044942` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/invariant verification, Worker/API readiness smoke, all 19 real-D1 Playwright runtime tests, and the complete Phase 02 visual regression suite at implementation verification head `b90808d1e5faca7bb2b5cb8434982408000b3b3c`.
+- Added immutable `0014_variables_formula_engine.sql` with institution-scoped Variables/Formulas, append-only Variable/Formula version history, immutable-history guards, protected Variable rules, active dependency protection, nine fail-closed permissions, and future-institution RBAC bootstrap.
+- Canonical Formula evaluation is Worker-owned and BigInt fixed-point. It supports persisted `var('...')` references plus runtime identifiers such as `breakfast_count`, `.5` numeric literals, deterministic rounding, missing-dependency reporting, and strict invalid-syntax/divide-by-zero rejection; unit coverage proves `0.1 + 0.2 = 0.3`.
+- The canonical meal Formula now evaluates the real runtime example `3 × ₹40 + 2 × ₹60 + 1 × ₹70 = ₹310` without a JavaScript binary floating-point accounting path.
+- ACTIVE Formulas cannot be created or updated against missing/archived persisted Variables; rejected updates do not advance immutable version history. ACTIVE Variables cannot be archived while an active Formula depends on them, and system-protected Variables remain non-archivable.
+- Current deterministic RBAC is verified at **64 permissions / 158 grants**. Admin/Super Admin receive all nine Formula/Variable permissions; Manager and Resident/User receive only `variables.read`, including future-institution bootstrap.
+- Clean-D1 Formula verification proves 10 active Variables + 10 immutable Variable versions, 4 active Formulas + 4 immutable Formula versions, six history guards, two bootstrap triggers, eight protected Variables, and the canonical meal Formula/dependency mapping.
+- Dedicated runtime coverage proves real D1 rendering, exact ₹310 evaluation, Variable and Formula version lifecycles, fail-closed missing dependencies, dependency-aware archive guards, protected Variable behavior, deterministic cleanup, and permission-specific resident denial. The resident proof reuses the deterministic seeded resident so it does not exhaust the serial suite's shared-IP email challenge budget.
+- Browser harness hardening replaced post-login cold navigation with live authenticated-shell navigation, aligned Formula Engine navigation with its accessible `tab` roles, and scoped duplicate KPI text correctly. These were test mechanics only; no accounting, evaluator, dependency, or authorization behavior was weakened.
+- Variables / Formula Engine implementation is VERIFIED. Formal project-record closure is contingent on the latest documentation-head CI run also remaining fully green. Monthly Closing remains AUDITED and must later consume this canonical engine with strict dependency resolution and **no legacy arithmetic fallback**. No production deployment was performed.
+
 ## 2026-08-30 — Refunds and adjustments implementation verified
 - CI run `33312728702` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/invariant verification, Worker/API smoke, all 17 real-D1 Playwright runtime tests, and the complete Phase 02 visual regression suite at implementation verification head `8c13b08c2f2087e8cbc4035a53ec4de8ce9825b6`.
 - Added immutable `0013_refunds_adjustments.sql` with durable resident refund obligations, immutable payout transactions, immutable additive adjustments, institution-scoped financial reference sequences, integer minor-unit constraints, and hard-delete/update guards for historical evidence.
@@ -117,30 +129,3 @@
 - CI run `33262977660` passed frozen install, TypeScript, tests, builds, clean local D1 reset/migrate/seed/invariant verification, Worker health/readiness, frontend startup, and the existing Playwright visual/navigation regression suite.
 - Phase 03 database core is verified at implementation commit `287742541e98138d279ecdf99febf83d4f5589f9`.
 - Phase 04 secure authentication is the next owning phase; the deterministic local admin identity now exists in D1 but login behavior remains deliberately unclaimed until Phase 04 is implemented and verified.
-
-## 2026-08-29 — Phase 03 database core implementation
-- Added immutable `0002_database_core.sql` for institutions, accounting periods, core user identities, idempotency keys, immutable audit events, and outbox events.
-- Added foreign keys, uniqueness/check constraints, and targeted indexes for D1 query paths.
-- Added database-level triggers that reject UPDATE/DELETE on audit events.
-- Added deterministic local development identities and a fake local administrator bootstrap account.
-- Added `pnpm db:reset:local` and `pnpm db:verify:local` so local D1 can be destroyed/recreated and invariant-checked in one repeatable workflow.
-- Unified Wrangler and Cloudflare Vite local persistence under the repository `.wrangler/state` path so migrations/seed and the running Worker see the same D1 database.
-- Strengthened `/api/ready` so readiness fails closed when required Phase 03 tables are absent.
-- CI now performs a clean local D1 reset/migrate/seed/verify before Worker startup.
-- Phase 04 authentication remains deliberately deferred until the Phase 03 gate is green.
-
-## 2026-08-29 — Phase 00/01 verification checkpoint
-- Frozen dependency install is now deterministic through the generated `pnpm-lock.yaml`.
-- Added the pnpm 11 `allowBuilds` policy for the reviewed `esbuild` and `workerd` install scripts required by Vite/Workers.
-- Added Vite client type declarations for the web workspace.
-- Updated Wrangler to 4.127.1 to satisfy the current Cloudflare Vite plugin peer requirement.
-- CI run 33259453876 passed dependency install, TypeScript, tests, builds, local D1 migration/seed, Worker health/readiness, and frontend startup.
-- Phase 00 foundation is runtime-verified. Phase 01 source-audit baseline is recorded. Phase 02 has not started.
-
-## 2026-08-29 — Phase 00/01 initialization
-- Initialized clean `BoardOps-Fresh` target.
-- Established React/Vite and standalone Cloudflare Worker workspace skeleton.
-- Added local D1/R2 bindings, infrastructure migration/seed and health/readiness endpoints.
-- Added CI bootstrap/frozen-install verification path.
-- Audited the read-only `BoardOpsv2rewrite` golden master and recorded frontend/domain/accounting/security/performance migration findings.
-- No Phase 02 product frontend port and no production deployment performed.
