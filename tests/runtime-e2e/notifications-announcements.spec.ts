@@ -1,4 +1,4 @@
-import { expect, test, type APIResponse } from "@playwright/test";
+import { expect, test, type APIResponse, type Page } from "@playwright/test";
 
 const API = "http://127.0.0.1:8787";
 const ADMIN_EMAIL = "admin@boardops.local";
@@ -20,6 +20,16 @@ async function expectPermissionDenied(response: APIResponse, permission: string)
     error: "Permission denied",
     requiredPermission: permission,
   });
+}
+
+async function loginAdminShell(page: Page) {
+  await page.goto("/");
+  await expect(page.getByRole("textbox", { name: "Email", exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Email", exact: true }).fill(ADMIN_EMAIL);
+  await page.getByRole("textbox", { name: "Password", exact: true }).fill(ADMIN_PASSWORD);
+  await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard(?:\?|$)/, { timeout: 5_000 });
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible({ timeout: 5_000 });
 }
 
 test("Notifications and Announcements use durable self-scoped idempotent delivery", async ({ browser }) => {
@@ -213,9 +223,10 @@ test("Notifications and Announcements use durable self-scoped idempotent deliver
     expect(archivedAdminBody.data).toContainEqual(expect.objectContaining({ id: announcementId, status: "ARCHIVED" }));
 
     // Finally prove the real shell renders the same D1-backed communication data.
+    // APIRequestContext cookies are not used as a browser bootstrap contract here;
+    // use the same proven UI sign-in flow as the authenticated-shell runtime test.
     const adminPage = await adminContext.newPage();
-    await adminPage.goto("/dashboard");
-    await expect(adminPage.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible({ timeout: 5_000 });
+    await loginAdminShell(adminPage);
     await adminPage.getByRole("button", { name: "More navigation" }).click();
     const sidebar = adminPage.getByRole("complementary");
     await expect(sidebar).toBeInViewport();
