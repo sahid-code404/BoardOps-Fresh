@@ -49,6 +49,27 @@ test("Profile and Personalization persist self-service data securely", async ({ 
   expect(baseline.status).toBe(200);
   const original = baseline.payload.data;
 
+  const clientSessionHint = await page.evaluate(() => {
+    const raw = localStorage.getItem("boardops-auth");
+    if (!raw) return null;
+    try {
+      return (JSON.parse(raw) as { state?: { token?: string | null } }).state?.token ?? null;
+    } catch {
+      return null;
+    }
+  });
+  expect(clientSessionHint).toBe("cookie-session");
+
+  const bearerOnlyProbe = await page.evaluate(async () => {
+    const response = await fetch("/api/auth/profile", {
+      method: "GET",
+      credentials: "omit",
+      headers: { Authorization: "Bearer cookie-session" },
+    });
+    return response.status;
+  });
+  expect(bearerOnlyProbe).toBe(401);
+
   try {
     await page.getByRole("button", { name: "Edit Profile", exact: true }).click();
     const editor = page.locator('[data-slot="dialog-content"], [data-slot="sheet-content"]').filter({
@@ -140,7 +161,7 @@ test("Profile and Personalization persist self-service data securely", async ({ 
     });
     const uploaded = await avatarResponse;
     expect(uploaded.status()).toBe(200);
-    expect(avatarAuthorization).toBeUndefined();
+    expect(avatarAuthorization).toBe("Bearer cookie-session");
 
     const avatarImage = await page.evaluate(async () => {
       const response = await fetch("/api/auth/avatar/image", { credentials: "include" });
