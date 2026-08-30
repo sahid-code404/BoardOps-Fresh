@@ -128,8 +128,6 @@ const exact = {
   refund_transactions: 0,
   adjustments: 0,
   reference_sequences: 0,
-  permissions: 55,
-  role_permissions: 138,
   financial_guards: 10,
   bootstrap_trigger: 1,
   admin_refund_adjustment_permissions: 6,
@@ -144,6 +142,17 @@ for (const [field, expected] of Object.entries(exact)) {
     console.error(`[BoardOps] Refunds/adjustments invariant failed: ${field}=${row[field]} (expected ${expected})`);
     process.exit(1);
   }
+}
+
+// 55 permissions / 138 grants is the verified Refunds checkpoint baseline.
+// Later domains may only grow these global totals; this verifier continues to
+// own the exact Refunds/adjustments grants above while the newest domain owns
+// the exact present-day global count.
+if (Number(row.permissions ?? -1) < 55 || Number(row.role_permissions ?? -1) < 138) {
+  console.error(
+    `[BoardOps] Refunds checkpoint RBAC floor failed: permissions=${row.permissions}, role_permissions=${row.role_permissions}`,
+  );
+  process.exit(1);
 }
 
 expectStatementFailure(
