@@ -303,6 +303,23 @@ userRoutes.patch("/users/:id", async (c) => {
   const validActions = new Set(["APPROVE", "SUSPEND", "ACTIVATE", "DEACTIVATE", "ARCHIVE", "RESTORE", "ASSIGN_ROLE"]);
   if (!validActions.has(action)) return c.json({ success: false, error: "Invalid user action" }, 400);
 
+  const disablesActiveAdmin =
+    user.status === "ACTIVE" &&
+    (user.role === "ADMIN" || user.role === "SUPER_ADMIN") &&
+    ["SUSPEND", "DEACTIVATE", "ARCHIVE"].includes(action);
+  if (disablesActiveAdmin) {
+    const count = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS count FROM users
+       WHERE institution_id = ? AND role IN ('ADMIN', 'SUPER_ADMIN')
+         AND status = 'ACTIVE' AND deleted_at IS NULL`,
+    )
+      .bind(admin.institution_id)
+      .first<{ count: number }>();
+    if (Number(count?.count ?? 0) <= 1) {
+      return c.json({ success: false, error: "Cannot disable the last active administrator" }, 422);
+    }
+  }
+
   let nextStatus = user.status;
   let nextRole = user.role;
   if (action === "APPROVE") {
@@ -370,6 +387,13 @@ userRoutes.patch("/users/:id", async (c) => {
          SET status = 'APPROVED', reason = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ?
          WHERE id = ?`,
       ).bind(reason || null, admin.id, now, now, latest.id),
+    );
+  }
+  if (["SUSPEND", "DEACTIVATE", "ARCHIVE"].includes(action)) {
+    statements.push(
+      c.env.DB.prepare(
+        `UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`,
+      ).bind(now, user.id),
     );
   }
   await c.env.DB.batch(statements);

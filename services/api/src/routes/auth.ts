@@ -145,6 +145,7 @@ async function currentSession(c: Context<AppEnv>): Promise<SessionUserRow | null
        AND s.revoked_at IS NULL
        AND s.expires_at > ?
        AND u.deleted_at IS NULL
+       AND u.status = 'ACTIVE'
      LIMIT 1`,
   )
     .bind(digest, now)
