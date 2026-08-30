@@ -24,6 +24,9 @@ const CORE_TABLES = [
   "bills",
   "payments",
   "refunds",
+  "refund_transactions",
+  "adjustments",
+  "financial_reference_sequences",
   "expenses",
 ];
 
@@ -38,7 +41,7 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
 
       if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
         return {
-          first: async () => ({ permission_count: 50, role_count: 4, grant_count: 128 }),
+          first: async () => ({ permission_count: 55, role_count: 4, grant_count: 138 }),
         };
       }
 
@@ -65,7 +68,7 @@ describe("health endpoint", () => {
 });
 
 describe("readiness endpoint", () => {
-  it("requires the complete RBAC + meal + billing + payments + expenses schema and Funds permission baseline", async () => {
+  it("requires the complete RBAC + meal + billing + payments + refunds + adjustments + expenses schema", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
@@ -110,6 +113,26 @@ describe("readiness endpoint", () => {
       "http://boardops.local/api/ready",
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "payments")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when durable refund transaction history is missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "refund_transactions")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when immutable adjustments are missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "adjustments")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
 
     expect(response.status).toBe(503);
