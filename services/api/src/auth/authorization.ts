@@ -41,6 +41,15 @@ export const PERMISSIONS = {
   BILLS_DELETE: "bills.delete",
   BILLS_RESTORE: "bills.restore",
   BILLS_VOID: "bills.void",
+  PAYMENTS_READ: "payments.read",
+  PAYMENTS_CREATE: "payments.create",
+  PAYMENTS_DECIDE: "payments.decide",
+  PAYMENTS_UPDATE: "payments.update",
+  PAYMENTS_VOID: "payments.void",
+  PAYMENTS_DELETE: "payments.delete",
+  PAYMENTS_RESTORE: "payments.restore",
+  PAYMENTS_REFUND: "payments.refund",
+  REFUNDS_READ: "refunds.read",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
