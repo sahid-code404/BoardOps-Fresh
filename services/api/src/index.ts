@@ -12,6 +12,7 @@ import { leaveRoutes } from "./routes/leave";
 import { mealConfigRoutes } from "./routes/meals-config";
 import { mealOverrideRoutes } from "./routes/meal-overrides";
 import { paymentRoutes } from "./routes/payments";
+import { refundAdjustmentRoutes } from "./routes/refunds-adjustments";
 import { runtimeRoutes } from "./routes/runtime";
 import { userRoutes } from "./routes/users";
 import { user360Routes } from "./routes/user-360";
@@ -42,6 +43,9 @@ const REQUIRED_CORE_TABLES = [
   "bills",
   "payments",
   "refunds",
+  "refund_transactions",
+  "adjustments",
+  "financial_reference_sequences",
   "expenses",
 ] as const;
 
@@ -98,7 +102,7 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 50 ||
+      Number(baseline?.permission_count ?? 0) < 55 ||
       Number(baseline?.role_count ?? 0) < 4 ||
       Number(baseline?.grant_count ?? 0) < 1
     ) {
@@ -134,6 +138,9 @@ app.route("/api", kitchenRoutes);
 app.route("/api", mealOverrideRoutes);
 app.route("/api", leaveRoutes);
 app.route("/api", billingRoutes);
+// Refund/adjustment routes intentionally precede the legacy Payments router so
+// their richer canonical /payments/refund and /refunds contracts own those paths.
+app.route("/api", refundAdjustmentRoutes);
 app.route("/api", paymentRoutes);
 app.route("/api", expenseRoutes);
 app.route("/api", fundRoutes);

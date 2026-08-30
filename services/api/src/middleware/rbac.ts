@@ -50,6 +50,9 @@ const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["GET /api/payments/refund", PERMISSIONS.PAYMENTS_REFUND],
   ["POST /api/payments/refund", PERMISSIONS.PAYMENTS_REFUND],
   ["GET /api/refunds", PERMISSIONS.REFUNDS_READ],
+  ["POST /api/refunds", PERMISSIONS.REFUNDS_CREATE],
+  ["GET /api/adjustments", PERMISSIONS.ADJUSTMENTS_READ],
+  ["POST /api/adjustments", PERMISSIONS.ADJUSTMENTS_CREATE],
   ["GET /api/expenses", PERMISSIONS.EXPENSES_READ],
   ["POST /api/expenses", PERMISSIONS.EXPENSES_CREATE],
   ["GET /api/funds", PERMISSIONS.FUNDS_READ],
@@ -128,6 +131,15 @@ function dynamicPolicy(method: Method, path: string): DynamicPolicy {
   }
   if (method === "POST" && /^\/api\/payments\/[^/]+\/restore$/u.test(path)) {
     return PERMISSIONS.PAYMENTS_RESTORE;
+  }
+  if (method === "GET" && /^\/api\/refunds\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.REFUNDS_READ;
+  }
+  if (method === "POST" && /^\/api\/refunds\/[^/]+\/partial$/u.test(path)) {
+    return PERMISSIONS.REFUNDS_PAY;
+  }
+  if (method === "POST" && /^\/api\/refunds\/[^/]+\/cancel$/u.test(path)) {
+    return PERMISSIONS.REFUNDS_CANCEL;
   }
   if (method === "GET" && /^\/api\/expenses\/[^/]+$/u.test(path)) {
     return PERMISSIONS.EXPENSES_READ;
