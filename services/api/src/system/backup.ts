@@ -1,15 +1,61 @@
 import type { SystemTaskEnvironment, TaskProgress, TaskResult } from "./task-engine";
 
-type TableInfoRow = { name: string };
-type TableNameRow = { name: string };
+type BackupScope = "institution-row" | "institution-column" | "user-relation" | "role-relation";
+type BackupTable = {
+  name: string;
+  scope: BackupScope;
+};
 
-const SKIPPED_TABLES = new Set([
-  "_runtime_probe",
-  "d1_migrations",
-  "sqlite_sequence",
-]);
+// D1's Worker binding intentionally restricts SQLite schema-introspection
+// surfaces such as sqlite_master/PRAGMA. Keep the application-owned backup
+// surface explicit instead. Every migration that adds an institution-owned
+// table must add it here in the same change.
+const BACKUP_TABLES: readonly BackupTable[] = [
+  { name: "institutions", scope: "institution-row" },
+  { name: "accounting_periods", scope: "institution-column" },
+  { name: "users", scope: "institution-column" },
+  { name: "idempotency_keys", scope: "institution-column" },
+  { name: "audit_events", scope: "institution-column" },
+  { name: "outbox_events", scope: "institution-column" },
+  { name: "user_sessions", scope: "user-relation" },
+  { name: "login_history", scope: "user-relation" },
+  { name: "registration_requests", scope: "institution-column" },
+  { name: "auth_challenges", scope: "institution-column" },
+  { name: "roles", scope: "institution-column" },
+  { name: "role_permissions", scope: "role-relation" },
+  { name: "meal_configurations", scope: "institution-column" },
+  { name: "meal_entries", scope: "institution-column" },
+  { name: "guest_meals", scope: "institution-column" },
+  { name: "meal_overrides", scope: "institution-column" },
+  { name: "leave_applications", scope: "institution-column" },
+  { name: "billing_snapshots", scope: "institution-column" },
+  { name: "bills", scope: "institution-column" },
+  { name: "payments", scope: "institution-column" },
+  { name: "refunds", scope: "institution-column" },
+  { name: "expenses", scope: "institution-column" },
+  { name: "refund_transactions", scope: "institution-column" },
+  { name: "adjustments", scope: "institution-column" },
+  { name: "financial_reference_sequences", scope: "institution-column" },
+  { name: "variables", scope: "institution-column" },
+  { name: "variable_versions", scope: "institution-column" },
+  { name: "formulas", scope: "institution-column" },
+  { name: "formula_versions", scope: "institution-column" },
+  { name: "billing_cycles", scope: "institution-column" },
+  { name: "billing_cycle_events", scope: "institution-column" },
+  { name: "announcements", scope: "institution-column" },
+  { name: "notifications", scope: "institution-column" },
+  { name: "settings", scope: "institution-column" },
+  { name: "policies", scope: "institution-column" },
+  { name: "holidays", scope: "institution-column" },
+  { name: "background_tasks", scope: "institution-column" },
+];
 
-const REDACTED_COLUMNS: Record<string, Set<string>> = {
+// `permissions` is a global application catalog seeded by migrations rather than
+// institution-owned data. Wrangler/D1 metadata and the runtime probe are omitted
+// from the manifest entirely and therefore can never enter an institution backup.
+const SKIPPED_TABLES = ["permissions"] as const;
+
+const REDACTED_COLUMNS: Readonly<Record<string, ReadonlySet<string>>> = {
   users: new Set(["password_hash"]),
   user_sessions: new Set(["token_digest"]),
   auth_challenges: new Set(["secret_hash"]),
@@ -23,69 +69,58 @@ function safeIdentifier(value: string): string {
   return `"${value}"`;
 }
 
-function quoteColumns(columns: string[], alias?: string): string {
-  return columns
-    .map((column) => `${alias ? `${alias}.` : ""}${safeIdentifier(column)} AS ${safeIdentifier(column)}`)
-    .join(", ");
-}
-
-async function columnsForTable(db: D1Database, table: string): Promise<string[]> {
-  const info = await db.prepare(`PRAGMA table_info(${safeIdentifier(table)})`).all<TableInfoRow>();
-  const redacted = REDACTED_COLUMNS[table] ?? new Set<string>();
-  return info.results.map((row) => row.name).filter((name) => !redacted.has(name));
-}
-
-async function institutionRows(
-  db: D1Database,
+function stripRedactedColumns(
   table: string,
-  columns: string[],
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const redacted = REDACTED_COLUMNS[table];
+  if (!redacted) return rows;
+
+  return rows.map((row) => {
+    const sanitized: Record<string, unknown> = {};
+    for (const [column, value] of Object.entries(row)) {
+      if (!redacted.has(column)) sanitized[column] = value;
+    }
+    return sanitized;
+  });
+}
+
+async function rowsForTable(
+  db: D1Database,
+  table: BackupTable,
   institutionId: string,
-): Promise<Record<string, unknown>[] | null> {
-  if (columns.length === 0) return [];
-  const tableName = safeIdentifier(table);
-  const selected = quoteColumns(columns);
+): Promise<Record<string, unknown>[]> {
+  const tableName = safeIdentifier(table.name);
 
-  if (table === "institutions") {
-    return (await db.prepare(`SELECT ${selected} FROM ${tableName} WHERE id = ?`).bind(institutionId).all<Record<string, unknown>>()).results;
+  if (table.scope === "institution-row") {
+    return (await db
+      .prepare(`SELECT * FROM ${tableName} WHERE id = ?`)
+      .bind(institutionId)
+      .all<Record<string, unknown>>()).results;
   }
 
-  if (table === "user_sessions") {
-    const selectedWithAlias = quoteColumns(columns, "s");
+  if (table.scope === "user-relation") {
     return (await db.prepare(
-      `SELECT ${selectedWithAlias}
-         FROM user_sessions s
-         JOIN users u ON u.id = s.user_id
+      `SELECT t.*
+         FROM ${tableName} t
+         JOIN users u ON u.id = t.user_id
         WHERE u.institution_id = ?`,
     ).bind(institutionId).all<Record<string, unknown>>()).results;
   }
 
-  if (table === "login_history") {
-    const selectedWithAlias = quoteColumns(columns, "l");
+  if (table.scope === "role-relation") {
     return (await db.prepare(
-      `SELECT ${selectedWithAlias}
-         FROM login_history l
-         JOIN users u ON u.id = l.user_id
-        WHERE u.institution_id = ?`,
-    ).bind(institutionId).all<Record<string, unknown>>()).results;
-  }
-
-  if (table === "role_permissions") {
-    const selectedWithAlias = quoteColumns(columns, "rp");
-    return (await db.prepare(
-      `SELECT ${selectedWithAlias}
-         FROM role_permissions rp
-         JOIN roles r ON r.id = rp.role_id
+      `SELECT t.*
+         FROM ${tableName} t
+         JOIN roles r ON r.id = t.role_id
         WHERE r.institution_id = ?`,
     ).bind(institutionId).all<Record<string, unknown>>()).results;
   }
 
-  if (columns.includes("institution_id")) {
-    return (await db.prepare(
-      `SELECT ${selected} FROM ${tableName} WHERE institution_id = ?`,
-    ).bind(institutionId).all<Record<string, unknown>>()).results;
-  }
-
-  return null;
+  return (await db
+    .prepare(`SELECT * FROM ${tableName} WHERE institution_id = ?`)
+    .bind(institutionId)
+    .all<Record<string, unknown>>()).results;
 }
 
 function hex(bytes: ArrayBuffer): string {
@@ -97,32 +132,20 @@ export async function createPrivateLogicalBackup(
   institutionId: string,
   updateProgress: TaskProgress,
 ): Promise<TaskResult> {
-  const tableRows = await env.DB.prepare(
-    `SELECT name
-       FROM sqlite_master
-      WHERE type = 'table'
-        AND name NOT LIKE 'sqlite_%'
-      ORDER BY name`,
-  ).all<TableNameRow>();
-
-  const tables = tableRows.results
-    .map((row) => row.name)
-    .filter((name) => !SKIPPED_TABLES.has(name));
-
   const exported: Record<string, Record<string, unknown>[]> = {};
-  const skipped: string[] = [];
   let rowCount = 0;
 
-  for (const [index, table] of tables.entries()) {
-    const columns = await columnsForTable(env.DB, table);
-    const rows = await institutionRows(env.DB, table, columns, institutionId);
-    if (rows === null) {
-      skipped.push(table);
-    } else {
-      exported[table] = rows;
-      rowCount += rows.length;
-    }
-    await updateProgress(Math.min(92, Math.round(((index + 1) / Math.max(1, tables.length)) * 92)));
+  for (const [index, table] of BACKUP_TABLES.entries()) {
+    const rows = stripRedactedColumns(
+      table.name,
+      await rowsForTable(env.DB, table, institutionId),
+    );
+    exported[table.name] = rows;
+    rowCount += rows.length;
+    await updateProgress(Math.min(
+      92,
+      Math.round(((index + 1) / BACKUP_TABLES.length) * 92),
+    ));
   }
 
   const createdAt = new Date().toISOString();
@@ -140,7 +163,7 @@ export async function createPrivateLogicalBackup(
       ],
       note: "Authentication secret material is intentionally excluded from System data-export backups.",
     },
-    skippedTables: skipped,
+    skippedTables: [...SKIPPED_TABLES],
     tables: exported,
   };
 
@@ -160,6 +183,7 @@ export async function createPrivateLogicalBackup(
       format: "boardops-d1-logical-backup-v1",
       institutionId,
       sha256,
+      redacted: "true",
     },
   });
   if (!stored) {
@@ -173,7 +197,7 @@ export async function createPrivateLogicalBackup(
     sha256,
     rowCount,
     tableCount: Object.keys(exported).length,
-    skippedTables: skipped,
+    skippedTables: [...SKIPPED_TABLES],
     redacted: true,
   };
 }
