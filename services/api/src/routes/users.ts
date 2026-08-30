@@ -331,17 +331,31 @@ userRoutes.patch("/users/:id", async (c) => {
     }
     nextStatus = "ACTIVE";
   } else if (action === "SUSPEND") {
+    if (user.status !== "ACTIVE") return c.json({ success: false, error: "Only active users can be suspended" }, 422);
     if (reason.length < 3) return c.json({ success: false, error: "A reason is required" }, 400);
     nextStatus = "SUSPENDED";
-  } else if (action === "ACTIVATE" || action === "RESTORE") {
+  } else if (action === "ACTIVATE") {
+    if (user.status !== "SUSPENDED" && user.status !== "INACTIVE") {
+      return c.json({ success: false, error: "Only suspended or inactive users can be activated" }, 422);
+    }
+    nextStatus = "ACTIVE";
+  } else if (action === "RESTORE") {
+    if (user.status !== "ARCHIVED" || user.deleted_at !== null) {
+      return c.json({ success: false, error: "Only non-deleted archived users can be restored here" }, 422);
+    }
     nextStatus = "ACTIVE";
   } else if (action === "DEACTIVATE") {
+    if (user.status !== "ACTIVE") return c.json({ success: false, error: "Only active users can be deactivated" }, 422);
     if (reason.length < 3) return c.json({ success: false, error: "A reason is required" }, 400);
     nextStatus = "INACTIVE";
   } else if (action === "ARCHIVE") {
+    if (!["ACTIVE", "SUSPENDED", "INACTIVE"].includes(user.status)) {
+      return c.json({ success: false, error: "Only active, suspended, or inactive users can be archived" }, 422);
+    }
     if (reason.length < 3) return c.json({ success: false, error: "A reason is required" }, 400);
     nextStatus = "ARCHIVED";
   } else if (action === "ASSIGN_ROLE") {
+    if (user.status !== "ACTIVE") return c.json({ success: false, error: "Roles can only be assigned to active users" }, 422);
     const role = typeof body.role === "string" ? body.role : "";
     if (!["SUPER_ADMIN", "ADMIN", "MANAGER", "USER"].includes(role)) return c.json({ success: false, error: "Role is required" }, 400);
     if ((user.role === "ADMIN" || user.role === "SUPER_ADMIN") && role !== "ADMIN" && role !== "SUPER_ADMIN") {
@@ -485,6 +499,10 @@ userRoutes.post("/users/:id/restore", async (c) => {
   const user = await targetUser(c, admin, c.req.param("id"));
   if (!user) return c.json({ success: false, error: "User not found" }, 404);
   if (!user.deleted_at) return c.json({ success: false, error: "User is not in the deletion queue" }, 422);
+  const registration = await latestRegistration(c, user.id);
+  if (registration?.status === "REJECTED") {
+    return c.json({ success: false, error: "Rejected registrations cannot be restored directly" }, 422);
+  }
   const now = new Date().toISOString();
   await c.env.DB.prepare(`UPDATE users SET status = 'ACTIVE', deleted_at = NULL, deletion_reason = NULL, updated_at = ? WHERE id = ?`)
     .bind(now, user.id).run();
