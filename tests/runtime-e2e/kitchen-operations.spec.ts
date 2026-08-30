@@ -8,6 +8,10 @@ test("Counts uses real D1 meal entries, guests, overrides and leave decisions", 
   await page.getByRole("textbox", { name: "Password", exact: true }).fill("BoardOps@Fresh#2026!A7");
   await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard(?:\?|$)/, { timeout: 5_000 });
+  // Match the proven authenticated runtime flow used by the Meal Configuration
+  // regression. The URL changes immediately after login, while the shell then
+  // finishes validating the HttpOnly cookie and hydrating the current user.
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible({ timeout: 5_000 });
 
   // Probe the same browser-origin API contract before asserting rendered cards.
   // If this ever fails, Playwright prints the real status/body instead of
