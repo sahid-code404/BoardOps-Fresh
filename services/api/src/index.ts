@@ -9,6 +9,7 @@ import { kitchenRoutes } from "./routes/kitchen";
 import { leaveRoutes } from "./routes/leave";
 import { mealConfigRoutes } from "./routes/meals-config";
 import { mealOverrideRoutes } from "./routes/meal-overrides";
+import { paymentRoutes } from "./routes/payments";
 import { runtimeRoutes } from "./routes/runtime";
 import { userRoutes } from "./routes/users";
 import { user360Routes } from "./routes/user-360";
@@ -37,6 +38,8 @@ const REQUIRED_CORE_TABLES = [
   "leave_applications",
   "billing_snapshots",
   "bills",
+  "payments",
+  "refunds",
 ] as const;
 
 type ActivityRow = {
@@ -92,7 +95,7 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 35 ||
+      Number(baseline?.permission_count ?? 0) < 44 ||
       Number(baseline?.role_count ?? 0) < 4 ||
       Number(baseline?.grant_count ?? 0) < 1
     ) {
@@ -128,6 +131,7 @@ app.route("/api", kitchenRoutes);
 app.route("/api", mealOverrideRoutes);
 app.route("/api", leaveRoutes);
 app.route("/api", billingRoutes);
+app.route("/api", paymentRoutes);
 
 app.get("/api/dashboard", async (c) => {
   const viewer = await authenticatedPrincipal(c);
