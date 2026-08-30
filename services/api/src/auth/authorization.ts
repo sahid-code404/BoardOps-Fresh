@@ -61,6 +61,15 @@ export const PERMISSIONS = {
   EXPENSES_DELETE: "expenses.delete",
   EXPENSES_RESTORE: "expenses.restore",
   FUNDS_READ: "funds.read",
+  VARIABLES_READ: "variables.read",
+  VARIABLES_CREATE: "variables.create",
+  VARIABLES_UPDATE: "variables.update",
+  VARIABLES_ARCHIVE: "variables.archive",
+  FORMULAS_READ: "formulas.read",
+  FORMULAS_CREATE: "formulas.create",
+  FORMULAS_UPDATE: "formulas.update",
+  FORMULAS_ARCHIVE: "formulas.archive",
+  FORMULAS_TEST: "formulas.test",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
