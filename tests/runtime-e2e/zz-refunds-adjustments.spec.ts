@@ -3,9 +3,8 @@ import { expect, test } from "@playwright/test";
 const API = "http://127.0.0.1:8787";
 const ADMIN_EMAIL = "admin@boardops.local";
 const ADMIN_PASSWORD = "BoardOps@Fresh#2026!A7";
-const RESIDENT_EMAIL = "refunds.rbac.resident@example.test";
+const RESIDENT_EMAIL = "refunds.lifecycle.resident@example.test";
 const RESIDENT_PASSWORD = "BoardOps@Refunds#2026!";
-const RIYA_ID = "usr_resident_riya_local";
 const EXPENSE_ID = "expense_grocery_aug_2026_local";
 
 test("Refund obligations reserve credit, partial payouts create canonical evidence, and adjustments stay additive", async ({ browser }) => {
@@ -38,11 +37,79 @@ test("Refund obligations reserve credit, partial payouts create canonical eviden
       data: { id: EXPENSE_ID, amount: 3000, status: "APPROVED" },
     });
 
+    // Build a known, test-owned ₹5,000 resident credit through the real public
+    // workflow. This keeps the refund lifecycle independent from any seeded or
+    // earlier runtime-test resident balance.
+    const registration = await residentApi.post(`${API}/api/auth/register`, {
+      data: {
+        name: "Refund Lifecycle Resident",
+        institutionName: "BoardOps Institute",
+        institutionUserId: "RES-REFUND-LIFECYCLE-E2E",
+        email: RESIDENT_EMAIL,
+        phone: "+919876540620",
+        password: RESIDENT_PASSWORD,
+        confirmPassword: RESIDENT_PASSWORD,
+        room: "REF-620",
+        gender: "OTHER",
+        consents: { rules: true, privacy: true, terms: true },
+      },
+    });
+    expect(registration.ok()).toBeTruthy();
+    const registrationBody = await registration.json() as {
+      success: boolean;
+      data: { userId: string; email: string };
+    };
+    expect(registrationBody).toMatchObject({ success: true, data: { email: RESIDENT_EMAIL } });
+    const residentId = registrationBody.data.userId;
+
+    const verify = await residentApi.post(`${API}/api/auth/verify-email`, {
+      data: { email: RESIDENT_EMAIL, otp: "424242" },
+    });
+    expect(verify.ok()).toBeTruthy();
+
+    const approveResident = await adminApi.patch(`${API}/api/users/${residentId}`, {
+      data: { action: "APPROVE", reason: "Refund lifecycle runtime verification" },
+    });
+    expect(approveResident.ok()).toBeTruthy();
+
+    const residentLogin = await residentApi.post(`${API}/api/auth/login`, {
+      data: { email: RESIDENT_EMAIL, password: RESIDENT_PASSWORD },
+    });
+    expect(residentLogin.ok()).toBeTruthy();
+
+    const creditPayment = await residentApi.post(`${API}/api/payments`, {
+      headers: { "Idempotency-Key": "refund-credit-payment-runtime-v1" },
+      data: {
+        amount: 5000,
+        method: "UPI",
+        reference: "REFUND-CREDIT-RUNTIME",
+        notes: "Known unlinked credit for durable refund verification",
+      },
+    });
+    expect(creditPayment.status()).toBe(201);
+    const creditPaymentBody = await creditPayment.json() as {
+      success: boolean;
+      data: { id: string; amount: number; status: string; billId: string | null };
+    };
+    expect(creditPaymentBody).toMatchObject({
+      success: true,
+      data: { amount: 5000, status: "PENDING", billId: null },
+    });
+
+    const approveCredit = await adminApi.patch(`${API}/api/payments/${creditPaymentBody.data.id}`, {
+      data: { action: "APPROVE" },
+    });
+    expect(approveCredit.ok()).toBeTruthy();
+    await expect(approveCredit.json()).resolves.toMatchObject({
+      success: true,
+      data: { id: creditPaymentBody.data.id, amount: 5000, status: "APPROVED", billId: null },
+    });
+
     const refundKey = "refund-obligation-runtime-v1";
     const created = await adminApi.post(`${API}/api/refunds`, {
       headers: { "Idempotency-Key": refundKey },
       data: {
-        userId: RIYA_ID,
+        userId: residentId,
         amount: 3000,
         method: "UPI",
         reason: "Runtime durable refund obligation",
@@ -79,18 +146,18 @@ test("Refund obligations reserve credit, partial payouts create canonical eviden
     // the resident's credit twice.
     const createReplay = await adminApi.post(`${API}/api/refunds`, {
       headers: { "Idempotency-Key": refundKey },
-      data: { userId: RIYA_ID, amount: 3000 },
+      data: { userId: residentId, amount: 3000 },
     });
     expect(createReplay.status()).toBe(200);
     const createReplayBody = await createReplay.json() as { success: boolean; data: { id: string } };
     expect(createReplayBody.data.id).toBe(refundId);
 
-    // Riya starts with ₹5,000 canonical approved credit. The ₹3,000 pending
-    // obligation reserves that amount, leaving only ₹2,000 unreserved.
+    // The test-owned resident has exactly ₹5,000 approved unlinked credit. The
+    // ₹3,000 pending obligation reserves it, leaving only ₹2,000 unreserved.
     const overReserved = await adminApi.post(`${API}/api/refunds`, {
       headers: { "Idempotency-Key": "refund-overreserve-runtime-v1" },
       data: {
-        userId: RIYA_ID,
+        userId: residentId,
         amount: 2500,
         reason: "This must exceed unreserved credit",
       },
@@ -196,15 +263,16 @@ test("Refund obligations reserve credit, partial payouts create canonical eviden
     expect(payoutPayments).toHaveLength(2);
     expect(payoutPayments.reduce((sum, payment) => sum + payment.amount, 0)).toBe(3000);
     for (const payout of payoutPayments) {
-      expect(payout).toMatchObject({ status: "REFUNDED", method: "REFUND", user: { email: "riya@boardops.local" } });
+      expect(payout).toMatchObject({ status: "REFUNDED", method: "REFUND", user: { email: RESIDENT_EMAIL } });
     }
 
-    // A fresh unpaid obligation can be cancelled and releases its reserved
-    // amount without deleting historical refund evidence.
+    // A fresh unpaid obligation can be cancelled. Because cancelled obligations
+    // are excluded from reserved credit, the full remaining ₹2,000 can then be
+    // reserved again, proving cancellation releases the reservation.
     const cancellable = await adminApi.post(`${API}/api/refunds`, {
       headers: { "Idempotency-Key": "refund-cancel-runtime-v1" },
       data: {
-        userId: RIYA_ID,
+        userId: residentId,
         amount: 500,
         method: "CASH",
         reason: "Runtime cancellation path",
@@ -224,6 +292,28 @@ test("Refund obligations reserve credit, partial payouts create canonical eviden
     };
     expect(cancelledBody.data).toMatchObject({ status: "CANCELLED", paidAmount: 0, transactions: [] });
 
+    const releasedReservation = await adminApi.post(`${API}/api/refunds`, {
+      headers: { "Idempotency-Key": "refund-released-reservation-runtime-v1" },
+      data: {
+        userId: residentId,
+        amount: 2000,
+        method: "CASH",
+        reason: "Prove cancelled reservation is released",
+      },
+    });
+    expect(releasedReservation.status()).toBe(201);
+    const releasedReservationBody = await releasedReservation.json() as {
+      success: boolean;
+      data: { id: string; status: string; remainingAmount: number };
+    };
+    expect(releasedReservationBody.data).toMatchObject({ status: "PENDING", remainingAmount: 2000 });
+
+    const releasedReservationCancel = await adminApi.post(
+      `${API}/api/refunds/${releasedReservationBody.data.id}/cancel`,
+      { data: { reason: "Runtime cleanup after reservation-release proof" } },
+    );
+    expect(releasedReservationCancel.ok()).toBeTruthy();
+
     // Adjustments are additive correction evidence. Creating one against an
     // approved Expense must not rewrite that Expense's historical amount.
     const adjustmentKey = "adjustment-expense-runtime-v1";
@@ -232,7 +322,6 @@ test("Refund obligations reserve credit, partial payouts create canonical eviden
       data: {
         entityType: "Expense",
         entityId: EXPENSE_ID,
-        userId: RIYA_ID,
         amount: -25,
         reason: "Runtime correction evidence",
         notes: "Do not rewrite approved expense",
@@ -281,40 +370,8 @@ test("Refund obligations reserve credit, partial payouts create canonical eviden
       data: { id: EXPENSE_ID, amount: 3000, status: "APPROVED" },
     });
 
-    // Create a real approved resident to prove the external RBAC boundary,
-    // rather than relying only on D1 role-grant counts.
-    const registration = await residentApi.post(`${API}/api/auth/register`, {
-      data: {
-        name: "Refund RBAC Resident",
-        institutionName: "BoardOps Institute",
-        institutionUserId: "RES-REFUND-E2E",
-        email: RESIDENT_EMAIL,
-        phone: "+919876540620",
-        password: RESIDENT_PASSWORD,
-        confirmPassword: RESIDENT_PASSWORD,
-        room: "REF-620",
-        gender: "OTHER",
-        consents: { rules: true, privacy: true, terms: true },
-      },
-    });
-    expect(registration.ok()).toBeTruthy();
-    const registrationBody = await registration.json() as { success: boolean; data: { userId: string } };
-
-    const verify = await residentApi.post(`${API}/api/auth/verify-email`, {
-      data: { email: RESIDENT_EMAIL, otp: "424242" },
-    });
-    expect(verify.ok()).toBeTruthy();
-
-    const approve = await adminApi.patch(`${API}/api/users/${registrationBody.data.userId}`, {
-      data: { action: "APPROVE", reason: "Refund RBAC runtime verification" },
-    });
-    expect(approve.ok()).toBeTruthy();
-
-    const residentLogin = await residentApi.post(`${API}/api/auth/login`, {
-      data: { email: RESIDENT_EMAIL, password: RESIDENT_PASSWORD },
-    });
-    expect(residentLogin.ok()).toBeTruthy();
-
+    // The same real approved resident proves the external RBAC boundary rather
+    // than relying only on D1 role-grant counts.
     const deniedRefundRead = await residentApi.get(`${API}/api/refunds`);
     expect(deniedRefundRead.status()).toBe(403);
     await expect(deniedRefundRead.json()).resolves.toMatchObject({
@@ -325,7 +382,7 @@ test("Refund obligations reserve credit, partial payouts create canonical eviden
 
     const deniedRefundCreate = await residentApi.post(`${API}/api/refunds`, {
       headers: { "Idempotency-Key": "resident-refund-denied" },
-      data: { userId: RIYA_ID, amount: 10, reason: "Must be denied" },
+      data: { userId: residentId, amount: 10, reason: "Must be denied" },
     });
     expect(deniedRefundCreate.status()).toBe(403);
     await expect(deniedRefundCreate.json()).resolves.toMatchObject({
@@ -345,7 +402,7 @@ test("Refund obligations reserve credit, partial payouts create canonical eviden
       requiredPermission: "refunds.pay",
     });
 
-    const deniedCancel = await residentApi.post(`${API}/api/refunds/${cancellableBody.data.id}/cancel`, {
+    const deniedCancel = await residentApi.post(`${API}/api/refunds/${releasedReservationBody.data.id}/cancel`, {
       data: { reason: "Must be denied" },
     });
     expect(deniedCancel.status()).toBe(403);
