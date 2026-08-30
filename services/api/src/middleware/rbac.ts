@@ -56,6 +56,11 @@ const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["GET /api/expenses", PERMISSIONS.EXPENSES_READ],
   ["POST /api/expenses", PERMISSIONS.EXPENSES_CREATE],
   ["GET /api/funds", PERMISSIONS.FUNDS_READ],
+  ["GET /api/variables", PERMISSIONS.VARIABLES_READ],
+  ["POST /api/variables", PERMISSIONS.VARIABLES_CREATE],
+  ["GET /api/formulas", PERMISSIONS.FORMULAS_READ],
+  ["POST /api/formulas", PERMISSIONS.FORMULAS_CREATE],
+  ["POST /api/formulas/test", PERMISSIONS.FORMULAS_TEST],
 ]);
 
 const USER_ACTION_PERMISSION: Record<string, PermissionKey> = {
@@ -152,6 +157,18 @@ function dynamicPolicy(method: Method, path: string): DynamicPolicy {
   }
   if (method === "POST" && /^\/api\/expenses\/[^/]+\/restore$/u.test(path)) {
     return PERMISSIONS.EXPENSES_RESTORE;
+  }
+  if (method === "PUT" && /^\/api\/variables\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.VARIABLES_UPDATE;
+  }
+  if (method === "DELETE" && /^\/api\/variables\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.VARIABLES_ARCHIVE;
+  }
+  if (method === "PATCH" && /^\/api\/formulas\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.FORMULAS_UPDATE;
+  }
+  if (method === "DELETE" && /^\/api\/formulas\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.FORMULAS_ARCHIVE;
   }
   return null;
 }
