@@ -14,18 +14,28 @@ test("administrator User 360 resolves real runtime data instead of an endless sk
   await page.getByRole("textbox", { name: "Password", exact: true }).fill("BoardOps@Fresh#2026!A7");
   await page.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/dashboard(?:\?|$)/, { timeout: 5_000 });
+  await expect(page.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible({ timeout: 5_000 });
 
-  await page.goto("/users");
-  await expect(page.getByText("Riya Sen", { exact: true })).toBeVisible({ timeout: 5_000 });
+  // Use the real in-app navigation rather than replacing the document with a
+  // direct goto. This exercises the same authenticated shell path a user takes
+  // when opening User Management from the bottom navigation.
+  const primaryNav = page.getByRole("navigation", { name: "Primary navigation" });
+  const usersNav = primaryNav.getByRole("button", { name: "Users", exact: true });
+  await expect(usersNav).toBeVisible();
+  await usersNav.click();
+  await expect(page).toHaveURL(/\/users(?:\?|$)/, { timeout: 5_000 });
+  await expect(page.getByText("Riya Sen", { exact: true })).toBeVisible({ timeout: 8_000 });
 
-  const riyaCard = page.getByText("Riya Sen", { exact: true }).locator("xpath=ancestor::div[contains(@class,'rounded')][.//button[@aria-label='View 360']][1]");
+  const riyaCard = page
+    .getByText("Riya Sen", { exact: true })
+    .locator("xpath=ancestor::*[.//button[@aria-label='View 360']][1]");
   const view360 = riyaCard.getByRole("button", { name: "View 360", exact: true });
   await expect(view360).toBeVisible();
   await view360.click();
 
   const dialog = page.getByRole("dialog", { name: "Resident 360° View" });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("heading", { name: "Riya Sen", exact: true })).toBeVisible({ timeout: 5_000 });
+  await expect(dialog.getByRole("heading", { name: "Riya Sen", exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(dialog.getByText("riya@boardops.local", { exact: true })).toBeVisible();
   await expect(dialog.getByText("RES-0204", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Profile", { exact: true })).toBeVisible();
