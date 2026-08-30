@@ -28,6 +28,10 @@ const CORE_TABLES = [
   "adjustments",
   "financial_reference_sequences",
   "expenses",
+  "variables",
+  "variable_versions",
+  "formulas",
+  "formula_versions",
 ];
 
 function mockDb(tableNames = CORE_TABLES): D1Database {
@@ -41,7 +45,7 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
 
       if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
         return {
-          first: async () => ({ permission_count: 55, role_count: 4, grant_count: 138 }),
+          first: async () => ({ permission_count: 64, role_count: 4, grant_count: 158 }),
         };
       }
 
@@ -68,7 +72,7 @@ describe("health endpoint", () => {
 });
 
 describe("readiness endpoint", () => {
-  it("requires the complete RBAC + meal + billing + payments + refunds + adjustments + expenses schema", async () => {
+  it("requires the complete current RBAC + operational + accounting + formula schema", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
@@ -143,6 +147,26 @@ describe("readiness endpoint", () => {
       "http://boardops.local/api/ready",
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "expenses")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when immutable formula versions are missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "formula_versions")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when immutable variable versions are missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "variable_versions")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
 
     expect(response.status).toBe(503);
