@@ -132,13 +132,30 @@ runtimeRoutes.put("/auth/profile", async (c) => {
 
   if ("name" in input) {
     const value = typeof input.name === "string" ? input.name.trim() : "";
-    if (value.length < 2 || value.length > 100) return c.json({ success: false, error: "Name must be 2 to 100 characters" }, 400);
+    if (value.length < 2 || value.length > 100) {
+      return c.json({ success: false, error: "Name must be 2 to 100 characters" }, 400);
+    }
     add("name", value);
   }
 
   if ("phone" in input) {
     const value = input.phone == null || input.phone === "" ? null : String(input.phone).trim();
-    if (value && value.length > 32) return c.json({ success: false, error: "Phone number is too long" }, 400);
+    if (value && (value.length < 8 || value.length > 32)) {
+      return c.json({ success: false, error: "Phone number must be 8 to 32 characters" }, 400);
+    }
+    if (value) {
+      const existing = await c.env.DB.prepare(
+        `SELECT id
+         FROM users
+         WHERE institution_id = ? AND phone = ? AND id <> ?
+         LIMIT 1`,
+      )
+        .bind(viewer.institution_id, value, viewer.id)
+        .first<{ id: string }>();
+      if (existing) {
+        return c.json({ success: false, error: "This phone number is already in use" }, 409);
+      }
+    }
     add("phone", value);
   }
 
