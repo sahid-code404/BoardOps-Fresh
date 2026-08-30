@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-08-30 — Expenses core implementation verified
+- CI run `33307956198` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/invariant verification, Worker/API smoke, all 14 real-D1 Playwright runtime tests, and the complete Phase 02 visual regression suite at implementation verification head `95cb15ced29bb801fe080bc0ae608d17a52ec236`.
+- Added immutable `0011_expenses_core.sql` with institution-scoped canonical expenses, integer minor-unit money storage, explicit indexes/constraints, idempotency keys, replacement lineage, and a recoverable operational deletion queue.
+- D1 rejects fractional/non-integer money, direct modification of approved expense content, and physical deletion of expense history. Approved corrections use reversal + replacement rows instead of silent in-place financial edits.
+- Expense create and replacement requests require idempotency keys; major-unit values are accepted only when they convert exactly to integer paise.
+- Expense mutation is blocked outside an OPEN accounting period. The golden Expenses UI contract remains intact while the Worker enforces canonical accounting semantics underneath it.
+- Added five explicit fail-closed permissions: `expenses.read`, `expenses.create`, `expenses.replace`, `expenses.delete`, and `expenses.restore`. Authenticated roles receive read access; only Admin/Super Admin receive current expense mutations.
+- Clean-D1 verification proves deterministic August expenses of ₹3,000 groceries + ₹1,500 utilities, the 49-permission RBAC baseline, least-privilege grants, integer-money enforcement, approved-content immutability, and hard-delete rejection.
+- Real-runtime coverage proves visible seeded Expenses UI data, idempotent ₹123.45 creation, fractional-paise rejection, reversal/replacement correction, deletion queue + restore, closed-July rejection, resident read-only access, permission-specific mutation denial, and test isolation from later Kitchen counts. No production deployment was performed.
+- Expenses implementation is VERIFIED. Formal checkpoint closure is contingent on the latest documentation-head CI run also remaining fully green. Funds remains AUDITED and must consume canonical Expenses + Payments + Bills rather than inventing financial totals.
+
 ## 2026-08-30 — Payments core implementation verified
 - CI run `33306270289` passed deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset/migrate/seed/invariant verification, Worker/API smoke, the full real-D1 Playwright runtime suite, and the complete Phase 02 visual regression suite at implementation verification head `e3d5450ca146b92008025fcc3b0f31e9d3ec64d5`.
 - Added immutable `0010_payments_core.sql` with canonical institution-scoped payments/refunds, integer minor-unit storage, explicit indexes/constraints, and D1 triggers that reject REAL/non-integer money values instead of trusting SQLite INTEGER affinity.
