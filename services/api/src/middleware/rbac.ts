@@ -48,6 +48,9 @@ function dynamicPolicy(method: Method, path: string): PermissionKey | null | "US
   if (method === "DELETE" && /^\/api\/auth\/sessions\/[^/]+$/u.test(path)) {
     return PERMISSIONS.SESSIONS_REVOKE_SELF;
   }
+  if (method === "GET" && /^\/api\/users\/[^/]+\/360$/u.test(path)) {
+    return PERMISSIONS.USERS_READ;
+  }
   if (method === "PATCH" && /^\/api\/users\/[^/]+\/request-changes$/u.test(path)) {
     return PERMISSIONS.USERS_REQUEST_CHANGES;
   }
