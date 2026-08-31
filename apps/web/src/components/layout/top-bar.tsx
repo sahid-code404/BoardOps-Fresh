@@ -1,16 +1,16 @@
 "use client";
 
-import { Bell, Search, Sun, Moon, Menu, Monitor, Check } from "lucide-react";
+import { Bell, Check, Menu, Monitor, Moon, Search, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { useAppStore } from "@/stores/use-app-store";
-import { useAuthStore } from "@/stores/use-auth-store";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { NAV_LABELS } from "./nav-config";
+import { useEffect, useRef, useState } from "react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-import { useState, useRef, useEffect } from "react";
+import { useAppStore } from "@/stores/use-app-store";
+import { useAuthStore } from "@/stores/use-auth-store";
+import { NAV_LABELS } from "./nav-config";
 
 const AVATAR_GRADIENTS = [
   "from-violet-500 to-fuchsia-500",
@@ -31,7 +31,7 @@ function initials(name: string) {
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
-    .map((p) => p[0]?.toUpperCase() ?? "")
+    .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
 }
 
@@ -42,43 +42,31 @@ function formatBadge(count: number): string {
 
 export function TopBar() {
   const { resolvedTheme, theme, setTheme } = useTheme();
-  const view = useAppStore((s) => s.view);
-  const setView = useAppStore((s) => s.setView);
-  const setCommandOpen = useAppStore((s) => s.setCommandOpen);
-  const setSidebarOpen = useAppStore((s) => s.setSidebarOpen);
-  const user = useAuthStore((s) => s.user);
-  const setUser = useAuthStore((s) => s.setUser);
-  const token = useAuthStore((s) => s.token);
+  const view = useAppStore((state) => state.view);
+  const setView = useAppStore((state) => state.setView);
+  const setCommandOpen = useAppStore((state) => state.setCommandOpen);
+  const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
+  const user = useAuthStore((state) => state.user);
+  const setUser = useAuthStore((state) => state.setUser);
+  const token = useAuthStore((state) => state.token);
   const isDark = resolvedTheme === "dark";
 
-  const handleThemeChange = (t: string) => {
-    setTheme(t);
+  const handleThemeChange = (nextTheme: string) => {
+    setTheme(nextTheme);
     if (user) {
-      setUser({ ...user, theme: t });
-      api.put("/auth/profile", { theme: t }).catch(() => {});
+      setUser({ ...user, theme: nextTheme });
+      api.put("/auth/profile", { theme: nextTheme }).catch(() => {});
     }
   };
 
   const { data: unreadCount } = useQuery({
     queryKey: ["notifications", "unread-count"],
     queryFn: async () => {
-      const res = await api.get<{
+      const response = await api.get<{
         success: boolean;
-        data: {
-          unreadCount: number;
-          notifications: Array<{
-            id: string;
-            title: string;
-            description: string | null;
-            type: string;
-            priority: string;
-            route: string | null;
-            readAt: string | null;
-            createdAt: string;
-          }>;
-        };
+        data: { unreadCount: number };
       }>("/notifications?unread=true");
-      return res.data;
+      return response.data;
     },
     enabled: !!token,
     refetchInterval: 30_000,
@@ -86,32 +74,8 @@ export function TopBar() {
   });
 
   const unreadNum = unreadCount?.unreadCount ?? 0;
-  const recentNotifs = unreadCount?.notifications ?? [];
-  const [notifPanelOpen, setNotifPanelOpen] = useState(false);
-  const notifRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!notifPanelOpen) return;
-
-    const handlePointer = (event: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
-        setNotifPanelOpen(false);
-      }
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setNotifPanelOpen(false);
-    };
-
-    document.addEventListener("mousedown", handlePointer);
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("mousedown", handlePointer);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [notifPanelOpen]);
-
-  const label = NAV_LABELS[view] ?? "BoardOps";
   const showBadge = unreadNum > 0;
+  const label = NAV_LABELS[view] ?? "BoardOps";
 
   return (
     <header className="sticky top-0 z-30 safe-top px-3 sm:px-4 lg:px-6 pt-3">
@@ -159,119 +123,31 @@ export function TopBar() {
           currentTheme={user?.theme || theme || "system"}
         />
 
-        <div className="relative shrink-0" ref={notifRef}>
-          <motion.button
-            whileTap={{ scale: 0.9 }}
-            onClick={() => setNotifPanelOpen((open) => !open)}
-            aria-label={`Notifications${showBadge ? ` (${formatBadge(unreadNum)} unread)` : ""}`}
-            aria-expanded={notifPanelOpen}
-            aria-haspopup="dialog"
-            aria-controls="topbar-notifications-panel"
-            className={cn(
-              "relative grid place-items-center h-10 w-10 rounded-2xl glass-soft transition-colors",
-              view === "notifications" || notifPanelOpen
-                ? "text-primary ring-2 ring-primary/50"
-                : "text-foreground"
-            )}
-          >
-            <Bell className="h-[18px] w-[18px]" />
-            <AnimatePresence>
-              {showBadge && (
-                <motion.span
-                  key={unreadNum}
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  exit={{ scale: 0 }}
-                  transition={{ type: "spring", stiffness: 500, damping: 25 }}
-                  className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-white text-[10px] font-bold grid place-items-center ring-2 ring-background"
-                >
-                  {formatBadge(unreadNum)}
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </motion.button>
-
+        <motion.button
+          whileTap={{ scale: 0.9 }}
+          onClick={() => setView("notifications")}
+          aria-label={`Notifications${showBadge ? ` (${formatBadge(unreadNum)} unread)` : ""}`}
+          className={cn(
+            "relative grid place-items-center h-10 w-10 rounded-2xl glass-soft transition-colors shrink-0",
+            view === "notifications" ? "text-primary ring-2 ring-primary/50" : "text-foreground"
+          )}
+        >
+          <Bell className="h-[18px] w-[18px]" />
           <AnimatePresence>
-            {notifPanelOpen && (
-              <motion.div
-                id="topbar-notifications-panel"
-                role="dialog"
-                aria-label="Recent notifications"
-                initial={{ opacity: 0, y: -8, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -8, scale: 0.96 }}
-                transition={{ duration: 0.15 }}
-                className="absolute right-0 top-12 w-80 max-w-[calc(100vw-1.5rem)] glass rounded-3xl shadow-xl overflow-hidden z-50"
+            {showBadge && (
+              <motion.span
+                key={unreadNum}
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0 }}
+                transition={{ type: "spring", stiffness: 500, damping: 25 }}
+                className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-white text-[10px] font-bold grid place-items-center ring-2 ring-background"
               >
-                <div className="p-3 border-b border-border/50 flex items-center justify-between">
-                  <p className="text-sm font-semibold">
-                    Notifications {unreadNum > 0 && <span className="text-destructive">({unreadNum} unread)</span>}
-                  </p>
-                  <button
-                    onClick={() => {
-                      setNotifPanelOpen(false);
-                      setView("notifications");
-                    }}
-                    className="text-[10px] text-primary hover:underline"
-                  >
-                    View all
-                  </button>
-                </div>
-                <div className="max-h-80 overflow-y-auto">
-                  {recentNotifs.length === 0 ? (
-                    <div className="p-6 text-center">
-                      <Check className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
-                      <p className="text-xs text-muted-foreground">You're all caught up</p>
-                    </div>
-                  ) : (
-                    recentNotifs.slice(0, 8).map((notification) => (
-                      <button
-                        key={notification.id}
-                        onClick={() => {
-                          setNotifPanelOpen(false);
-                          if (notification.route) {
-                            const viewKey = notification.route.replace(/^\//, "").split("/")[0] as never;
-                            setView(viewKey);
-                          } else {
-                            setView("notifications");
-                          }
-                        }}
-                        className="w-full text-left p-3 hover:bg-secondary/50 transition-colors border-b border-border/30 last:border-0 flex items-start gap-2"
-                      >
-                        <span
-                          className={cn(
-                            "h-2 w-2 rounded-full shrink-0 mt-1.5",
-                            notification.priority === "URGENT"
-                              ? "bg-destructive"
-                              : notification.priority === "HIGH"
-                                ? "bg-warning"
-                                : "bg-primary"
-                          )}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-xs font-medium truncate">{notification.title}</p>
-                          {notification.description && (
-                            <p className="text-[10px] text-muted-foreground truncate">
-                              {notification.description}
-                            </p>
-                          )}
-                          <p className="text-[9px] text-muted-foreground mt-0.5">
-                            {new Date(notification.createdAt).toLocaleString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </p>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </motion.div>
+                {formatBadge(unreadNum)}
+              </motion.span>
             )}
           </AnimatePresence>
-        </div>
+        </motion.button>
 
         <motion.button
           whileTap={{ scale: 0.9 }}
@@ -315,18 +191,19 @@ function ThemeSwitcher({
   currentTheme,
 }: {
   isDark: boolean;
-  onThemeChange: (t: string) => void;
+  onThemeChange: (theme: string) => void;
   currentTheme: string;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+    function handleClick(event: MouseEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
         setOpen(false);
       }
     }
+
     if (open) {
       document.addEventListener("mousedown", handleClick);
       return () => document.removeEventListener("mousedown", handleClick);
@@ -344,8 +221,9 @@ function ThemeSwitcher({
       <motion.button
         whileTap={{ scale: 0.9 }}
         whileHover={{ scale: 1.05 }}
-        onClick={() => setOpen(!open)}
+        onClick={() => setOpen((value) => !value)}
         aria-label="Theme switcher"
+        aria-expanded={open}
         suppressHydrationWarning
         className="grid place-items-center h-10 w-10 rounded-2xl glass-soft text-foreground hover:text-primary transition-colors"
       >
@@ -361,15 +239,23 @@ function ThemeSwitcher({
           </motion.div>
         </AnimatePresence>
       </motion.button>
+
       <AnimatePresence>
         {open && (
-          <div className="absolute right-0 top-12 z-50 glass-strong rounded-2xl p-1.5 min-w-[150px] shadow-xl">
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.96 }}
+            transition={{ duration: 0.15 }}
+            className="absolute right-0 top-12 z-50 glass-strong rounded-2xl p-1.5 min-w-[150px] shadow-xl"
+          >
             {options.map((option) => {
               const active = currentTheme === option.value;
               const Icon = option.icon;
               return (
                 <button
                   key={option.value}
+                  type="button"
                   onClick={() => {
                     onThemeChange(option.value);
                     setOpen(false);
@@ -398,7 +284,7 @@ function ThemeSwitcher({
                 </button>
               );
             })}
-          </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
