@@ -55,7 +55,7 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
 
       if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
         return {
-          first: async () => ({ permission_count: 96, role_count: 4, grant_count: 234 }),
+          first: async () => ({ permission_count: 98, role_count: 4, grant_count: 242 }),
         };
       }
 
