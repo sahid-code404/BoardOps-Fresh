@@ -1,0 +1,101 @@
+name: Apply meal queue revive fix
+
+on:
+  push:
+    branches:
+      - fix/meal-deletion-queue-revive
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/meal-deletion-queue-revive
+          fetch-depth: 0
+
+      - name: Patch meal deletion queue and revive flow
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          def require_replace(text: str, old: str, new: str, label: str) -> str:
+              if old not in text:
+                  raise SystemExit(f"Missing expected source block: {label}")
+              return text.replace(old, new, 1)
+
+          # Backend: queued meals can be explicitly revived through the existing
+          # update endpoint. This keeps the current RBAC permission contract and
+          # makes revival auditable without adding a new ungoverned route.
+          backend_path = Path("services/api/src/routes/meals-config.ts")
+          backend = backend_path.read_text()
+          old = '''  const existing = await mealById(c, principal, id);\n  if (!existing) return c.json({ success: false, error: "Meal not found" }, 404);\n  if (existing.deletion_requested_at) {\n    return c.json({ success: false, error: "Meal is in the deletion queue and can no longer be edited" }, 409);\n  }\n\n  const body = await readBody(c);\n  if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);\n'''
+          new = '''  const existing = await mealById(c, principal, id);\n  if (!existing) return c.json({ success: false, error: "Meal not found" }, 404);\n\n  const body = await readBody(c);\n  if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);\n\n  if (existing.deletion_requested_at) {\n    if (stringValue(body, "action") !== "REVIVE") {\n      return c.json({\n        success: false,\n        error: "Meal is in the deletion queue. Revive it before making configuration changes.",\n      }, 409);\n    }\n\n    const revivedAt = new Date().toISOString();\n    const result = await c.env.DB.prepare(\n      `UPDATE meal_configurations\n          SET deletion_requested_at = NULL,\n              deletion_eligible_month = NULL, deletion_eligible_year = NULL,\n              deletion_requested_by = NULL, deletion_finalized_at = NULL,\n              status = 'ACTIVE', updated_at = ?\n        WHERE id = ? AND institution_id = ?\n          AND deletion_requested_at IS NOT NULL AND deletion_finalized_at IS NULL`,\n    ).bind(revivedAt, id, principal.institutionId).run();\n    if (Number(result.meta.changes ?? 0) === 0) {\n      return c.json({ success: false, error: "Meal can no longer be revived" }, 409);\n    }\n\n    const revived = await mealById(c, principal, id);\n    if (!revived) return c.json({ success: false, error: "Meal could not be loaded after revival" }, 500);\n    await writeAudit(c, principal, "MEAL_CONFIGURATION_DELETION_REVIVED", id, {\n      before: mappedMeal(existing),\n      after: mappedMeal(revived),\n    });\n    return c.json({ success: true, data: mappedMeal(revived) });\n  }\n'''
+          backend = require_replace(backend, old, new, "queued update guard")
+          backend_path.write_text(backend)
+
+          # Frontend: hide queued meals from the normal list, surface them only
+          # in the explicit Deletion Queue filter, and provide a Revive action.
+          ui_path = Path("apps/web/src/components/features/meals/meals-config-view.tsx")
+          ui = ui_path.read_text()
+          ui = require_replace(ui, "  Trash2,\n  Archive,", "  Trash2,\n  RotateCcw,\n  Archive,", "RotateCcw import")
+          ui = require_replace(
+              ui,
+              '''  onDelete,\n  onStatusChange,\n  statusLoading,\n}: {\n  meal: MealConfiguration;\n  isAdmin: boolean;\n  onEdit: () => void;\n  onDelete: () => void;\n  onStatusChange: (status: string) => void;\n  statusLoading?: boolean;\n}) {''',
+              '''  onDelete,\n  onRevive,\n  onStatusChange,\n  statusLoading,\n  reviveLoading,\n}: {\n  meal: MealConfiguration;\n  isAdmin: boolean;\n  onEdit: () => void;\n  onDelete: () => void;\n  onRevive: () => void;\n  onStatusChange: (status: string) => void;\n  statusLoading?: boolean;\n  reviveLoading?: boolean;\n}) {''',
+              "MealConfigCard props",
+          )
+
+          actions_pattern = re.compile(
+              r'''        \{/\* Actions \*/\}\n        \{isAdmin && \(\n          <div className="mt-auto space-y-2">.*?        \)\}\n      </GlassCard>''',
+              re.S,
+          )
+          actions_replacement = '''        {/* Actions */}\n        {isAdmin && (\n          <div className="mt-auto space-y-2">\n            {queued ? (\n              <GlassButton\n                variant="secondary"\n                size="sm"\n                className="w-full"\n                onClick={onRevive}\n                disabled={reviveLoading}\n                aria-label={`Revive ${meal.displayName}`}\n              >\n                <RotateCcw className="h-3.5 w-3.5" />\n                {reviveLoading ? "Reviving..." : "Revive meal"}\n              </GlassButton>\n            ) : (\n              <>\n                {/* Status selector */}\n                <Select\n                  value={meal.status}\n                  onValueChange={(v) => onStatusChange(v)}\n                  disabled={statusLoading}\n                >\n                  <SelectTrigger className="h-9 rounded-xl glass-soft border-0 text-xs w-full">\n                    <div className="flex items-center gap-1.5">\n                      {meal.status === "ACTIVE" && <Shield className="h-3 w-3 text-success" />}\n                      {meal.status === "INACTIVE" && <EyeOff className="h-3 w-3 text-muted-foreground" />}\n                      {meal.status === "ARCHIVED" && <Archive className="h-3 w-3 text-muted-foreground" />}\n                      <SelectValue />\n                    </div>\n                  </SelectTrigger>\n                  <SelectContent>\n                    <SelectItem value="ACTIVE">\n                      <span className="flex items-center gap-2">\n                        <Shield className="h-3.5 w-3.5 text-success" /> Active\n                      </span>\n                    </SelectItem>\n                    <SelectItem value="INACTIVE">\n                      <span className="flex items-center gap-2">\n                        <EyeOff className="h-3.5 w-3.5 text-muted-foreground" /> Inactive\n                      </span>\n                    </SelectItem>\n                    <SelectItem value="ARCHIVED">\n                      <span className="flex items-center gap-2">\n                        <Archive className="h-3.5 w-3.5 text-muted-foreground" /> Archived\n                      </span>\n                    </SelectItem>\n                  </SelectContent>\n                </Select>\n                <div className="flex items-center gap-2">\n                  <GlassButton\n                    variant="secondary"\n                    size="sm"\n                    className="flex-1"\n                    onClick={onEdit}\n                  >\n                    <Pencil className="h-3.5 w-3.5" /> Edit\n                  </GlassButton>\n                  <GlassButton\n                    variant="ghost"\n                    size="sm"\n                    onClick={onDelete}\n                    className="text-destructive hover:text-destructive hover:bg-destructive/10"\n                  >\n                    <Trash2 className="h-3.5 w-3.5" />\n                  </GlassButton>\n                </div>\n              </>\n            )}\n          </div>\n        )}\n      </GlassCard>'''
+          ui, count = actions_pattern.subn(actions_replacement, ui, count=1)
+          if count != 1:
+              raise SystemExit(f"Expected exactly one actions block, replaced {count}")
+
+          status_marker = '''  const statusMutation = useMutation({\n'''
+          revive_mutation = '''  const reviveMutation = useMutation({\n    mutationFn: async (id: string) => {\n      const res = await api.put<{ success: boolean; data: MealConfiguration }>(\n        `/meals/config/${id}`,\n        { action: "REVIVE" },\n      );\n      return res.data;\n    },\n    onSuccess: () => {\n      toast.success("Meal revived and returned to active configuration");\n      qc.invalidateQueries({ queryKey });\n    },\n    onError: (e) => {\n      toast.error(\n        e instanceof ApiError\n          ? e.message\n          : "Failed to revive meal. Please try again."\n      );\n    },\n  });\n\n'''
+          ui = require_replace(ui, status_marker, revive_mutation + status_marker, "revive mutation insertion")
+          ui = require_replace(
+              ui,
+              '''      if (typeFilter !== "ALL" && m.mealType !== typeFilter) return false;\n      if (statusFilter === "QUEUED" && !m.deletionRequestedAt) return false;''',
+              '''      if (typeFilter !== "ALL" && m.mealType !== typeFilter) return false;\n      if (statusFilter === "ALL" && m.deletionRequestedAt) return false;\n      if (statusFilter === "QUEUED" && !m.deletionRequestedAt) return false;''',
+              "default queue filtering",
+          )
+          ui = require_replace(
+              ui,
+              '''                      onDelete={() => setDeleteTarget(m)}\n                      onStatusChange={(status) =>\n                        statusMutation.mutate({ id: m.id, status })\n                      }\n                      statusLoading={\n                        statusMutation.isPending &&\n                        statusMutation.variables?.id === m.id\n                      }''',
+              '''                      onDelete={() => setDeleteTarget(m)}\n                      onRevive={() => reviveMutation.mutate(m.id)}\n                      onStatusChange={(status) =>\n                        statusMutation.mutate({ id: m.id, status })\n                      }\n                      statusLoading={\n                        statusMutation.isPending &&\n                        statusMutation.variables?.id === m.id\n                      }\n                      reviveLoading={\n                        reviveMutation.isPending &&\n                        reviveMutation.variables === m.id\n                      }''',
+              "card revive wiring",
+          )
+          ui_path.write_text(ui)
+
+          # Runtime coverage: verify default hiding, queue-only visibility, revival,
+          # and the restored active configuration state against real D1.
+          test_path = Path("tests/runtime-e2e/meals-config.spec.ts")
+          test = test_path.read_text()
+          anchor = '''  // Expected failures are duplicate creation and immutable-name mutation only.\n'''
+          test_block = '''  // A queued meal is hidden from the normal Meal Configuration list.\n  await page.reload();\n  await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toHaveCount(0);\n\n  // It remains recoverable from the explicit Deletion Queue view.\n  await page.getByRole("combobox").nth(1).click();\n  await page.getByRole("option", { name: "Deletion Queue", exact: true }).click();\n  await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toBeVisible();\n  await page.getByRole("button", { name: "Revive Runtime Test Snack Updated", exact: true }).click();\n  await expect(page.getByText("Meal revived and returned to active configuration", { exact: true })).toBeVisible();\n  await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toHaveCount(0);\n\n  const revived = await page.evaluate(async () => {\n    const response = await fetch("/api/meals/config", { credentials: "include" });\n    const body = await response.json();\n    return {\n      status: response.status,\n      meal: body?.data?.find((meal: { name: string }) => meal.name === "runtime_test_snack"),\n    };\n  });\n  expect(revived.status).toBe(200);\n  expect(revived.meal).toMatchObject({\n    name: "runtime_test_snack",\n    status: "ACTIVE",\n    deletionRequestedAt: null,\n    deletionEligibleMonth: null,\n    deletionEligibleYear: null,\n  });\n\n  await page.getByRole("combobox").nth(1).click();\n  await page.getByRole("option", { name: "All status", exact: true }).click();\n  await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toBeVisible();\n\n'''
+          test = require_replace(test, anchor, test_block + anchor, "runtime revive coverage")
+          test_path.write_text(test)
+
+      - name: Commit fix and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/apply-meal-queue-revive-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/api/src/routes/meals-config.ts \
+                  apps/web/src/components/features/meals/meals-config-view.tsx \
+                  tests/runtime-e2e/meals-config.spec.ts \
+                  .github/workflows/apply-meal-queue-revive-fix.yml
+          git commit -m "fix: hide queued meals and support revival"
+          git push origin HEAD:fix/meal-deletion-queue-revive
