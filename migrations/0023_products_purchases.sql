@@ -122,6 +122,10 @@ BEGIN
   SELECT RAISE(ABORT, 'purchase items require integer scaled quantity and minor-unit money');
 END;
 
+-- purchase_date is an institution-local calendar key while expense_date is a UTC
+-- instant. The API validates the local date/open period before creating both rows,
+-- so this database guard compares the invariant accounting fields and deliberately
+-- does not compare the two values as if they shared a timezone representation.
 CREATE TRIGGER purchases_require_matching_expense
 BEFORE INSERT ON purchases
 WHEN NOT EXISTS (
@@ -135,7 +139,6 @@ WHEN NOT EXISTS (
     AND e.amount_minor = NEW.total_amount_minor
     AND e.currency_code = NEW.currency_code
     AND COALESCE(e.paid_to, '') = NEW.vendor
-    AND substr(e.expense_date, 1, 10) = NEW.purchase_date
 )
 BEGIN
   SELECT RAISE(ABORT, 'purchase must reference matching approved expense evidence');
