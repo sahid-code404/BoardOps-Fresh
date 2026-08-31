@@ -65,6 +65,8 @@ SELECT
   (SELECT COUNT(*) FROM pragma_table_info('notifications')
     WHERE name IN ('user_id','source_type','source_id','delivery_key')) AS notification_delivery_columns,
   (SELECT COUNT(*) FROM pragma_index_list('notifications') WHERE [unique] = 1) AS notification_unique_indexes,
+  (SELECT COUNT(*) FROM sqlite_master
+    WHERE type = 'table' AND name IN ('bills','payments','refunds','meal_entries')) AS user360_source_tables,
   (SELECT COUNT(*) FROM users WHERE institution_id = 'inst_boardops_local') AS seeded_users,
   (SELECT COUNT(*) FROM users
     WHERE id = 'usr_admin_local' AND institution_id = 'inst_boardops_local'
@@ -77,7 +79,18 @@ SELECT
       AND role = 'USER' AND status = 'PENDING' AND deleted_at IS NULL AND email_verified = 1) AS seeded_pending_residents,
   (SELECT COUNT(*) FROM registration_requests
     WHERE id = 'registration_kabir_cycle_1' AND institution_id = 'inst_boardops_local'
-      AND user_id = 'usr_resident_kabir_local' AND status = 'PENDING_REVIEW') AS seeded_pending_reviews;
+      AND user_id = 'usr_resident_kabir_local' AND status = 'PENDING_REVIEW') AS seeded_pending_reviews,
+  (SELECT COUNT(*) FROM meal_entries
+    WHERE institution_id = 'inst_boardops_local'
+      AND user_id = 'usr_resident_riya_local'
+      AND service_date >= '2026-08-01' AND service_date < '2026-09-01'
+      AND status IN ('ON','LOCKED')) AS seeded_riya_august_on_meals,
+  ((SELECT COUNT(*) FROM bills
+      WHERE institution_id = 'inst_boardops_local' AND user_id = 'usr_resident_arjun_local'
+        AND deleted_on IS NULL AND purged_at IS NULL)
+   + (SELECT COUNT(*) FROM payments
+      WHERE institution_id = 'inst_boardops_local' AND user_id = 'usr_resident_arjun_local'
+        AND deleted_on IS NULL AND purged_at IS NULL)) AS seeded_arjun_finance_rows;
 `;
 
 const parsed = executeJson(query);
@@ -98,6 +111,7 @@ const exact = {
   lifecycle_columns: 3,
   review_columns: 5,
   notification_delivery_columns: 4,
+  user360_source_tables: 4,
   // The complete deterministic seed chain intentionally contains four users.
   // The three named fixtures below are the Users checkpoint's owned baseline;
   // the fourth is supplied by an already-verified downstream fixture.
@@ -106,6 +120,8 @@ const exact = {
   seeded_active_residents: 1,
   seeded_pending_residents: 1,
   seeded_pending_reviews: 1,
+  seeded_riya_august_on_meals: 2,
+  seeded_arjun_finance_rows: 3,
 };
 
 for (const [field, expected] of Object.entries(exact)) {
@@ -121,4 +137,4 @@ if (Number(row.notification_unique_indexes ?? 0) < 1) {
   process.exit(1);
 }
 
-console.log("[BoardOps] Residents / Users lifecycle + least-privilege + notification invariants verified:", row);
+console.log("[BoardOps] Residents / Users lifecycle + least-privilege + User 360 invariants verified:", row);
