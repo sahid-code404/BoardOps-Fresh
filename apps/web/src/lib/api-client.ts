@@ -81,10 +81,11 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
   return body as T;
 }
 
-function expenseWriteOpts(path: string, method: "POST" | "PUT", opts?: FetchOpts): FetchOpts | undefined {
-  const isCreate = method === "POST" && path === "/expenses";
-  const isReplacement = method === "PUT" && /^\/expenses\/[^/]+$/u.test(path);
-  if (!isCreate && !isReplacement) return opts;
+function accountingWriteOpts(path: string, method: "POST" | "PUT", opts?: FetchOpts): FetchOpts | undefined {
+  const isExpenseCreate = method === "POST" && path === "/expenses";
+  const isExpenseReplacement = method === "PUT" && /^\/expenses\/[^/]+$/u.test(path);
+  const isPurchaseCreate = method === "POST" && path === "/purchases";
+  if (!isExpenseCreate && !isExpenseReplacement && !isPurchaseCreate) return opts;
 
   const headers = new Headers(opts?.headers);
   if (!headers.has("Idempotency-Key")) headers.set("Idempotency-Key", crypto.randomUUID());
@@ -113,7 +114,7 @@ function deleteRequest<T>(path: string, opts?: FetchOpts): Promise<T> {
 export const api = {
   get: <T>(path: string, opts?: FetchOpts) => apiFetch<T>(path, { ...opts, method: "GET" }),
   post: <T>(path: string, data?: unknown, opts?: FetchOpts) => {
-    const writeOpts = expenseWriteOpts(path, "POST", opts);
+    const writeOpts = accountingWriteOpts(path, "POST", opts);
     return apiFetch<T>(path, {
       ...writeOpts,
       method: "POST",
@@ -123,7 +124,7 @@ export const api = {
   postForm: <T>(path: string, data: FormData, opts?: FetchOpts) =>
     apiFetch<T>(path, { ...opts, method: "POST", body: data }),
   put: <T>(path: string, data?: unknown, opts?: FetchOpts) => {
-    const writeOpts = expenseWriteOpts(path, "PUT", opts);
+    const writeOpts = accountingWriteOpts(path, "PUT", opts);
     return apiFetch<T>(path, {
       ...writeOpts,
       method: "PUT",
