@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { authenticatedPrincipal, hasPermission, PERMISSIONS } from "./auth/authorization";
 import { enforceFormulaDependencyPolicy } from "./middleware/formula-dependencies";
 import { enforcePasswordMutationPolicy } from "./middleware/password-policy";
 import { enforceRbacPolicy } from "./middleware/rbac";
@@ -7,6 +6,7 @@ import { auditSystemRoutes } from "./routes/audit-system";
 import { authRoutes } from "./routes/auth";
 import { authWorkflowRoutes } from "./routes/auth-workflows";
 import { billingRoutes } from "./routes/billing";
+import { dashboardRoutes } from "./routes/dashboard";
 import { expenseRoutes } from "./routes/expenses";
 import { fundRoutes } from "./routes/funds";
 import { kitchenRoutes } from "./routes/kitchen";
@@ -72,23 +72,6 @@ const REQUIRED_CORE_TABLES = [
   "policies",
   "holidays",
 ] as const;
-
-type ActivityRow = {
-  id: string;
-  action: string;
-  created_at: string;
-  actor_name: string | null;
-  actor_email: string | null;
-};
-
-function emptySevenDayTrend() {
-  const today = new Date();
-  return Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(today);
-    date.setDate(today.getDate() - (6 - index));
-    return { date: date.toISOString().slice(0, 10), on: 0, off: 0 };
-  });
-}
 
 app.use("*", async (c, next) => {
   const requestId = crypto.randomUUID();
@@ -161,6 +144,7 @@ app.route("/api", reportRoutes);
 app.route("/api", settingsPoliciesHolidaysRoutes);
 app.route("/api", auditSystemRoutes);
 app.route("/api", productPurchaseRoutes);
+app.route("/api", dashboardRoutes);
 app.route("/api", runtimeRoutes);
 app.route("/api", userRoutes);
 app.route("/api", user360Routes);
@@ -180,89 +164,6 @@ app.route("/api", paymentRoutes);
 app.route("/api", expenseRoutes);
 app.route("/api", fundRoutes);
 app.route("/api", variableFormulaRoutes);
-
-app.get("/api/dashboard", async (c) => {
-  const viewer = await authenticatedPrincipal(c);
-  if (!viewer) return c.json({ success: false, error: "Authentication required" }, 401);
-
-  const summary = await c.env.DB.prepare(
-    `SELECT
-       SUM(CASE WHEN status = 'ACTIVE' AND deleted_at IS NULL THEN 1 ELSE 0 END) AS active_count,
-       SUM(CASE WHEN status = 'PENDING' AND deleted_at IS NULL THEN 1 ELSE 0 END) AS pending_count
-     FROM users
-     WHERE institution_id = ?`,
-  )
-    .bind(viewer.institutionId)
-    .first<{ active_count: number | null; pending_count: number | null }>();
-
-  const [pendingBillRow, unreadRow] = await Promise.all([
-    c.env.DB.prepare(
-      `SELECT COUNT(*) AS pending_bills
-         FROM bills
-        WHERE institution_id = ?
-          AND deleted_on IS NULL
-          AND purged_at IS NULL
-          AND status IN ('GENERATED', 'PARTIALLY_PAID', 'OVERDUE')
-          AND due_amount_minor > 0`,
-    ).bind(viewer.institutionId).first<{ pending_bills: number | null }>(),
-    c.env.DB.prepare(
-      `SELECT COUNT(*) AS unread_count
-         FROM notifications
-        WHERE institution_id = ? AND user_id = ? AND read_at IS NULL`,
-    ).bind(viewer.institutionId, viewer.id).first<{ unread_count: number | null }>(),
-  ]);
-
-  const canReadAudit = hasPermission(viewer, PERMISSIONS.AUDIT_READ);
-  const activityRows = canReadAudit
-    ? await c.env.DB.prepare(
-        `SELECT a.id, a.action, a.created_at, u.name AS actor_name, u.email AS actor_email
-         FROM audit_events a
-         LEFT JOIN users u ON u.id = a.actor_user_id
-         WHERE a.institution_id = ?
-         ORDER BY a.created_at DESC
-         LIMIT 6`,
-      )
-        .bind(viewer.institutionId)
-        .all<ActivityRow>()
-    : { results: [] as ActivityRow[] };
-
-  // `isAdmin` remains a compatibility response field for the golden frontend,
-  // but its meaning is now permission-derived instead of role-string-derived.
-  const isAdmin = hasPermission(viewer, PERMISSIONS.USERS_READ);
-
-  return c.json({
-    success: true,
-    data: {
-      todayMeals: [],
-      kpis: {
-        totalUsers: Number(summary?.active_count ?? 0),
-        pendingUsers: Number(summary?.pending_count ?? 0),
-        todayOnCount: 0,
-        todayOffCount: 0,
-        currentMealCharge: 0,
-        totalResidentMeals: 0,
-        totalExpenses: 0,
-        pendingBills: Number(pendingBillRow?.pending_bills ?? 0),
-      },
-      trend: emptySevenDayTrend(),
-      expenseBreakdown: [],
-      unreadNotifications: Number(unreadRow?.unread_count ?? 0),
-      recentActivity: activityRows.results.map((row) => ({
-        id: row.id,
-        action: row.action,
-        createdAt: row.created_at,
-        actor: row.actor_name
-          ? { name: row.actor_name, email: row.actor_email ?? undefined }
-          : null,
-      })),
-      // Expose the same canonical grant set used by the Worker middleware so
-      // the shell can hide and block unavailable capabilities without deriving
-      // permissions from a role string. The server remains authoritative.
-      permissions: viewer.permissions,
-      isAdmin,
-    },
-  });
-});
 
 app.onError((error, c) => {
   const message = error instanceof Error ? error.message : String(error);
