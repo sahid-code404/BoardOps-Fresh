@@ -3,6 +3,7 @@
 import { VISUAL_FIXTURES_ENABLED, visualFixtureApiFetch } from "@/lib/visual-fixtures";
 import { visualFormulaEngineFixtureResponse } from "@/lib/visual-formula-engine-fixture";
 import { visualFundsFixtureResponse } from "@/lib/visual-funds-fixture";
+import { visualProcurementFixtureResponse } from "@/lib/visual-procurement-fixture";
 import { visualReportsFixtureResponse } from "@/lib/visual-reports-fixture";
 import { visualUser360FixtureResponse } from "@/lib/visual-user-360-fixture";
 
@@ -33,6 +34,8 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
     if (funds !== undefined) return funds;
     const formulas = visualFormulaEngineFixtureResponse<T>(path, opts);
     if (formulas !== undefined) return formulas;
+    const procurement = visualProcurementFixtureResponse<T>(path, opts);
+    if (procurement !== undefined) return procurement;
     const reports = visualReportsFixtureResponse<T>(path);
     if (reports !== undefined) return reports;
     return visualFixtureApiFetch<T>(path, opts);
