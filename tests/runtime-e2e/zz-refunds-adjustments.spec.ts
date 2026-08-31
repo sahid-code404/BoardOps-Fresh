@@ -11,7 +11,12 @@ test("Refund obligations reserve credit, partial payouts create canonical eviden
   test.setTimeout(60_000);
 
   const adminContext = await browser.newContext();
-  const residentContext = await browser.newContext();
+  // Registration throttling is intentionally IP-scoped. Give this synthetic
+  // refunds fixture its own TEST-NET address so the shared single-worker suite
+  // cannot exhaust its registration budget before this final accounting test.
+  const residentContext = await browser.newContext({
+    extraHTTPHeaders: { "x-forwarded-for": "203.0.113.63" },
+  });
 
   try {
     const adminApi = adminContext.request;
