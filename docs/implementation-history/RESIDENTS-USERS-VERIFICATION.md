@@ -4,7 +4,7 @@ Date: 2026-08-31
 
 ## Closure rule
 
-This verification record is intentionally included in the same acceptance candidate as the implementation, migration and tests so Residents / Users needs only one final full CI pass. The checkpoint is formally **CLOSED + VERIFIED only when CI for the exact candidate head succeeds** across prepare, verify, visual-smoke and runtime-smoke. The resulting run ID is reported in the final closure response rather than requiring a second documentation-only commit.
+This verification record is intentionally included in the same acceptance candidate as the implementation, migration and tests. Residents / Users is formally **CLOSED + VERIFIED only when CI for the exact latest candidate head succeeds** across prepare, verify, visual-smoke and runtime-smoke. The resulting run ID is reported in the final closure response rather than requiring a second documentation-only commit.
 
 No production deployment is part of this checkpoint.
 
@@ -112,13 +112,13 @@ No unused mutation API was invented: the frozen source exposes the evaluation in
 
 ## D1 invariant verification
 
-`scripts/verify-users-local.mjs` remains part of `db:verify:local` and now additionally proves:
+`scripts/verify-users-local.mjs` remains part of `db:verify:local` and additionally proves:
 
 - canonical User 360 source tables exist: Bills, Payments, Refunds, Meal Entries and Restrictions
 - the complete restriction evidence shape exists
-- both restriction indexes exist
-- deterministic Riya meal evidence is available
-- deterministic Arjun Bill + Payment finance evidence is available
+- both named application restriction indexes exist without miscounting SQLite's automatic primary-key index
+- deterministic Riya meal evidence is available on a clean seed
+- deterministic Arjun Bill + Payment finance evidence is available on a clean seed
 - no fake active restriction row is required to make the default evaluation pass
 
 This checkpoint adds migration **0026**, taking the immutable migration chain from 25 to **26 migrations**.
@@ -127,18 +127,33 @@ This checkpoint adds migration **0026**, taking the immutable migration chain fr
 
 `tests/runtime-e2e/residents-users.spec.ts` proves the real user-management lifecycle, including registration, verification, approval, password-policy enforcement, administrator edit, durable notification delivery, seven-day deletion, session revocation, restore and cleanup.
 
-`tests/runtime-e2e/user-360.spec.ts` now proves the composite contract against real D1 data rather than placeholders:
+`tests/runtime-e2e/user-360.spec.ts` proves the composite contract against the real shared D1 runtime rather than placeholders or assumptions that earlier tests leave mutable accounting state untouched:
 
-- Riya Sen has real profile, meal, fund and restriction evaluation data
-- Riya's empty finance histories render as valid empty canonical domains, not "schema unavailable"
-- Arjun Rao's deterministic historical Bill and Payments hydrate real finance values
-- Arjun's derived fund state is overdue while the restriction engine correctly reports the two-day low-balance grace state
-- the derived ledger contains the canonical deposit and bill-settlement events
+- Riya Sen exposes real profile, fund, meal and restriction-evaluation domains
+- Bills, Payments, Refunds and Ledger tabs render the same canonical state returned by the live User 360 API, whether earlier legitimate runtime scenarios have added evidence or the domain is empty
+- restriction presentation is checked against the live canonical evaluation rather than a hardcoded shared-test state
+- Arjun Rao's durable seeded July Bill and approved migrated Payment remain present by canonical identity and amount
+- the derived ledger contains canonical deposit and bill-settlement evidence
 - every User 360 request remains successful and institution scoped
+
+This state-aware contract is intentional: the runtime suite uses one shared clean D1 reset and earlier finance tests legitimately exercise lifecycle mutations. User 360 must reflect those mutations rather than require later tests to pretend the database is still at its original seed state.
+
+## Backup integration
+
+`restrictions` is institution-owned durable evidence. The private logical D1 backup uses an explicit application-owned table allowlist, so the checkpoint adds `restrictions` to that allowlist.
+
+The established backup contract is preserved unchanged:
+
+- flat task result containing `objectKey`, `bytes`, `sha256`, `rowCount`, `tableCount`, `skippedTables` and `redacted`
+- private R2 object storage
+- existing redaction metadata
+- authentication secret columns remain excluded
+
+Runtime System coverage continues to validate that a completed backup task exposes that flat result contract.
 
 ## Visual verification
 
-The User 360 visual fixture now mirrors the hydrated contract rather than the retired Phase-05 placeholder. Visual coverage traverses:
+The User 360 visual fixture mirrors the hydrated contract rather than the retired Phase-05 placeholder. Visual coverage traverses:
 
 - Resident Fund Account
 - meal activity
