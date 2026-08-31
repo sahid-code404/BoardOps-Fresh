@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { GlassCard } from "@/components/glass/glass-card";
 import { GlassButton } from "@/components/glass/glass-button";
+import { GlassNav } from "@/components/glass/glass-nav";
 import {
   StaggerGroup,
   StaggerItem,
@@ -81,11 +82,20 @@ export function ReportsView() {
     else setSelectedMonth((m) => m + 1);
   };
 
+  const reportNavItems = TABS.map((item) => {
+    const Icon = item.icon;
+    return {
+      value: item.key,
+      label: item.label,
+      icon: <Icon className="h-3.5 w-3.5" />,
+    };
+  });
+
   return (
     <StaggerGroup className="space-y-5">
       <StaggerItem>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold tracking-tight flex items-center justify-center gap-2">
             <BarChart3 className="h-6 w-6 text-primary" />
             Reports & Analytics
           </h1>
@@ -96,30 +106,20 @@ export function ReportsView() {
       </StaggerItem>
 
       <StaggerItem>
-        <GlassCard className="p-3" hover={false}>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <GlassButton variant="ghost" size="sm" onClick={prevMonth}>←</GlassButton>
-              <p className="font-semibold min-w-[120px] text-center">{MONTHS[selectedMonth]} {selectedYear}</p>
-              <GlassButton variant="ghost" size="sm" onClick={nextMonth}>→</GlassButton>
-            </div>
-            <div className="flex gap-1 p-1 rounded-2xl glass-soft">
-              {TABS.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setTab(t.key)}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all",
-                    tab === t.key ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  <t.icon className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">{t.label}</span>
-                </button>
-              ))}
-            </div>
+        <div className="flex flex-col items-center gap-3">
+          <div className="flex w-fit items-center gap-1 rounded-2xl glass-soft p-1">
+            <GlassButton variant="ghost" size="sm" onClick={prevMonth} aria-label="Previous month">←</GlassButton>
+            <p className="font-semibold min-w-[120px] text-center tabular-nums">{MONTHS[selectedMonth]} {selectedYear}</p>
+            <GlassButton variant="ghost" size="sm" onClick={nextMonth} aria-label="Next month">→</GlassButton>
           </div>
-        </GlassCard>
+          <GlassNav
+            items={reportNavItems}
+            value={tab}
+            onChange={setTab}
+            className="mx-auto max-w-full"
+            size="sm"
+          />
+        </div>
       </StaggerItem>
 
       <AnimatePresence mode="wait">
