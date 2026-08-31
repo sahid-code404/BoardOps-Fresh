@@ -8,7 +8,7 @@
 | Resident meals/leave/guest | user meals + meal APIs | meals | Required | Required | invariants as found | planned | AUDITED |
 | Kitchen/counts | kitchen | meals/kitchen | Required | Required | query efficiency | planned | AUDITED |
 | Residents/users | users | residents/users | Required | Required | permission model | planned | AUDITED |
-| Products/purchases | billing feature | purchases | Required | Required | accounting immutability | planned | AUDITED |
+| Products/purchases | billing feature | purchases | Required | Required | canonical linked Expense accounting + immutable purchase/item history + permission-aware Procurement hub | clean D1 + runtime + visual | VERIFIED |
 | Expenses | expenses view/API | expenses | Required | Required | integer money + immutability + replacement corrections | clean D1 + runtime + visual | VERIFIED |
 | Payments | payments view/API | payments | Required | Required | integer money + idempotency + immutability | clean D1 + runtime + visual | VERIFIED |
 | Funds | funds/resident ledger | funds | Required | Required | derived ledger authority; no duplicate mutable balance | clean D1 + runtime + visual | VERIFIED |
