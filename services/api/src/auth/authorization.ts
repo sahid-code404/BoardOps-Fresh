@@ -51,6 +51,8 @@ export const PERMISSIONS = {
   MEALS_CONFIG_CREATE: "meals.config.create",
   MEALS_CONFIG_UPDATE: "meals.config.update",
   MEALS_CONFIG_DELETE: "meals.config.delete",
+  MEALS_ENTRIES_READ_SELF: "meals.entries.read_self",
+  MEALS_TOGGLE_SELF: "meals.toggle_self",
   KITCHEN_READ: "kitchen.read",
   KITCHEN_GUEST_CREATE: "kitchen.guest.create",
   KITCHEN_GUEST_DELETE: "kitchen.guest.delete",
