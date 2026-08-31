@@ -73,7 +73,8 @@ SELECT
       'applied_by','applied_at','expires_at','lifted_by','lifted_at','lift_reason',
       'created_at','updated_at'
     )) AS restriction_columns,
-  (SELECT COUNT(*) FROM pragma_index_list('restrictions')) AS restriction_indexes,
+  (SELECT COUNT(*) FROM pragma_index_list('restrictions')
+    WHERE name IN ('restrictions_user_status_idx','restrictions_expiry_idx')) AS restriction_indexes,
   (SELECT COUNT(*) FROM restrictions WHERE institution_id = 'inst_boardops_local' AND status = 'ACTIVE') AS seeded_active_restrictions,
   (SELECT COUNT(*) FROM users WHERE institution_id = 'inst_boardops_local') AS seeded_users,
   (SELECT COUNT(*) FROM users
