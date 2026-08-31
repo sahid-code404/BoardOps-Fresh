@@ -142,12 +142,12 @@ test("administrator User 360 renders canonical resident finance, meal and restri
   await expect(dialog.getByText("Recent Payments", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Recent Refunds", { exact: true })).toBeVisible();
   if (riya.recentPayments.length === 0) {
-    await expect(dialog.getByText("No payments yet", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("No payments yet.", { exact: true })).toBeVisible();
   } else {
     await expect(dialog.getByText(riya.recentPayments[0]!.status, { exact: true }).first()).toBeVisible();
   }
   if (riya.recentRefunds.length === 0) {
-    await expect(dialog.getByText("No refunds yet", { exact: true })).toBeVisible();
+    await expect(dialog.getByText("No refunds yet.", { exact: true })).toBeVisible();
   } else {
     await expect(dialog.getByText(riya.recentRefunds[0]!.status, { exact: true }).first()).toBeVisible();
   }
