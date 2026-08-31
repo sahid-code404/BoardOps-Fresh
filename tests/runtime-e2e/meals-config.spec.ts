@@ -164,6 +164,39 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
     "dinner",
   ]);
 
+  // A queued meal is hidden from the normal Meal Configuration list.
+  await page.reload();
+  await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toHaveCount(0);
+
+  // It remains recoverable from the explicit Deletion Queue view.
+  await page.getByRole("combobox").nth(1).click();
+  await page.getByRole("option", { name: "Deletion Queue", exact: true }).click();
+  await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Revive Runtime Test Snack Updated", exact: true }).click();
+  await expect(page.getByText("Meal revived and returned to active configuration", { exact: true })).toBeVisible();
+  await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toHaveCount(0);
+
+  const revived = await page.evaluate(async () => {
+    const response = await fetch("/api/meals/config", { credentials: "include" });
+    const body = await response.json();
+    return {
+      status: response.status,
+      meal: body?.data?.find((meal: { name: string }) => meal.name === "runtime_test_snack"),
+    };
+  });
+  expect(revived.status).toBe(200);
+  expect(revived.meal).toMatchObject({
+    name: "runtime_test_snack",
+    status: "ACTIVE",
+    deletionRequestedAt: null,
+    deletionEligibleMonth: null,
+    deletionEligibleYear: null,
+  });
+
+  await page.getByRole("combobox").nth(1).click();
+  await page.getByRole("option", { name: "All status", exact: true }).click();
+  await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toBeVisible();
+
   // Expected failures are duplicate creation and immutable-name mutation only.
   expect(failedMealResponses).toHaveLength(2);
   expect(failedMealResponses.filter((entry) => entry.startsWith("400 "))).toHaveLength(1);

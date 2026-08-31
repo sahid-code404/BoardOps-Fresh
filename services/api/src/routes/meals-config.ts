@@ -499,12 +499,40 @@ mealConfigRoutes.put("/meals/config/:id", async (c) => {
   const id = c.req.param("id");
   const existing = await mealById(c, principal, id);
   if (!existing) return c.json({ success: false, error: "Meal not found" }, 404);
-  if (existing.deletion_requested_at) {
-    return c.json({ success: false, error: "Meal is in the deletion queue and can no longer be edited" }, 409);
-  }
 
   const body = await readBody(c);
   if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
+
+  if (existing.deletion_requested_at) {
+    if (stringValue(body, "action") !== "REVIVE") {
+      return c.json({
+        success: false,
+        error: "Meal is in the deletion queue. Revive it before making configuration changes.",
+      }, 409);
+    }
+
+    const revivedAt = new Date().toISOString();
+    const result = await c.env.DB.prepare(
+      `UPDATE meal_configurations
+          SET deletion_requested_at = NULL,
+              deletion_eligible_month = NULL, deletion_eligible_year = NULL,
+              deletion_requested_by = NULL, deletion_finalized_at = NULL,
+              status = 'ACTIVE', updated_at = ?
+        WHERE id = ? AND institution_id = ?
+          AND deletion_requested_at IS NOT NULL AND deletion_finalized_at IS NULL`,
+    ).bind(revivedAt, id, principal.institutionId).run();
+    if (Number(result.meta.changes ?? 0) === 0) {
+      return c.json({ success: false, error: "Meal can no longer be revived" }, 409);
+    }
+
+    const revived = await mealById(c, principal, id);
+    if (!revived) return c.json({ success: false, error: "Meal could not be loaded after revival" }, 500);
+    await writeAudit(c, principal, "MEAL_CONFIGURATION_DELETION_REVIVED", id, {
+      before: mappedMeal(existing),
+      after: mappedMeal(revived),
+    });
+    return c.json({ success: true, data: mappedMeal(revived) });
+  }
   const requestedName = stringValue(body, "name");
   if (requestedName !== undefined && requestedName !== existing.name) {
     return c.json({ success: false, error: "Meal internal name is immutable after creation" }, 400);
