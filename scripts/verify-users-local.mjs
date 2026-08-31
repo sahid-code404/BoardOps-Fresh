@@ -66,7 +66,15 @@ SELECT
     WHERE name IN ('user_id','source_type','source_id','delivery_key')) AS notification_delivery_columns,
   (SELECT COUNT(*) FROM pragma_index_list('notifications') WHERE [unique] = 1) AS notification_unique_indexes,
   (SELECT COUNT(*) FROM sqlite_master
-    WHERE type = 'table' AND name IN ('bills','payments','refunds','meal_entries')) AS user360_source_tables,
+    WHERE type = 'table' AND name IN ('bills','payments','refunds','meal_entries','restrictions')) AS user360_source_tables,
+  (SELECT COUNT(*) FROM pragma_table_info('restrictions')
+    WHERE name IN (
+      'id','institution_id','user_id','type','reason','source','status',
+      'applied_by','applied_at','expires_at','lifted_by','lifted_at','lift_reason',
+      'created_at','updated_at'
+    )) AS restriction_columns,
+  (SELECT COUNT(*) FROM pragma_index_list('restrictions')) AS restriction_indexes,
+  (SELECT COUNT(*) FROM restrictions WHERE institution_id = 'inst_boardops_local' AND status = 'ACTIVE') AS seeded_active_restrictions,
   (SELECT COUNT(*) FROM users WHERE institution_id = 'inst_boardops_local') AS seeded_users,
   (SELECT COUNT(*) FROM users
     WHERE id = 'usr_admin_local' AND institution_id = 'inst_boardops_local'
@@ -111,7 +119,10 @@ const exact = {
   lifecycle_columns: 3,
   review_columns: 5,
   notification_delivery_columns: 4,
-  user360_source_tables: 4,
+  user360_source_tables: 5,
+  restriction_columns: 15,
+  restriction_indexes: 2,
+  seeded_active_restrictions: 0,
   // The complete deterministic seed chain intentionally contains four users.
   // The three named fixtures below are the Users checkpoint's owned baseline;
   // the fourth is supplied by an already-verified downstream fixture.
@@ -137,4 +148,4 @@ if (Number(row.notification_unique_indexes ?? 0) < 1) {
   process.exit(1);
 }
 
-console.log("[BoardOps] Residents / Users lifecycle + least-privilege + User 360 invariants verified:", row);
+console.log("[BoardOps] Residents / Users lifecycle + least-privilege + User 360 + restriction invariants verified:", row);
