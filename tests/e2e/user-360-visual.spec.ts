@@ -53,5 +53,5 @@ test("visual User 360 renders hydrated finance, meal and ledger surfaces", async
 
   await dialog.getByRole("tab", { name: "Restrictions", exact: true }).click();
   await expect(dialog.getByText("Restriction evaluation", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("Restriction evaluation is not available in the current D1 schema.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Financial and administrative restriction evaluation is not available in the current D1 schema yet.", { exact: true })).toBeVisible();
 });
