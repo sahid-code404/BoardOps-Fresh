@@ -1,5 +1,24 @@
 import { expect, test } from "@playwright/test";
 
+function dateInZone(timestamp: string, timeZone = "Asia/Kolkata"): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = Object.fromEntries(
+    formatter.formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function addDays(date: string, amount: number): string {
+  const value = new Date(`${date}T12:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + amount);
+  return value.toISOString().slice(0, 10);
+}
+
 test("Meal Configuration is backed by D1 and preserves durable meal history", async ({ page }) => {
   const failedMealResponses: string[] = [];
   page.on("response", (response) => {
@@ -164,6 +183,29 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
     "dinner",
   ]);
 
+  // Deletion is effective after the institution-local deletion day. Historical
+  // date lookup still shows the meal on that day, while the next day does not.
+  const deletionDate = dateInZone(result.deleted.body.data.meal.deletionRequestedAt);
+  const deletionNextDate = addDays(deletionDate, 1);
+  const deletionVisibility = await page.evaluate(async ({ deletionDate, deletionNextDate }) => {
+    const load = async (date: string) => {
+      const response = await fetch(`/api/kitchen?date=${date}`, { credentials: "include" });
+      const body = await response.json();
+      return {
+        status: response.status,
+        names: (body?.data?.counts ?? []).map((meal: { name: string }) => meal.name),
+      };
+    };
+    return {
+      onDeletionDate: await load(deletionDate),
+      afterDeletionDate: await load(deletionNextDate),
+    };
+  }, { deletionDate, deletionNextDate });
+  expect(deletionVisibility.onDeletionDate.status).toBe(200);
+  expect(deletionVisibility.onDeletionDate.names).toContain("Runtime Test Snack Updated");
+  expect(deletionVisibility.afterDeletionDate.status).toBe(200);
+  expect(deletionVisibility.afterDeletionDate.names).not.toContain("Runtime Test Snack Updated");
+
   // A queued meal is hidden from the normal Meal Configuration list.
   await page.reload();
   await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toHaveCount(0);
@@ -193,6 +235,56 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
     deletionEligibleYear: null,
   });
 
+  // Manual archive follows the same inclusive end-date rule. Use seeded
+  // Breakfast because it existed before today, then restore it immediately.
+  const archivedBreakfast = await page.evaluate(async () => {
+    const configs = await fetch("/api/meals/config", { credentials: "include" });
+    const configBody = await configs.json();
+    const breakfast = configBody?.data?.find((meal: { name: string }) => meal.name === "breakfast");
+    if (!breakfast?.id) return { status: 404, body: null };
+    const response = await fetch(`/api/meals/config/${breakfast.id}`, {
+      method: "PUT",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "ARCHIVED" }),
+    });
+    return { status: response.status, body: await response.json(), id: breakfast.id };
+  });
+  expect(archivedBreakfast.status).toBe(200);
+  expect(archivedBreakfast.body?.data?.status).toBe("ARCHIVED");
+
+  const archiveDate = dateInZone(archivedBreakfast.body.data.updatedAt);
+  const beforeArchiveDate = addDays(archiveDate, -1);
+  const afterArchiveDate = addDays(archiveDate, 1);
+  const archiveVisibility = await page.evaluate(async ({ beforeArchiveDate, archiveDate, afterArchiveDate }) => {
+    const load = async (date: string) => {
+      const response = await fetch(`/api/kitchen?date=${date}`, { credentials: "include" });
+      const body = await response.json();
+      return (body?.data?.counts ?? []).map((meal: { name: string }) => meal.name);
+    };
+    return {
+      before: await load(beforeArchiveDate),
+      on: await load(archiveDate),
+      after: await load(afterArchiveDate),
+    };
+  }, { beforeArchiveDate, archiveDate, afterArchiveDate });
+  expect(archiveVisibility.before).toContain("Breakfast");
+  expect(archiveVisibility.on).toContain("Breakfast");
+  expect(archiveVisibility.after).not.toContain("Breakfast");
+
+  const restoredBreakfast = await page.evaluate(async (id) => {
+    const response = await fetch(`/api/meals/config/${id}`, {
+      method: "PUT",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "ACTIVE" }),
+    });
+    return { status: response.status, body: await response.json() };
+  }, archivedBreakfast.id);
+  expect(restoredBreakfast.status).toBe(200);
+  expect(restoredBreakfast.body?.data?.status).toBe("ACTIVE");
+
+  await page.reload();
   await page.getByRole("button", { name: "All", exact: true }).click();
   await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toBeVisible();
 
