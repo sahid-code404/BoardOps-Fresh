@@ -1,7 +1,7 @@
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import { hashPassword, tokenDigest } from "../auth/crypto";
-import { prepareNotificationDelivery, type NotificationPriority, type NotificationType } from "../notifications/delivery";
+import { prepareNotificationDelivery } from "../notifications/delivery";
 import type { AppEnv } from "../types";
 
 const SESSION_COOKIE = "boardops_session";
@@ -42,14 +42,6 @@ type UserListRow = UserRow & {
   review_reason: string | null;
   correction_fields_json: string | null;
   review_updated_at: string | null;
-};
-
-type UserNotice = {
-  title: string;
-  description: string;
-  type: NotificationType;
-  priority?: NotificationPriority;
-  route: string;
 };
 
 function readSessionToken(c: Context<AppEnv>): string | null {
@@ -164,24 +156,29 @@ function auditStatement(
   );
 }
 
-function notificationStatement(
+function editNotificationStatement(
   c: Context<AppEnv>,
   user: UserRow,
   eventId: string,
-  notice: UserNotice,
+  passwordChanged: boolean,
   createdAt: string,
 ): D1PreparedStatement {
+  // User status/role/review/delete/restore notifications are already owned by
+  // immutable D1 event-delivery triggers. Administrative profile edits do not
+  // change those state-machine columns, so this is the one explicit delivery.
   return prepareNotificationDelivery(c.env.DB, {
     institutionId: user.institution_id,
     userId: user.id,
-    title: notice.title,
-    description: notice.description,
-    type: notice.type,
-    priority: notice.priority ?? "HIGH",
-    route: notice.route,
-    sourceType: "USER_LIFECYCLE",
+    title: "Account Updated",
+    description: passwordChanged
+      ? "Your account credentials have been updated by an administrator, including a new password."
+      : "Your account details have been updated by an administrator.",
+    type: "INFO",
+    priority: "HIGH",
+    route: "/profile",
+    sourceType: "USER_EDIT",
     sourceId: eventId,
-    deliveryKey: `user-lifecycle:${eventId}`,
+    deliveryKey: `user-edit:${eventId}`,
     createdAt,
   });
 }
@@ -204,27 +201,6 @@ async function latestRegistration(c: Context<AppEnv>, userId: string) {
       reviewed_at: string | null;
       created_at: string;
     }>();
-}
-
-function actionNotice(action: string, role: UserRow["role"], reason: string): UserNotice {
-  switch (action) {
-    case "APPROVE":
-      return { title: "Account Approved", description: "Your account has been approved. Welcome to BoardOps!", type: "SUCCESS", route: "/dashboard" };
-    case "SUSPEND":
-      return { title: "Account Suspended", description: reason || "Your account has been suspended. Contact administration.", type: "DANGER", route: "/dashboard" };
-    case "ACTIVATE":
-      return { title: "Account Activated", description: "Your account is now active.", type: "SUCCESS", route: "/dashboard" };
-    case "DEACTIVATE":
-      return { title: "Account Deactivated", description: reason || "Your account has been deactivated.", type: "WARNING", route: "/dashboard" };
-    case "ARCHIVE":
-      return { title: "Account Archived", description: reason || "Your account has been archived.", type: "WARNING", route: "/dashboard" };
-    case "RESTORE":
-      return { title: "Account Restored", description: "Your account has been restored.", type: "SUCCESS", route: "/dashboard" };
-    case "ASSIGN_ROLE":
-      return { title: "Role Updated", description: `Your role is now ${role}.`, type: "INFO", route: "/profile" };
-    default:
-      return { title: "Account Updated", description: "Your account has been updated by an administrator.", type: "INFO", route: "/profile" };
-  }
 }
 
 export const userRoutes = new Hono<AppEnv>();
@@ -297,12 +273,6 @@ userRoutes.patch("/users/:id/request-changes", async (c) => {
               reviewed_by = ?, reviewed_at = ?, updated_at = ?
         WHERE id = ?`,
     ).bind(reason, JSON.stringify(uniqueFields), admin.id, now, now, latest.id),
-    notificationStatement(c, user, eventId, {
-      title: "Changes requested for your registration",
-      description: reason,
-      type: "WARNING",
-      route: "/registration-status",
-    }, now),
     auditStatement(c, admin, eventId, "USER_REQUEST_CHANGES", user.id, { fields: uniqueFields, cycle: latest.cycle }, now, reason),
   ]);
 
@@ -337,12 +307,6 @@ userRoutes.patch("/users/:id/reject", async (c) => {
           SET status = 'REJECTED', reason = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ?
         WHERE id = ?`,
     ).bind(reason, admin.id, now, now, latest.id),
-    notificationStatement(c, user, eventId, {
-      title: "Registration Rejected",
-      description: reason,
-      type: "DANGER",
-      route: "/registration-status",
-    }, now),
     auditStatement(c, admin, eventId, "USER_REJECTED", user.id, { oldStatus: user.status, newStatus: "ARCHIVED", cycle: latest.cycle }, now, reason),
   ]);
 
@@ -446,7 +410,6 @@ userRoutes.patch("/users/:id", async (c) => {
               updated_at = ?
         WHERE id = ?`,
     ).bind(nextStatus, nextRole, action, action, now, user.id),
-    notificationStatement(c, user, eventId, actionNotice(action, nextRole, reason), now),
     auditStatement(c, admin, eventId, `USER_${action}`, user.id, {
       oldStatus: user.status,
       newStatus: nextStatus,
@@ -509,8 +472,8 @@ userRoutes.put("/users/:id", async (c) => {
     ).bind(value, user.id).first<{ id: string }>();
     if (taken) return c.json({ success: false, error: "This email is already in use" }, 409);
     setField("email", value);
-    // Preserve a verified identity when an edit form re-submits the same email.
-    // Only a genuinely new email address needs to re-enter verification state.
+    // The edit form submits the existing email even when another field changed.
+    // Reverification is required only for a genuinely different address.
     if (value !== user.email.toLowerCase()) setField("email_verified", 0);
   }
   if ("phone" in body) {
@@ -543,14 +506,7 @@ userRoutes.put("/users/:id", async (c) => {
   values.push(now, user.id);
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE users SET ${assignments.join(", ")} WHERE id = ?`).bind(...values),
-    notificationStatement(c, user, eventId, {
-      title: "Account Updated",
-      description: passwordChanged
-        ? "Your account credentials have been updated by an administrator, including a new password."
-        : "Your account details have been updated by an administrator.",
-      type: "INFO",
-      route: "/profile",
-    }, now),
+    editNotificationStatement(c, user, eventId, passwordChanged, now),
     auditStatement(c, admin, eventId, "USER_EDIT", user.id, { fields: changedFields, passwordChanged }, now),
   ]);
 
@@ -604,13 +560,6 @@ userRoutes.delete("/users/:id", async (c) => {
           SET revoked_at = ?
         WHERE user_id = ? AND revoked_at IS NULL`,
     ).bind(now, user.id),
-    notificationStatement(c, user, eventId, {
-      title: "Account Scheduled for Deletion",
-      description: `Your account is scheduled for deletion in 7 days. Reason: ${reason}. Contact an administrator if you believe this is a mistake.`,
-      type: "DANGER",
-      priority: "URGENT",
-      route: "/profile",
-    }, now),
     auditStatement(c, admin, eventId, "USER_DELETE", user.id, {
       oldStatus: user.status,
       newStatus: "ARCHIVED",
@@ -644,12 +593,6 @@ userRoutes.post("/users/:id/restore", async (c) => {
           SET status = 'ACTIVE', deleted_at = NULL, deletion_reason = NULL, updated_at = ?
         WHERE id = ?`,
     ).bind(now, user.id),
-    notificationStatement(c, user, eventId, {
-      title: "Account Restored",
-      description: "Your account has been restored from the deletion queue.",
-      type: "SUCCESS",
-      route: "/dashboard",
-    }, now),
     auditStatement(c, admin, eventId, "USER_RESTORE_DELETED", user.id, { restored: true, previousDeletionDeadline: user.deleted_at }, now),
   ]);
 
