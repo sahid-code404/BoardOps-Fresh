@@ -154,7 +154,7 @@
 - The imported golden Billing UI keeps its visual/workflow behavior, but the legacy body-less DELETE used by its Void control is routed to the explicit financial void endpoint so void and soft delete remain distinct accounting actions.
 - Billing RBAC is explicit and fail-closed: administrators receive billing mutations while resident/manager access remains read-only where required.
 - Clean-D1 verification proves deterministic June/July snapshots, the seeded July bill, bill arithmetic, immutability triggers, and least-privilege Billing grants.
-- Real-runtime browser coverage proves snapshot readiness, bill generation, idempotent regeneration, financial void, soft-delete/restore semantics, closed-July rejection, and visible real D1 Billing data. No production deployment was performed.
+- Real-runtime browser coverage proves snapshot readiness, bill generation, idempotent regeneration, financial void, soft-delete/restore semantics, closed-period rejection, and visible real D1 Billing data. No production deployment was performed.
 - Billing implementation is VERIFIED. Formal checkpoint closure is contingent on the latest documentation-head CI run also remaining fully green.
 
 ## 2026-08-30 — Phase 05 permission-based RBAC verified
