@@ -1,5 +1,3 @@
-import type { RequestInit } from "undici-types";
-
 type VisualFetchOpts = RequestInit & { params?: Record<string, unknown> };
 
 const UNITS = [
