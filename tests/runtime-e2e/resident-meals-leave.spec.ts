@@ -178,7 +178,10 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
     expect(selfLeaveList.ok()).toBeTruthy();
     const selfLeaveBody = await selfLeaveList.json() as ApiEnvelope<Array<{ id: string; user: { id: string } }>>;
     expect(selfLeaveBody.data).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: leaveCreateBody.data.id, user: { id: residentId } }),
+      expect.objectContaining({
+        id: leaveCreateBody.data.id,
+        user: expect.objectContaining({ id: residentId }),
+      }),
     ]));
     expect(selfLeaveBody.data.some((leave) => leave.id === "leave_riya_pending_local")).toBe(false);
 
