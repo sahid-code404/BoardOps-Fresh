@@ -48,6 +48,7 @@ const BACKUP_TABLES: readonly BackupTable[] = [
   { name: "policies", scope: "institution-column" },
   { name: "holidays", scope: "institution-column" },
   { name: "background_tasks", scope: "institution-column" },
+  { name: "restrictions", scope: "institution-column" },
 ];
 
 // `permissions` is a global application catalog seeded by migrations rather than
@@ -180,24 +181,24 @@ export async function createPrivateLogicalBackup(
   const stored = await env.FILES.put(objectKey, body, {
     httpMetadata: { contentType: "application/json; charset=utf-8" },
     customMetadata: {
-      format: "boardops-d1-logical-backup-v1",
       institutionId,
+      createdAt,
       sha256,
-      redacted: "true",
+      format: "boardops-d1-logical-backup-v1",
     },
   });
-  if (!stored) {
-    throw new Error("R2 did not confirm the logical backup write");
-  }
-  await updateProgress(99);
+  if (!stored) throw new Error("Private backup object was not stored");
 
+  await updateProgress(100);
   return {
-    objectKey,
-    bytes: bytes.byteLength,
-    sha256,
-    rowCount,
-    tableCount: Object.keys(exported).length,
-    skippedTables: [...SKIPPED_TABLES],
-    redacted: true,
+    summary: `Private redacted logical D1 backup created (${rowCount} rows).`,
+    result: {
+      objectKey,
+      sha256,
+      bytes: bytes.byteLength,
+      rowCount,
+      tableCount: BACKUP_TABLES.length,
+      skippedTables: [...SKIPPED_TABLES],
+    },
   };
 }
