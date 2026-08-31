@@ -10,56 +10,55 @@ test("Reports and Analytics preserve all five lazy report surfaces", async ({ pa
   await sidebar.getByRole("button", { name: "Reports", exact: true }).click();
 
   await expect(page).toHaveURL(/\/reports(?:\?|$)/);
-  const heading = page.getByRole("heading", { name: "Reports & Analytics", exact: true });
+  const main = page.locator("main");
+  const heading = main.getByRole("heading", { name: "Reports & Analytics", exact: true });
   await expect(heading).toBeVisible();
-  await expect(page.getByText("Financial, meal, purchase, and resident reports with CSV export.", { exact: true })).toBeVisible();
+  await expect(main.getByText("Financial, meal, purchase, and resident reports with CSV export.", { exact: true })).toBeVisible();
 
-  const reportNav = page.getByRole("tablist", { name: "Section navigation" });
+  const reportNav = main.getByRole("tablist", { name: "Section navigation" });
   await expect(reportNav).toBeVisible();
-  await expect(page.getByRole("tab", { name: "Financial", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(main.getByRole("tab", { name: "Financial", exact: true })).toHaveAttribute("aria-selected", "true");
 
-  const centeredGeometry = await page.evaluate(() => {
-    const tablist = document.querySelector('[role="tablist"][aria-label="Section navigation"]') as HTMLElement | null;
-    const heading = Array.from(document.querySelectorAll("h1")).find((node) => node.textContent?.includes("Reports & Analytics")) as HTMLElement | undefined;
-    const tabRect = tablist?.getBoundingClientRect();
-    const headingRect = heading?.getBoundingClientRect();
-    return {
-      viewportCenter: window.innerWidth / 2,
-      tabCenter: tabRect ? tabRect.left + tabRect.width / 2 : -1,
-      headingCenter: headingRect ? headingRect.left + headingRect.width / 2 : -1,
-      headingJustify: heading ? getComputedStyle(heading).justifyContent : "",
-    };
-  });
-  expect(Math.abs(centeredGeometry.tabCenter - centeredGeometry.viewportCenter)).toBeLessThanOrEqual(16);
-  expect(Math.abs(centeredGeometry.headingCenter - centeredGeometry.viewportCenter)).toBeLessThanOrEqual(16);
-  expect(centeredGeometry.headingJustify).toBe("center");
+  const headingBox = await heading.boundingBox();
+  const reportNavBox = await reportNav.boundingBox();
+  const viewport = page.viewportSize();
+  expect(headingBox).not.toBeNull();
+  expect(reportNavBox).not.toBeNull();
+  expect(viewport).not.toBeNull();
 
-  await expect(page.getByText("Total Expenses", { exact: true })).toBeVisible();
-  await expect(page.getByText("₹5,100", { exact: true })).toBeVisible();
-  await expect(page.getByText("Net Position", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Export Bills CSV/ })).toBeVisible();
+  const viewportCenter = viewport!.width / 2;
+  const headingCenter = headingBox!.x + headingBox!.width / 2;
+  const reportNavCenter = reportNavBox!.x + reportNavBox!.width / 2;
+  expect(Math.abs(reportNavCenter - viewportCenter)).toBeLessThanOrEqual(16);
+  expect(Math.abs(headingCenter - reportNavCenter)).toBeLessThanOrEqual(16);
+  await expect(heading).toHaveCSS("justify-content", "center");
 
-  await page.getByRole("tab", { name: "Meals", exact: true }).click();
-  await expect(page.getByText("Total Meals", { exact: true })).toBeVisible();
-  await expect(page.getByText("Per-Meal Breakdown", { exact: true })).toBeVisible();
-  await expect(page.getByText("Breakfast", { exact: true })).toBeVisible();
+  await expect(main.getByText("Total Expenses", { exact: true })).toBeVisible();
+  await expect(main.getByText("₹5,100", { exact: true })).toBeVisible();
+  await expect(main.getByText("Net Position", { exact: true })).toBeVisible();
+  await expect(main.getByRole("button", { name: /Export Bills CSV/ })).toBeVisible();
 
-  await page.getByRole("tab", { name: "Purchases", exact: true }).click();
-  await expect(page.getByText("Total Spend", { exact: true })).toBeVisible();
-  await expect(page.getByText("Purchase Count", { exact: true })).toBeVisible();
-  await expect(page.getByText("₹600", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("Rice", { exact: true })).toBeVisible();
-  await expect(page.getByText("Local Market", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Export CSV/ })).toBeVisible();
+  await main.getByRole("tab", { name: "Meals", exact: true }).click();
+  await expect(main.getByText("Total Meals", { exact: true })).toBeVisible();
+  await expect(main.getByText("Per-Meal Breakdown", { exact: true })).toBeVisible();
+  await expect(main.getByText("Breakfast", { exact: true })).toBeVisible();
 
-  await page.getByRole("tab", { name: "Outstanding", exact: true }).click();
-  await expect(page.getByText("Total Outstanding", { exact: true })).toBeVisible();
-  await expect(page.getByText("Arjun Rao", { exact: true })).toBeVisible();
+  await main.getByRole("tab", { name: "Purchases", exact: true }).click();
+  await expect(main.getByText("Total Spend", { exact: true })).toBeVisible();
+  await expect(main.getByText("Purchase Count", { exact: true })).toBeVisible();
+  await expect(main.getByText("₹600", { exact: true }).first()).toBeVisible();
+  await expect(main.getByText("Rice", { exact: true })).toBeVisible();
+  await expect(main.getByText("Local Market", { exact: true })).toBeVisible();
+  await expect(main.getByRole("button", { name: /Export CSV/ })).toBeVisible();
 
-  await page.getByRole("tab", { name: "Residents", exact: true }).click();
-  await expect(page.getByText("Residents", { exact: true })).toBeVisible();
-  await expect(page.getByText("Riya Sen", { exact: true })).toBeVisible();
-  await expect(page.getByText("OVERDUE", { exact: true })).toBeVisible();
+  await main.getByRole("tab", { name: "Outstanding", exact: true }).click();
+  await expect(main.getByText("Total Outstanding", { exact: true })).toBeVisible();
+  await expect(main.getByText("Arjun Rao", { exact: true })).toBeVisible();
+
+  await main.getByRole("tab", { name: "Residents", exact: true }).click();
+  await expect(main.getByText("Residents", { exact: true })).toBeVisible();
+  await expect(main.getByText("Riya Sen", { exact: true })).toBeVisible();
+  await expect(main.getByText("OVERDUE", { exact: true })).toBeVisible();
 
   const health = await page.evaluate(() => ({
     width: window.innerWidth,
@@ -78,9 +77,10 @@ for (const profile of [
   test(`Reports stays layout-safe on ${profile.name}`, async ({ page }) => {
     await page.setViewportSize({ width: profile.width, height: profile.height });
     await page.goto("/reports");
-    await expect(page.getByRole("heading", { name: "Reports & Analytics", exact: true })).toBeVisible();
-    await expect(page.getByRole("tablist", { name: "Section navigation" })).toBeVisible();
-    await expect(page.getByText("Total Expenses", { exact: true })).toBeVisible();
+    const main = page.locator("main");
+    await expect(main.getByRole("heading", { name: "Reports & Analytics", exact: true })).toBeVisible();
+    await expect(main.getByRole("tablist", { name: "Section navigation" })).toBeVisible();
+    await expect(main.getByText("Total Expenses", { exact: true })).toBeVisible();
     const geometry = await page.evaluate(() => ({
       viewportWidth: window.innerWidth,
       scrollWidth: document.documentElement.scrollWidth,
