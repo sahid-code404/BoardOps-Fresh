@@ -4,7 +4,7 @@
 |---|---|---|---|---|---|---|---|
 | Authentication/registration/OTP/recovery | auth UI + `/api/auth/*` | auth | Required | Required | Worker-backed secure sessions + registration/review + one-time OTP/recovery with fail-closed delivery boundary | clean D1 + unit + runtime + visual | VERIFIED |
 | Dashboard | dashboard view/API | dashboard | Required | Required | canonical timezone-scoped D1 KPI/read model + confirmed-meal semantics + bounded trend queries | clean D1 + runtime + visual | VERIFIED |
-| Meal configuration | meals config | meals | Required | Required | invariants as found | planned | AUDITED |
+| Meal configuration | meals config | meals | Required | Required | immutable internal identifiers + ACTIVE-on-create lifecycle + evidence-safe delete/archive | clean D1 + runtime + visual | VERIFIED |
 | Resident meals/leave/guest | user meals + meal APIs | meals | Required | Required | invariants as found | planned | AUDITED |
 | Kitchen/counts | kitchen | meals/kitchen | Required | Required | query efficiency | planned | AUDITED |
 | Residents/users | users | residents/users | Required | Required | permission model | planned | AUDITED |
