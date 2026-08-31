@@ -164,7 +164,18 @@ test("Products and Purchases use immutable linked accounting evidence and least 
     expect(restore.ok()).toBeTruthy();
     await expect(restore.json()).resolves.toMatchObject({ success: true, data: { id: created.data.id, status: "APPROVED" } });
 
+    // API login establishes the HttpOnly credential, but the real shell also
+    // requires its persisted non-secret `cookie-session` hint before it mounts.
+    // Sign in through the actual UI here so this browser assertion exercises the
+    // same two-part session bootstrap as a real user instead of bypassing it.
     const adminPage = await adminContext.newPage();
+    await adminPage.goto(`${WEB}/`);
+    await adminPage.getByRole("textbox", { name: "Email", exact: true }).fill(ADMIN_EMAIL);
+    await adminPage.getByRole("textbox", { name: "Password", exact: true }).fill(ADMIN_PASSWORD);
+    await adminPage.locator("form").getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(adminPage).toHaveURL(/\/dashboard(?:\?|$)/, { timeout: 5_000 });
+    await expect(adminPage.getByRole("heading", { name: "Dashboard", exact: true })).toBeVisible({ timeout: 5_000 });
+
     await adminPage.goto(`${WEB}/expenses`);
     const main = adminPage.locator("main");
     await expect(main.getByRole("tab", { name: "Expenses", exact: true })).toBeVisible();
