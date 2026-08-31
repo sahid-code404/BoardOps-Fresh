@@ -13,9 +13,9 @@ export function visualReportsFixtureResponse<T>(path: string): T | undefined {
     return envelope({
       period,
       summary: {
-        totalExpenses: 4500,
-        totalPurchases: 0,
-        purchaseCount: 0,
+        totalExpenses: 5100,
+        totalPurchases: 600,
+        purchaseCount: 1,
         totalDeposits: 5000,
         depositCount: 1,
         totalBills: 18500,
@@ -24,14 +24,15 @@ export function visualReportsFixtureResponse<T>(path: string): T | undefined {
         refundTotal: 0,
         refundPaid: 0,
         refundCount: 0,
-        netPosition: 500,
+        netPosition: -100,
       },
       expenseByCategory: [
         { category: "GROCERY", amount: 3000 },
         { category: "UTILITIES", amount: 1500 },
+        { category: "PURCHASE", amount: 600 },
       ],
       billStatusBreakdown: { GENERATED: 0, PARTIALLY_PAID: 1, PAID: 0, OVERDUE: 0, VOID: 0 },
-      comparison: { prevExpenses: 0, prevDeposits: 0, expenseChange: 4500, depositChange: 5000 },
+      comparison: { prevExpenses: 0, prevDeposits: 0, expenseChange: 5100, depositChange: 5000 },
     }) as T;
   }
 
@@ -50,10 +51,18 @@ export function visualReportsFixtureResponse<T>(path: string): T | undefined {
   if (pathname === "/reports/purchases") {
     return envelope({
       period,
-      summary: { totalSpend: 0, purchaseCount: 0, itemCount: 0, avgPurchaseValue: 0 },
-      topProducts: [],
-      topCategories: [],
-      vendorBreakdown: [],
+      summary: { totalSpend: 600, purchaseCount: 1, itemCount: 2, avgPurchaseValue: 600 },
+      topProducts: [
+        { name: "Rice", quantity: 5, spend: 300, unit: "kg" },
+        { name: "Cooking Oil", quantity: 2, spend: 300, unit: "litre" },
+      ],
+      topCategories: [
+        { category: "GRAINS", amount: 300 },
+        { category: "OIL", amount: 300 },
+      ],
+      vendorBreakdown: [
+        { vendor: "Local Market", count: 1, total: 600 },
+      ],
     }) as T;
   }
 
