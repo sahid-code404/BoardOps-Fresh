@@ -1128,9 +1128,64 @@ export function MealsConfigView() {
           icon={<Search className="h-4 w-4" />}
         />
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
+        {/* Status pills mirror the compact Users-page sorting interaction. */}
+        <div
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar pb-1"
+          role="group"
+          aria-label="Meal status filters"
+        >
+          {[
+            { key: "ALL", label: "All" },
+            { key: "ACTIVE", label: "Active" },
+            { key: "INACTIVE", label: "Inactive" },
+            { key: "ARCHIVED", label: "Archived" },
+            { key: "QUEUED", label: "Deletion Queue" },
+          ].map((filter) => {
+            const active = statusFilter === filter.key;
+            const queueCount =
+              filter.key === "QUEUED"
+                ? (data?.filter((meal) => Boolean(meal.deletionRequestedAt)).length ?? 0)
+                : 0;
+
+            return (
+              <motion.button
+                key={filter.key}
+                type="button"
+                whileTap={{ scale: 0.96 }}
+                onClick={() => setStatusFilter(filter.key)}
+                aria-pressed={active}
+                className={cn(
+                  "flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 text-[11px] font-medium transition-all",
+                  active
+                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"
+                    : "glass-soft text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span>{filter.label}</span>
+                {filter.key === "QUEUED" && queueCount > 0 && (
+                  <span
+                    className={cn(
+                      "min-w-[16px] rounded-full px-1.5 py-0.5 text-center text-[9px] font-bold leading-none",
+                      active
+                        ? "bg-primary-foreground/20 text-primary-foreground"
+                        : "bg-destructive text-white"
+                    )}
+                  >
+                    {queueCount}
+                  </span>
+                )}
+              </motion.button>
+            );
+          })}
+        </div>
+
+        {/* Meal type remains available without taking over the status sorting UI. */}
         <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="h-11 rounded-2xl glass-soft w-full">
+          <SelectTrigger
+            className="h-8 w-[118px] shrink-0 rounded-xl glass-soft border-0 px-2.5 text-[11px]"
+            aria-label="Meal type filter"
+          >
             <SelectValue placeholder="Type" />
           </SelectTrigger>
           <SelectContent>
@@ -1140,18 +1195,6 @@ export function MealsConfigView() {
                 {t.label}
               </SelectItem>
             ))}
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="h-11 rounded-2xl glass-soft w-full">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All status</SelectItem>
-            <SelectItem value="ACTIVE">Active</SelectItem>
-            <SelectItem value="INACTIVE">Inactive</SelectItem>
-            <SelectItem value="ARCHIVED">Archived</SelectItem>
-            <SelectItem value="QUEUED">Deletion Queue</SelectItem>
           </SelectContent>
         </Select>
       </div>

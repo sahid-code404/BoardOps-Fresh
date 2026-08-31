@@ -169,8 +169,7 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
   await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toHaveCount(0);
 
   // It remains recoverable from the explicit Deletion Queue view.
-  await page.getByRole("combobox").nth(1).click();
-  await page.getByRole("option", { name: "Deletion Queue", exact: true }).click();
+  await page.getByRole("button", { name: "Deletion Queue", exact: true }).click();
   await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Revive Runtime Test Snack Updated", exact: true }).click();
   await expect(page.getByText("Meal revived and returned to active configuration", { exact: true })).toBeVisible();
@@ -193,8 +192,7 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
     deletionEligibleYear: null,
   });
 
-  await page.getByRole("combobox").nth(1).click();
-  await page.getByRole("option", { name: "All status", exact: true }).click();
+  await page.getByRole("button", { name: "All", exact: true }).click();
   await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toBeVisible();
 
   // Expected failures are duplicate creation and immutable-name mutation only.
