@@ -22,14 +22,27 @@ test("Reports and Analytics preserve all five lazy report surfaces", async ({ pa
     const tablist = document.querySelector('[role="tablist"][aria-label="Section navigation"]') as HTMLElement | null;
     const heading = Array.from(document.querySelectorAll("h1")).find((node) => node.textContent?.includes("Reports & Analytics")) as HTMLElement | undefined;
     const tabRect = tablist?.getBoundingClientRect();
+    const iconRect = heading?.querySelector("svg")?.getBoundingClientRect();
+    const headingTextNode = heading
+      ? Array.from(heading.childNodes).find((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.includes("Reports & Analytics"))
+      : undefined;
+    let textRect: DOMRect | undefined;
+    if (headingTextNode) {
+      const range = document.createRange();
+      range.selectNodeContents(headingTextNode);
+      textRect = range.getBoundingClientRect();
+    }
+    const headingContentCenter = iconRect && textRect
+      ? (Math.min(iconRect.left, textRect.left) + Math.max(iconRect.right, textRect.right)) / 2
+      : -1;
     return {
       viewportCenter: window.innerWidth / 2,
       tabCenter: tabRect ? tabRect.left + tabRect.width / 2 : -1,
-      headingTextAlign: heading ? getComputedStyle(heading.parentElement ?? heading).textAlign : "",
+      headingContentCenter,
     };
   });
   expect(Math.abs(centeredGeometry.tabCenter - centeredGeometry.viewportCenter)).toBeLessThanOrEqual(16);
-  expect(centeredGeometry.headingTextAlign).toBe("center");
+  expect(Math.abs(centeredGeometry.headingContentCenter - centeredGeometry.viewportCenter)).toBeLessThanOrEqual(16);
 
   await expect(page.getByText("Total Expenses", { exact: true })).toBeVisible();
   await expect(page.getByText("₹5,100", { exact: true })).toBeVisible();
