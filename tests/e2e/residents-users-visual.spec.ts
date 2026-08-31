@@ -1,6 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-function userCard(page: Parameters<typeof test>[0] extends never ? never : any, name: string) {
+function userCard(page: Page, name: string) {
   return page
     .getByText(name, { exact: true })
     .locator("xpath=ancestor::*[.//button[@aria-label='User actions']][1]");
