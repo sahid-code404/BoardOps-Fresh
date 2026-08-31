@@ -52,6 +52,12 @@ type MealValues = {
   notes: string | null;
 };
 
+type MealEvidenceRow = {
+  meal_entries: number;
+  guest_meals: number;
+  meal_overrides: number;
+};
+
 export const mealConfigRoutes = new Hono<AppEnv>();
 
 function mappedMeal(row: MealRow) {
@@ -185,6 +191,26 @@ async function mealById(c: Context<AppEnv>, principal: AuthPrincipal, id: string
     .first<MealRow>();
 }
 
+async function mealEvidence(c: Context<AppEnv>, principal: AuthPrincipal, id: string): Promise<MealEvidenceRow> {
+  const row = await c.env.DB.prepare(
+    `SELECT
+       EXISTS(SELECT 1 FROM meal_entries WHERE institution_id = ? AND meal_id = ? LIMIT 1) AS meal_entries,
+       EXISTS(SELECT 1 FROM guest_meals WHERE institution_id = ? AND meal_id = ? LIMIT 1) AS guest_meals,
+       EXISTS(SELECT 1 FROM meal_overrides WHERE institution_id = ? AND meal_id = ? LIMIT 1) AS meal_overrides`,
+  )
+    .bind(
+      principal.institutionId,
+      id,
+      principal.institutionId,
+      id,
+      principal.institutionId,
+      id,
+    )
+    .first<MealEvidenceRow>();
+
+  return row ?? { meal_entries: 0, guest_meals: 0, meal_overrides: 0 };
+}
+
 async function writeAudit(
   c: Context<AppEnv>,
   principal: AuthPrincipal,
@@ -253,7 +279,7 @@ mealConfigRoutes.post("/meals/config", async (c) => {
 
   const body = await readBody(c);
   if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
-  const parsed = validateMealBody(body);
+  const parsed = validateMealBody({ ...body, status: "ACTIVE" });
   if (!parsed.values) return c.json({ success: false, error: parsed.error ?? "Invalid meal configuration" }, 400);
   const value = parsed.values;
 
@@ -313,18 +339,13 @@ mealConfigRoutes.put("/meals/config/:id", async (c) => {
 
   const body = await readBody(c);
   if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
-  const parsed = validateMealBody(body, existing);
+  const requestedName = stringValue(body, "name");
+  if (requestedName !== undefined && requestedName !== existing.name) {
+    return c.json({ success: false, error: "Meal internal name is immutable after creation" }, 400);
+  }
+  const parsed = validateMealBody({ ...body, name: existing.name }, existing);
   if (!parsed.values) return c.json({ success: false, error: parsed.error ?? "Invalid meal configuration" }, 400);
   const value = parsed.values;
-
-  if (value.name !== existing.name) {
-    const duplicate = await c.env.DB.prepare(
-      `SELECT id FROM meal_configurations WHERE institution_id = ? AND name = ? AND id <> ? LIMIT 1`,
-    )
-      .bind(principal.institutionId, value.name, id)
-      .first<{ id: string }>();
-    if (duplicate) return c.json({ success: false, error: "A meal with this name already exists" }, 409);
-  }
 
   const now = new Date().toISOString();
   await c.env.DB.prepare(
@@ -374,6 +395,17 @@ mealConfigRoutes.delete("/meals/config/:id", async (c) => {
   const id = c.req.param("id");
   const existing = await mealById(c, principal, id);
   if (!existing) return c.json({ success: false, error: "Meal not found" }, 404);
+
+  const evidence = await mealEvidence(c, principal, id);
+  if (evidence.meal_entries || evidence.guest_meals || evidence.meal_overrides) {
+    return c.json(
+      {
+        success: false,
+        error: "Meal has historical evidence and cannot be deleted. Archive it instead.",
+      },
+      409,
+    );
+  }
 
   await writeAudit(c, principal, "MEAL_CONFIGURATION_DELETED", id, { before: mappedMeal(existing) });
   await c.env.DB.prepare(
