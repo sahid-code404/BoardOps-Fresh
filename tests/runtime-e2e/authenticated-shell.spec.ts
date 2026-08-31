@@ -124,12 +124,9 @@ test("real local runtime loads a complete and usable golden-master administrator
 
   const notificationsButton = page.getByRole("button", { name: /^Notifications/ }).first();
   await notificationsButton.click();
-  await expect(notificationsButton).toHaveAttribute("aria-expanded", "true");
-  const recentNotifications = page.getByRole("dialog", { name: "Recent notifications" });
-  await expect(recentNotifications).toBeVisible();
-  await expect(recentNotifications.getByText("BoardOps local notice", { exact: true })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(recentNotifications).toHaveCount(0);
+  await expect(page).toHaveURL(/\/notifications(?:\?|$)/, { timeout: 5_000 });
+  await expect(page.getByRole("dialog", { name: "Recent notifications" })).toHaveCount(0);
+  await expect(page.getByText("BoardOps local notice", { exact: true }).first()).toBeVisible({ timeout: 5_000 });
 
   await page.getByRole("button", { name: "Open profile", exact: true }).click();
   await expect(page).toHaveURL(/\/profile(?:\?|$)/, { timeout: 5_000 });
