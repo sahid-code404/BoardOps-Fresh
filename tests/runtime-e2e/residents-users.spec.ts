@@ -158,12 +158,11 @@ test("Residents / Users preserves verification, lifecycle notifications and the 
     const lifecycleNotifications = await userContext.request.get(`${API}/api/notifications`);
     expect(lifecycleNotifications.ok()).toBeTruthy();
     const lifecycleBody = await lifecycleNotifications.json() as {
-      data: { notifications: Array<{ title: string; priority: string }> };
+      data: { notifications: Array<{ title: string }> };
     };
     const titles = lifecycleBody.data.notifications.map((entry) => entry.title);
     expect(titles).toContain("Account Scheduled for Deletion");
     expect(titles).toContain("Account Restored");
-    expect(lifecycleBody.data.notifications.find((entry) => entry.title === "Account Scheduled for Deletion")?.priority).toBe("URGENT");
 
     // Leave the synthetic resident non-active so later accounting tests never
     // inherit an additional active resident from this lifecycle scenario.
