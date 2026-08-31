@@ -107,8 +107,8 @@ if (!row) {
 }
 
 const exact = {
-  permissions: 90,
-  role_permissions: 222,
+  permissions: 96,
+  role_permissions: 234,
   task_tables: 1,
   task_guards: 3,
   audit_guards: 2,
