@@ -61,7 +61,19 @@ type LockedPeriodRow = {
   ends_on: string;
 };
 
-type ToggleEntryRow = EntryRow & MealRow;
+type ToggleEntryRow = EntryRow & {
+  meal_name: string;
+  meal_display_name: string;
+  meal_icon: string;
+  meal_color: string;
+  meal_type: string;
+  meal_default_state: "ON" | "OFF";
+  meal_cutoff_strategy: string;
+  meal_cutoff_offset_minutes: number;
+  meal_cutoff_time: string;
+  meal_start_time: string;
+  meal_end_time: string;
+};
 
 export const residentMealRoutes = new Hono<AppEnv>();
 
@@ -106,6 +118,23 @@ function dateCovered(date: string, ranges: Array<{ start_date?: string; end_date
     const end = range.end_date ?? range.ends_on ?? "";
     return start <= date && date <= end;
   });
+}
+
+function mealFromToggleRow(row: ToggleEntryRow): MealRow {
+  return {
+    id: row.meal_id,
+    name: row.meal_name,
+    display_name: row.meal_display_name,
+    icon: row.meal_icon,
+    color: row.meal_color,
+    meal_type: row.meal_type,
+    default_state: row.meal_default_state,
+    cutoff_strategy: row.meal_cutoff_strategy,
+    cutoff_offset_minutes: row.meal_cutoff_offset_minutes,
+    cutoff_time: row.meal_cutoff_time,
+    start_time: row.meal_start_time,
+    end_time: row.meal_end_time,
+  };
 }
 
 async function readPrincipalContext(c: Context<AppEnv>, principal: AuthPrincipal) {
@@ -286,14 +315,20 @@ residentMealRoutes.patch("/meals/toggle", async (c) => {
     `SELECT e.id, e.institution_id, e.user_id, e.meal_id, e.service_date, e.status,
             e.original_state, e.editable_until, e.locked, e.notes, e.updated_by,
             e.created_at, e.updated_at,
-            m.id, m.name, m.display_name, m.icon, m.color, m.meal_type, m.default_state,
-            m.cutoff_strategy, m.cutoff_offset_minutes, m.cutoff_time, m.start_time, m.end_time
+            m.name AS meal_name, m.display_name AS meal_display_name,
+            m.icon AS meal_icon, m.color AS meal_color, m.meal_type AS meal_type,
+            m.default_state AS meal_default_state,
+            m.cutoff_strategy AS meal_cutoff_strategy,
+            m.cutoff_offset_minutes AS meal_cutoff_offset_minutes,
+            m.cutoff_time AS meal_cutoff_time,
+            m.start_time AS meal_start_time, m.end_time AS meal_end_time
        FROM meal_entries e
        JOIN meal_configurations m ON m.id = e.meal_id AND m.institution_id = e.institution_id
       WHERE e.id = ? AND e.institution_id = ? AND e.user_id = ? AND m.status = 'ACTIVE'
       LIMIT 1`,
   ).bind(entryId, principal.institutionId, principal.id).first<ToggleEntryRow>();
   if (!entry) return c.json({ success: false, error: "Meal entry not found" }, 404);
+  const meal = mealFromToggleRow(entry);
 
   const [user, institution] = await Promise.all([
     c.env.DB.prepare(`SELECT created_at FROM users WHERE id = ? AND institution_id = ? LIMIT 1`)
@@ -304,7 +339,7 @@ residentMealRoutes.patch("/meals/toggle", async (c) => {
   if (!user) return c.json({ success: false, error: "User not found" }, 404);
   const timeZone = institution?.timezone || "UTC";
 
-  if (isBeforeEnrollment(entry.service_date, user.created_at, entry, timeZone)) {
+  if (isBeforeEnrollment(entry.service_date, user.created_at, meal, timeZone)) {
     return c.json({ success: false, error: "Meals before enrollment cannot be changed by the resident" }, 422);
   }
   if (entry.locked === 1 || entry.status === "LOCKED" || isLockedAt(entry.editable_until)) {
@@ -362,6 +397,6 @@ residentMealRoutes.patch("/meals/toggle", async (c) => {
 
   return c.json({
     success: true,
-    data: mappedEntry(updated, entry, false, new Date()),
+    data: mappedEntry(updated, meal, false, new Date()),
   });
 });
