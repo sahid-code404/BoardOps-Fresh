@@ -10,19 +10,38 @@ test("Reports and Analytics preserve all five lazy report surfaces", async ({ pa
   await sidebar.getByRole("button", { name: "Reports", exact: true }).click();
 
   await expect(page).toHaveURL(/\/reports(?:\?|$)/);
-  await expect(page.getByRole("heading", { name: "Reports & Analytics", exact: true })).toBeVisible();
+  const heading = page.getByRole("heading", { name: "Reports & Analytics", exact: true });
+  await expect(heading).toBeVisible();
   await expect(page.getByText("Financial, meal, purchase, and resident reports with CSV export.", { exact: true })).toBeVisible();
+
+  const reportNav = page.getByRole("tablist", { name: "Section navigation" });
+  await expect(reportNav).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Financial", exact: true })).toHaveAttribute("aria-selected", "true");
+
+  const centeredGeometry = await page.evaluate(() => {
+    const tablist = document.querySelector('[role="tablist"][aria-label="Section navigation"]') as HTMLElement | null;
+    const heading = Array.from(document.querySelectorAll("h1")).find((node) => node.textContent?.includes("Reports & Analytics")) as HTMLElement | undefined;
+    const tabRect = tablist?.getBoundingClientRect();
+    return {
+      viewportCenter: window.innerWidth / 2,
+      tabCenter: tabRect ? tabRect.left + tabRect.width / 2 : -1,
+      headingTextAlign: heading ? getComputedStyle(heading.parentElement ?? heading).textAlign : "",
+    };
+  });
+  expect(Math.abs(centeredGeometry.tabCenter - centeredGeometry.viewportCenter)).toBeLessThanOrEqual(16);
+  expect(centeredGeometry.headingTextAlign).toBe("center");
+
   await expect(page.getByText("Total Expenses", { exact: true })).toBeVisible();
   await expect(page.getByText("₹5,100", { exact: true })).toBeVisible();
   await expect(page.getByText("Net Position", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Export Bills CSV/ })).toBeVisible();
 
-  await page.getByRole("button", { name: "Meals", exact: true }).click();
+  await page.getByRole("tab", { name: "Meals", exact: true }).click();
   await expect(page.getByText("Total Meals", { exact: true })).toBeVisible();
   await expect(page.getByText("Per-Meal Breakdown", { exact: true })).toBeVisible();
   await expect(page.getByText("Breakfast", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Purchases", exact: true }).click();
+  await page.getByRole("tab", { name: "Purchases", exact: true }).click();
   await expect(page.getByText("Total Spend", { exact: true })).toBeVisible();
   await expect(page.getByText("Purchase Count", { exact: true })).toBeVisible();
   await expect(page.getByText("₹600", { exact: true }).first()).toBeVisible();
@@ -30,11 +49,11 @@ test("Reports and Analytics preserve all five lazy report surfaces", async ({ pa
   await expect(page.getByText("Local Market", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Export CSV/ })).toBeVisible();
 
-  await page.getByRole("button", { name: "Outstanding", exact: true }).click();
+  await page.getByRole("tab", { name: "Outstanding", exact: true }).click();
   await expect(page.getByText("Total Outstanding", { exact: true })).toBeVisible();
   await expect(page.getByText("Arjun Rao", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Residents", exact: true }).click();
+  await page.getByRole("tab", { name: "Residents", exact: true }).click();
   await expect(page.getByText("Residents", { exact: true })).toBeVisible();
   await expect(page.getByText("Riya Sen", { exact: true })).toBeVisible();
   await expect(page.getByText("OVERDUE", { exact: true })).toBeVisible();
@@ -57,6 +76,7 @@ for (const profile of [
     await page.setViewportSize({ width: profile.width, height: profile.height });
     await page.goto("/reports");
     await expect(page.getByRole("heading", { name: "Reports & Analytics", exact: true })).toBeVisible();
+    await expect(page.getByRole("tablist", { name: "Section navigation" })).toBeVisible();
     await expect(page.getByText("Total Expenses", { exact: true })).toBeVisible();
     const geometry = await page.evaluate(() => ({
       viewportWidth: window.innerWidth,
