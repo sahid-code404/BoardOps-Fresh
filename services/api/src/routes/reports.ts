@@ -15,6 +15,10 @@ type Period = {
 
 type ExpenseCategoryRow = { category: string; amount_minor: number | null };
 type MoneyCountRow = { amount_minor: number | null; count: number | null };
+type PurchaseSummaryRow = { amount_minor: number | null; count: number | null; item_count: number | null };
+type PurchaseProductRow = { name: string; unit: string; quantity_milli: number | null; spend_minor: number | null };
+type PurchaseCategoryRow = { category: string; amount_minor: number | null };
+type PurchaseVendorRow = { vendor: string; count: number | null; total_minor: number | null };
 type BillRow = {
   id: string;
   user_id: string;
@@ -160,7 +164,7 @@ async function buildFinancial(c: Context<AppEnv>, principal: AuthPrincipal, peri
   const timeZone = await institutionTimeZone(c, principal.institutionId);
   const prev = previousPeriod(period, timeZone);
 
-  const [expenseCategories, deposit, prevExpense, prevDeposit, bills, refunds] = await Promise.all([
+  const [expenseCategories, purchases, deposit, prevExpense, prevDeposit, bills, refunds] = await Promise.all([
     c.env.DB.prepare(
       `SELECT category, COALESCE(SUM(amount_minor), 0) AS amount_minor
          FROM expenses
@@ -169,6 +173,16 @@ async function buildFinancial(c: Context<AppEnv>, principal: AuthPrincipal, peri
         GROUP BY category
         ORDER BY amount_minor DESC, category ASC`,
     ).bind(principal.institutionId, period.start, period.end).all<ExpenseCategoryRow>(),
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(p.total_amount_minor), 0) AS amount_minor,
+              COUNT(*) AS count,
+              COALESCE(SUM(p.item_count), 0) AS item_count
+         FROM purchases p
+         JOIN expenses e ON e.id = p.expense_id AND e.institution_id = p.institution_id
+        WHERE p.institution_id = ?
+          AND p.purchase_date >= ? AND p.purchase_date < ?
+          AND e.status = 'APPROVED' AND e.purged_at IS NULL`,
+    ).bind(principal.institutionId, period.startDate, period.endDate).first<PurchaseSummaryRow>(),
     c.env.DB.prepare(
       `SELECT COALESCE(SUM(p.amount_minor), 0) AS amount_minor, COUNT(*) AS count
          FROM payments p
@@ -226,8 +240,10 @@ async function buildFinancial(c: Context<AppEnv>, principal: AuthPrincipal, peri
     period: { month: period.month, year: period.year },
     summary: {
       totalExpenses: minorToMajor(totalExpensesMinor),
-      totalPurchases: 0,
-      purchaseCount: 0,
+      // Purchases are also canonical Expense rows. Expose their subset for
+      // procurement transparency without subtracting them a second time below.
+      totalPurchases: minorToMajor(purchases?.amount_minor),
+      purchaseCount: safeInt(purchases?.count),
       totalDeposits: minorToMajor(totalDepositsMinor),
       depositCount: safeInt(deposit?.count),
       totalBills: minorToMajor(totalBillsMinor),
@@ -318,8 +334,6 @@ async function buildMeals(c: Context<AppEnv>, principal: AuthPrincipal, period: 
       totalMeals: perMeal.reduce((sum, meal) => sum + meal.on, 0),
       totalGuests: perMeal.reduce((sum, meal) => sum + meal.guests, 0),
       totalOverrides: safeInt(overrideTotal?.count),
-      // Holidays are owned by the later Settings/Holidays checkpoint. Reports
-      // stays truthful until that canonical table exists instead of inventing rows.
       holidayCount: 0,
       activeMealCount: configs.results.length,
     },
@@ -327,13 +341,81 @@ async function buildMeals(c: Context<AppEnv>, principal: AuthPrincipal, period: 
   };
 }
 
-function emptyPurchases(period: Period) {
+async function buildPurchases(c: Context<AppEnv>, principal: AuthPrincipal, period: Period) {
+  const [summary, topProducts, topCategories, vendorBreakdown] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT COALESCE(SUM(p.total_amount_minor), 0) AS amount_minor,
+              COUNT(*) AS count,
+              COALESCE(SUM(p.item_count), 0) AS item_count
+         FROM purchases p
+         JOIN expenses e ON e.id = p.expense_id AND e.institution_id = p.institution_id
+        WHERE p.institution_id = ?
+          AND p.purchase_date >= ? AND p.purchase_date < ?
+          AND e.status = 'APPROVED' AND e.purged_at IS NULL`,
+    ).bind(principal.institutionId, period.startDate, period.endDate).first<PurchaseSummaryRow>(),
+    c.env.DB.prepare(
+      `SELECT pi.product_name AS name, pi.unit,
+              COALESCE(SUM(pi.quantity_milli), 0) AS quantity_milli,
+              COALESCE(SUM(pi.total_minor), 0) AS spend_minor
+         FROM purchase_items pi
+         JOIN purchases p ON p.id = pi.purchase_id AND p.institution_id = pi.institution_id
+         JOIN expenses e ON e.id = p.expense_id AND e.institution_id = p.institution_id
+        WHERE p.institution_id = ?
+          AND p.purchase_date >= ? AND p.purchase_date < ?
+          AND e.status = 'APPROVED' AND e.purged_at IS NULL
+        GROUP BY pi.product_name, pi.unit
+        ORDER BY spend_minor DESC, pi.product_name ASC, pi.unit ASC
+        LIMIT 10`,
+    ).bind(principal.institutionId, period.startDate, period.endDate).all<PurchaseProductRow>(),
+    c.env.DB.prepare(
+      `SELECT pi.category, COALESCE(SUM(pi.total_minor), 0) AS amount_minor
+         FROM purchase_items pi
+         JOIN purchases p ON p.id = pi.purchase_id AND p.institution_id = pi.institution_id
+         JOIN expenses e ON e.id = p.expense_id AND e.institution_id = p.institution_id
+        WHERE p.institution_id = ?
+          AND p.purchase_date >= ? AND p.purchase_date < ?
+          AND e.status = 'APPROVED' AND e.purged_at IS NULL
+        GROUP BY pi.category
+        ORDER BY amount_minor DESC, pi.category ASC`,
+    ).bind(principal.institutionId, period.startDate, period.endDate).all<PurchaseCategoryRow>(),
+    c.env.DB.prepare(
+      `SELECT p.vendor, COUNT(*) AS count,
+              COALESCE(SUM(p.total_amount_minor), 0) AS total_minor
+         FROM purchases p
+         JOIN expenses e ON e.id = p.expense_id AND e.institution_id = p.institution_id
+        WHERE p.institution_id = ?
+          AND p.purchase_date >= ? AND p.purchase_date < ?
+          AND e.status = 'APPROVED' AND e.purged_at IS NULL
+        GROUP BY p.vendor
+        ORDER BY total_minor DESC, p.vendor ASC`,
+    ).bind(principal.institutionId, period.startDate, period.endDate).all<PurchaseVendorRow>(),
+  ]);
+
+  const totalSpendMinor = safeInt(summary?.amount_minor);
+  const purchaseCount = safeInt(summary?.count);
   return {
     period: { month: period.month, year: period.year },
-    summary: { totalSpend: 0, purchaseCount: 0, itemCount: 0, avgPurchaseValue: 0 },
-    topProducts: [] as Array<{ name: string; quantity: number; spend: number; unit: string }>,
-    topCategories: [] as Array<{ category: string; amount: number }>,
-    vendorBreakdown: [] as Array<{ vendor: string; count: number; total: number }>,
+    summary: {
+      totalSpend: minorToMajor(totalSpendMinor),
+      purchaseCount,
+      itemCount: safeInt(summary?.item_count),
+      avgPurchaseValue: purchaseCount > 0 ? minorToMajor(Math.round(totalSpendMinor / purchaseCount)) : 0,
+    },
+    topProducts: topProducts.results.map((row) => ({
+      name: row.name,
+      quantity: safeInt(row.quantity_milli) / 1000,
+      spend: minorToMajor(row.spend_minor),
+      unit: row.unit,
+    })),
+    topCategories: topCategories.results.map((row) => ({
+      category: row.category,
+      amount: minorToMajor(row.amount_minor),
+    })),
+    vendorBreakdown: vendorBreakdown.results.map((row) => ({
+      vendor: row.vendor,
+      count: safeInt(row.count),
+      total: minorToMajor(row.total_minor),
+    })),
   };
 }
 
@@ -381,8 +463,6 @@ function outstandingData(rows: BillRow[], period: Period) {
       currentBill: minorToMajor(bill.total_amount_minor),
       paidAmount: minorToMajor(bill.paid_amount_minor),
       dueAmount: minorToMajor(dueMinor),
-      // The rewrite deliberately removed a duplicated mutable previous-due
-      // column. Previous-period due remains a report-level derived aggregate.
       previousDue: 0,
       totalOutstanding: minorToMajor(dueMinor),
       daysOutstanding,
@@ -545,7 +625,7 @@ reportRoutes.get("/reports/purchases", async (c) => {
   if (auth instanceof Response) return auth;
   const period = await parsePeriod(c, auth.institutionId);
   if (period instanceof Response) return period;
-  return c.json({ success: true, data: emptyPurchases(period) });
+  return c.json({ success: true, data: await buildPurchases(c, auth, period) });
 });
 
 reportRoutes.get("/reports/outstanding", async (c) => {
@@ -571,8 +651,36 @@ reportRoutes.get("/reports/export", async (c) => {
   const monthName = MONTH_NAMES[period.month] ?? `Month-${period.month + 1}`;
 
   if (type === "purchases") {
+    const result = await c.env.DB.prepare(
+      `SELECT p.purchase_date, p.vendor, pi.product_name, pi.category,
+              pi.quantity_milli, pi.unit, pi.rate_minor, pi.total_minor,
+              u.name AS created_by_name
+         FROM purchases p
+         JOIN expenses e ON e.id = p.expense_id AND e.institution_id = p.institution_id
+         JOIN purchase_items pi ON pi.purchase_id = p.id AND pi.institution_id = p.institution_id
+         LEFT JOIN users u ON u.id = p.created_by
+        WHERE p.institution_id = ?
+          AND p.purchase_date >= ? AND p.purchase_date < ?
+          AND e.status = 'APPROVED' AND e.purged_at IS NULL
+        ORDER BY p.purchase_date DESC, p.id ASC, pi.id ASC`,
+    ).bind(auth.institutionId, period.startDate, period.endDate).all<{
+      purchase_date: string; vendor: string; product_name: string; category: string;
+      quantity_milli: number; unit: string; rate_minor: number; total_minor: number;
+      created_by_name: string | null;
+    }>();
     const headers = ["Date", "Vendor", "Item", "Category", "Quantity", "Unit", "Rate", "Total", "CreatedBy"];
-    return csvResponse(headers, [], `purchases-${monthName}-${period.year}.csv`);
+    const rows = result.results.map((row) => ({
+      Date: row.purchase_date,
+      Vendor: row.vendor,
+      Item: row.product_name,
+      Category: row.category,
+      Quantity: row.quantity_milli / 1000,
+      Unit: row.unit,
+      Rate: minorToMajor(row.rate_minor),
+      Total: minorToMajor(row.total_minor),
+      CreatedBy: row.created_by_name ?? "",
+    }));
+    return csvResponse(headers, rows, `purchases-${monthName}-${period.year}.csv`);
   }
 
   if (type === "expenses") {
