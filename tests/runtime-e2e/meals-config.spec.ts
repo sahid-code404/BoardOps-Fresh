@@ -168,8 +168,9 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
   await page.reload();
   await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toHaveCount(0);
 
-  // It remains recoverable from the explicit Deletion Queue view.
-  await page.getByRole("button", { name: "Deletion Queue", exact: true }).click();
+  // It remains recoverable from the explicit Deletion Queue view. The visual
+  // count badge is part of the button's accessible name, so match the label prefix.
+  await page.getByRole("button", { name: /^Deletion Queue/ }).click();
   await expect(page.getByText("Runtime Test Snack Updated", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Revive Runtime Test Snack Updated", exact: true }).click();
   await expect(page.getByText("Meal revived and returned to active configuration", { exact: true })).toBeVisible();
