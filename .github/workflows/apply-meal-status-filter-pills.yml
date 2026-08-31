@@ -1,0 +1,63 @@
+name: Apply meal status pill filter UI
+
+on:
+  push:
+    branches:
+      - fix/meal-status-filter-pills
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/meal-status-filter-pills
+          fetch-depth: 0
+
+      - name: Replace meal status dropdown with pills
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              if old not in text:
+                  raise SystemExit(f"Missing expected block: {label}")
+              return text.replace(old, new, 1)
+
+          view_path = Path("apps/web/src/components/features/meals/meals-config-view.tsx")
+          view = view_path.read_text()
+
+          old_filters = '''      <div className="flex items-center gap-2">\n        <Select value={typeFilter} onValueChange={setTypeFilter}>\n          <SelectTrigger className="h-11 rounded-2xl glass-soft w-full">\n            <SelectValue placeholder="Type" />\n          </SelectTrigger>\n          <SelectContent>\n            <SelectItem value="ALL">All types</SelectItem>\n            {MEAL_TYPES.map((t) => (\n              <SelectItem key={t.value} value={t.value}>\n                {t.label}\n              </SelectItem>\n            ))}\n          </SelectContent>\n        </Select>\n        <Select value={statusFilter} onValueChange={setStatusFilter}>\n          <SelectTrigger className="h-11 rounded-2xl glass-soft w-full">\n            <SelectValue placeholder="Status" />\n          </SelectTrigger>\n          <SelectContent>\n            <SelectItem value="ALL">All status</SelectItem>\n            <SelectItem value="ACTIVE">Active</SelectItem>\n            <SelectItem value="INACTIVE">Inactive</SelectItem>\n            <SelectItem value="ARCHIVED">Archived</SelectItem>\n            <SelectItem value="QUEUED">Deletion Queue</SelectItem>\n          </SelectContent>\n        </Select>\n      </div>'''
+
+          new_filters = '''      <div className="flex items-center gap-2 min-w-0">\n        {/* Status pills mirror the compact Users-page sorting interaction. */}\n        <div\n          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar pb-1"\n          role="group"\n          aria-label="Meal status filters"\n        >\n          {[\n            { key: "ALL", label: "All" },\n            { key: "ACTIVE", label: "Active" },\n            { key: "INACTIVE", label: "Inactive" },\n            { key: "ARCHIVED", label: "Archived" },\n            { key: "QUEUED", label: "Deletion Queue" },\n          ].map((filter) => {\n            const active = statusFilter === filter.key;\n            const queueCount =\n              filter.key === "QUEUED"\n                ? (data?.filter((meal) => Boolean(meal.deletionRequestedAt)).length ?? 0)\n                : 0;\n\n            return (\n              <motion.button\n                key={filter.key}\n                type="button"\n                whileTap={{ scale: 0.96 }}\n                onClick={() => setStatusFilter(filter.key)}\n                aria-pressed={active}\n                className={cn(\n                  "flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 text-[11px] font-medium transition-all",\n                  active\n                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"\n                    : "glass-soft text-muted-foreground hover:text-foreground"\n                )}\n              >\n                <span>{filter.label}</span>\n                {filter.key === "QUEUED" && queueCount > 0 && (\n                  <span\n                    className={cn(\n                      "min-w-[16px] rounded-full px-1.5 py-0.5 text-center text-[9px] font-bold leading-none",\n                      active\n                        ? "bg-primary-foreground/20 text-primary-foreground"\n                        : "bg-destructive text-white"\n                    )}\n                  >\n                    {queueCount}\n                  </span>\n                )}\n              </motion.button>\n            );\n          })}\n        </div>\n\n        {/* Meal type remains available without taking over the status sorting UI. */}\n        <Select value={typeFilter} onValueChange={setTypeFilter}>\n          <SelectTrigger\n            className="h-8 w-[118px] shrink-0 rounded-xl glass-soft border-0 px-2.5 text-[11px]"\n            aria-label="Meal type filter"\n          >\n            <SelectValue placeholder="Type" />\n          </SelectTrigger>\n          <SelectContent>\n            <SelectItem value="ALL">All types</SelectItem>\n            {MEAL_TYPES.map((t) => (\n              <SelectItem key={t.value} value={t.value}>\n                {t.label}\n              </SelectItem>\n            ))}\n          </SelectContent>\n        </Select>\n      </div>'''
+
+          view = replace_once(view, old_filters, new_filters, "meal filter bar")
+          view_path.write_text(view)
+
+          test_path = Path("tests/runtime-e2e/meals-config.spec.ts")
+          test = test_path.read_text()
+          old_queue = '''  await page.getByRole("combobox").nth(1).click();\n  await page.getByRole("option", { name: "Deletion Queue", exact: true }).click();'''
+          new_queue = '''  await page.getByRole("button", { name: "Deletion Queue", exact: true }).click();'''
+          test = replace_once(test, old_queue, new_queue, "queue filter interaction")
+
+          old_all = '''  await page.getByRole("combobox").nth(1).click();\n  await page.getByRole("option", { name: "All status", exact: true }).click();'''
+          new_all = '''  await page.getByRole("button", { name: "All", exact: true }).click();'''
+          test = replace_once(test, old_all, new_all, "all-status filter interaction")
+          test_path.write_text(test)
+
+      - name: Commit implementation and remove one-shot workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/apply-meal-status-filter-pills.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/components/features/meals/meals-config-view.tsx \
+                  tests/runtime-e2e/meals-config.spec.ts \
+                  .github/workflows/apply-meal-status-filter-pills.yml
+          git commit -m "fix: use status pills for meal configuration filters"
+          git push origin HEAD:fix/meal-status-filter-pills
