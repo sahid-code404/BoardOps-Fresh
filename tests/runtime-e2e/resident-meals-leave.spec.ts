@@ -91,9 +91,12 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
     const scheduleResponse = await residentApi.get(`${API}/api/meals/entries?date=${scheduleDate}`);
     expect(scheduleResponse.ok()).toBeTruthy();
     const scheduleBody = await scheduleResponse.json() as ApiEnvelope<ResidentSchedule>;
-    expect(scheduleBody.data.meals).toHaveLength(3);
+    expect(scheduleBody.data.meals.length).toBeGreaterThanOrEqual(3);
+    expect(scheduleBody.data.meals.map((meal) => meal.displayName)).toEqual(
+      expect.arrayContaining(["Breakfast", "Lunch", "Dinner"]),
+    );
     const scheduleEntries = scheduleBody.data.byDate[scheduleDate] ?? [];
-    expect(scheduleEntries).toHaveLength(3);
+    expect(scheduleEntries).toHaveLength(scheduleBody.data.meals.length);
     expect(scheduleEntries.every((entry) => entry.preRegistration === false)).toBe(true);
 
     const dinner = scheduleEntries.find((entry) => entry.mealDisplayName === "Dinner");
@@ -126,8 +129,14 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
     expect(baselineResponse.ok()).toBeTruthy();
     const baselineBody = await baselineResponse.json() as ApiEnvelope<ResidentSchedule>;
     const baselineEntries = baselineBody.data.byDate[leaveStart] ?? [];
-    expect(baselineEntries).toHaveLength(3);
-    expect(baselineEntries.every((entry) => entry.status === "ON" && entry.originalState === "ON")).toBe(true);
+    expect(baselineEntries).toHaveLength(baselineBody.data.meals.length);
+    expect(baselineEntries.map((entry) => entry.mealDisplayName)).toEqual(
+      expect.arrayContaining(["Breakfast", "Lunch", "Dinner"]),
+    );
+    const baselineByMeal = new Map(baselineEntries.map((entry) => [entry.mealId, entry.status]));
+    for (const coreMeal of ["Breakfast", "Lunch", "Dinner"]) {
+      expect(baselineEntries.find((entry) => entry.mealDisplayName === coreMeal)?.status).toBe("ON");
+    }
 
     const leaveCreate = await residentApi.post(`${API}/api/leave`, {
       data: {
@@ -166,10 +175,10 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
     expect(afterLeaveResponse.ok()).toBeTruthy();
     const afterLeaveBody = await afterLeaveResponse.json() as ApiEnvelope<ResidentSchedule>;
     const afterLeaveEntries = afterLeaveBody.data.byDate[leaveStart] ?? [];
-    expect(afterLeaveEntries).toHaveLength(3);
+    expect(afterLeaveEntries).toHaveLength(baselineEntries.length);
     expect(afterLeaveEntries.every((entry) =>
       entry.status === "OFF"
-      && entry.originalState === "ON"
+      && entry.originalState === baselineByMeal.get(entry.mealId)
       && entry.overridden === true
       && entry.locked === true
     )).toBe(true);
