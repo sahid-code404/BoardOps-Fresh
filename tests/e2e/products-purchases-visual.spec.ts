@@ -1,29 +1,22 @@
 import { expect, test } from "@playwright/test";
 
-test("Expenses procurement hub exposes purchases and product catalog surfaces", async ({ page }) => {
+test("Expenses hub exposes the expenses-only surface and hides retired procurement tabs", async ({ page }) => {
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
   await page.goto("/expenses");
   const main = page.locator("main");
 
-  await expect(main.getByRole("tab", { name: "Expenses", exact: true })).toBeVisible();
-  await expect(main.getByRole("tab", { name: "Purchases", exact: true })).toBeVisible();
-  await expect(main.getByRole("tab", { name: "Products", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Expenses", exact: true })).toBeVisible();
+  await expect(main.getByRole("button", { name: "Add Expense", exact: true })).toBeVisible();
+  await expect(main.getByText("Total Entries", { exact: true })).toBeVisible();
 
-  await main.getByRole("tab", { name: "Purchases", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Purchases & Shopping", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "New Purchase", exact: true })).toBeVisible();
-  await expect(page.getByText("Local Market", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("₹600", { exact: true }).first()).toBeVisible();
-
-  await main.getByRole("tab", { name: "Products", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Product Catalog", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Manage Units", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Add Product", exact: true })).toBeVisible();
-  await expect(page.getByText("Rice", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("Cooking Oil", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("Eggs", { exact: true }).first()).toBeVisible();
+  // Purchases and Products were intentionally removed from the Expenses UX.
+  await expect(main.getByRole("tab", { name: "Expenses", exact: true })).toHaveCount(0);
+  await expect(main.getByRole("tab", { name: "Purchases", exact: true })).toHaveCount(0);
+  await expect(main.getByRole("tab", { name: "Products", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Purchases & Shopping", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Product Catalog", exact: true })).toHaveCount(0);
 
   const health = await page.evaluate(() => ({
     viewportWidth: window.innerWidth,
