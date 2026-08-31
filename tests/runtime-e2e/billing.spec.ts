@@ -54,7 +54,16 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
     });
     const julyAfterRestore = await request("/api/bills?month=6&year=2026");
 
-    const currentReadiness = await request("/api/billing-cycles/readiness?month=7&year=2026");
+    // Keep this guard independent of the calendar date on which CI happens to
+    // run. A period two UTC months ahead is necessarily future for every
+    // supported institution timezone, including around month boundaries.
+    const futurePeriod = new Date();
+    futurePeriod.setUTCDate(1);
+    futurePeriod.setUTCHours(0, 0, 0, 0);
+    futurePeriod.setUTCMonth(futurePeriod.getUTCMonth() + 2);
+    const futureReadiness = await request(
+      `/api/billing-cycles/readiness?month=${futurePeriod.getUTCMonth()}&year=${futurePeriod.getUTCFullYear()}`,
+    );
     const closedJulyGenerate = await request("/api/bills", {
       method: "POST",
       body: JSON.stringify({ month: 6, year: 2026 }),
@@ -71,7 +80,7 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
       julyQueue,
       julyRestored,
       julyAfterRestore,
-      currentReadiness,
+      futureReadiness,
       closedJulyGenerate,
     };
   });
@@ -146,9 +155,9 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
     expect.arrayContaining([expect.objectContaining({ id: "bill_arjun_2026_07_local", deletedAt: null })]),
   );
 
-  expect(result.currentReadiness.status).toBe(200);
-  expect(result.currentReadiness.body.data.canClose).toBe(false);
-  expect(result.currentReadiness.body.data.items).toEqual(
+  expect(result.futureReadiness.status).toBe(200);
+  expect(result.futureReadiness.body.data.canClose).toBe(false);
+  expect(result.futureReadiness.body.data.items).toEqual(
     expect.arrayContaining([expect.objectContaining({ key: "period", status: "error" })]),
   );
 

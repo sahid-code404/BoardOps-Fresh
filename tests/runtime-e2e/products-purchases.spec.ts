@@ -8,7 +8,7 @@ const RESIDENT_EMAIL = "browser.procurement@example.test";
 const RESIDENT_PASSWORD = "BoardOps@Procurement#2026!P23";
 const REGISTRATION_IP = "198.51.100.23";
 
-test("Products and Purchases use immutable linked accounting evidence and least privilege", async ({ browser }) => {
+test("Procurement evidence stays durable and least-privileged while Expenses is the only visible UI", async ({ browser }) => {
   test.setTimeout(90_000);
 
   const adminContext = await browser.newContext({ viewport: { width: 1366, height: 900 } });
@@ -178,15 +178,13 @@ test("Products and Purchases use immutable linked accounting evidence and least 
 
     await adminPage.goto(`${WEB}/expenses`);
     const main = adminPage.locator("main");
-    await expect(main.getByRole("tab", { name: "Expenses", exact: true })).toBeVisible();
-    await expect(main.getByRole("tab", { name: "Purchases", exact: true })).toBeVisible();
-    await expect(main.getByRole("tab", { name: "Products", exact: true })).toBeVisible();
-    await main.getByRole("tab", { name: "Purchases", exact: true }).click();
-    await expect(adminPage.getByRole("heading", { name: "Purchases & Shopping", exact: true })).toBeVisible();
-    await expect(adminPage.getByText("Runtime Procurement Market", { exact: true }).first()).toBeVisible();
-    await main.getByRole("tab", { name: "Products", exact: true }).click();
-    await expect(adminPage.getByRole("heading", { name: "Product Catalog", exact: true })).toBeVisible();
-    await expect(adminPage.getByText("Rice", { exact: true }).first()).toBeVisible();
+    await expect(adminPage.getByRole("heading", { name: "Expenses", exact: true })).toBeVisible();
+    await expect(main.getByRole("button", { name: "Add Expense", exact: true })).toBeVisible();
+    await expect(main.getByRole("tab", { name: "Expenses", exact: true })).toHaveCount(0);
+    await expect(main.getByRole("tab", { name: "Purchases", exact: true })).toHaveCount(0);
+    await expect(main.getByRole("tab", { name: "Products", exact: true })).toHaveCount(0);
+    await expect(adminPage.getByRole("heading", { name: "Purchases & Shopping", exact: true })).toHaveCount(0);
+    await expect(adminPage.getByRole("heading", { name: "Product Catalog", exact: true })).toHaveCount(0);
 
     const registration = await residentApi.post(`${API}/api/auth/register`, {
       headers: { "cf-connecting-ip": REGISTRATION_IP },

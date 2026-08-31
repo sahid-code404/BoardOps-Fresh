@@ -11,7 +11,7 @@ const ADMIN_ROUTES = [
   ["/kitchen", "Meal Counts"],
   ["/billing", "Billing & Closing"],
   ["/payments", "Payments & Wallet"],
-  ["/expenses", "Expenses & Procurement"],
+  ["/expenses", "Expenses"],
   ["/funds", "Funds Overview"],
   ["/monthly-closing", "Monthly Closing"],
   ["/formula-engine", "Formula Engine"],

@@ -95,6 +95,9 @@ test("RBAC is database-driven, cookie-only and fail-closed", async ({ browser })
 
     // Meal definitions are resident-safe read data used by the resident meal
     // experience, but configuration mutations remain an administrator concern.
+    // A meal in the deletion queue intentionally remains ACTIVE through its
+    // eligible billing month, so this assertion must not assume only the three
+    // seeded configurations can ever be visible.
     const residentMealRead = await residentApi.get(`${API}/api/meals/config`);
     expect(residentMealRead.ok()).toBeTruthy();
     const residentMealBody = await residentMealRead.json() as {
@@ -102,7 +105,10 @@ test("RBAC is database-driven, cookie-only and fail-closed", async ({ browser })
       data: Array<{ name: string; status: string }>;
     };
     expect(residentMealBody.success).toBe(true);
-    expect(residentMealBody.data).toHaveLength(3);
+    expect(residentMealBody.data.length).toBeGreaterThanOrEqual(3);
+    expect(residentMealBody.data.map((meal) => meal.name)).toEqual(
+      expect.arrayContaining(["breakfast", "lunch", "dinner"]),
+    );
     expect(residentMealBody.data.every((meal) => meal.status === "ACTIVE")).toBe(true);
 
     const deniedMealCreate = await residentApi.post(`${API}/api/meals/config`, {

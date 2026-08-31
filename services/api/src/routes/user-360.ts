@@ -195,6 +195,12 @@ user360Routes.get("/users/:id/360", async (c) => {
     .first<User360Row>();
 
   if (!user) return c.json({ success: false, error: "User not found" }, 404);
+  if (user.role !== "USER") {
+    return c.json({
+      success: false,
+      error: "Resident 360° is available only for resident accounts. Administrators do not have a resident Fund Account.",
+    }, 422);
+  }
 
   const current = currentPeriodInTimeZone(user.institution_timezone || "UTC");
   const following = nextMonth(current);

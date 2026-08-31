@@ -72,6 +72,18 @@ test("Expenses renders real D1 data and preserves accounting history through rep
       }),
     });
 
+    const missingQuantity = await request("/api/expenses", {
+      method: "POST",
+      headers: { "Idempotency-Key": "expenses-admin-e2e-missing-quantity-v1" },
+      body: JSON.stringify({
+        title: "Missing quantity expense",
+        category: "GENERAL",
+        unit: "piece",
+        amount: 10,
+        expenseDate: "2026-08-25T12:00:00.000Z",
+      }),
+    });
+
     const createKey = "expenses-admin-e2e-create-v1";
     const createPayload = {
       title: "Runtime groceries",
@@ -94,6 +106,15 @@ test("Expenses renders real D1 data and preserves accounting history through rep
     });
 
     const createdId = created.body?.data?.id as string;
+    const missingEditReason = await request(`/api/expenses/${createdId}`, {
+      method: "PUT",
+      headers: { "Idempotency-Key": "expenses-admin-e2e-missing-reason-v1" },
+      body: JSON.stringify({
+        ...createPayload,
+        title: "Runtime groceries invalid correction",
+        amount: 222.22,
+      }),
+    });
     const replacement = await request(`/api/expenses/${createdId}`, {
       method: "PUT",
       headers: { "Idempotency-Key": "expenses-admin-e2e-replace-v1" },
@@ -102,6 +123,7 @@ test("Expenses renders real D1 data and preserves accounting history through rep
         title: "Runtime groceries corrected",
         amount: 222.22,
         description: "Replacement accounting proof",
+        reason: "Correct runtime expense amount",
       }),
     });
     const replacementId = replacement.body?.data?.id as string;
@@ -150,8 +172,10 @@ test("Expenses renders real D1 data and preserves accounting history through rep
       seeded,
       noKey,
       fractionalPaise,
+      missingQuantity,
       created,
       replay,
+      missingEditReason,
       replacement,
       originalAfterReplacement,
       approvedAfterReplacement,
@@ -179,6 +203,8 @@ test("Expenses renders real D1 data and preserves accounting history through rep
   expect(result.noKey.body).toMatchObject({ success: false, error: "Idempotency-Key header is required" });
   expect(result.fractionalPaise.status).toBe(422);
   expect(String(result.fractionalPaise.body.error)).toContain("at most two decimal places");
+  expect(result.missingQuantity.status).toBe(422);
+  expect(String(result.missingQuantity.body.error)).toContain("Quantity is required");
 
   expect(result.created.status).toBe(201);
   expect(result.created.body).toMatchObject({
@@ -188,6 +214,8 @@ test("Expenses renders real D1 data and preserves accounting history through rep
   expect(result.replay.status).toBe(200);
   expect(result.replay.body.data.id).toBe(result.created.body.data.id);
   expect(result.replay.body.data.amount).toBe(123.45);
+  expect(result.missingEditReason.status).toBe(422);
+  expect(String(result.missingEditReason.body.error)).toContain("Edit reason is required");
 
   expect(result.replacement.status).toBe(200);
   expect(result.replacement.body.data.id).not.toBe(result.created.body.data.id);

@@ -29,6 +29,10 @@ type ExpenseRow = {
   purged_at: string | null;
   created_at: string;
   updated_at: string;
+  proof_key: string | null;
+  proof_name: string | null;
+  proof_content_type: string | null;
+  proof_size: number | null;
 };
 
 type ExpenseWithCreatorRow = ExpenseRow & {
@@ -45,6 +49,9 @@ type ExpenseInput = {
   expenseDate: string;
   paidTo: string | null;
 };
+
+const EXPENSE_PROOF_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+const MAX_EXPENSE_PROOF_BYTES = 8 * 1024 * 1024;
 
 export const expenseRoutes = new Hono<AppEnv>();
 
@@ -86,6 +93,12 @@ function expenseResponse(row: ExpenseWithCreatorRow) {
     deletedAt: row.deletion_scheduled_for,
     deletionReason: row.deletion_reason,
     user: row.creator_name ? { name: row.creator_name } : null,
+    proof: row.proof_key ? {
+      name: row.proof_name,
+      contentType: row.proof_content_type,
+      size: row.proof_size,
+      url: `/api/expenses/${row.id}/proof`,
+    } : null,
   };
 }
 
@@ -109,7 +122,7 @@ function normalizeOptionalText(value: unknown, maxLength: number): string | null
 function parseExpenseInput(body: Record<string, unknown>): ExpenseInput | string {
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const category = typeof body.category === "string" ? body.category.trim().toUpperCase() : "";
-  const quantity = typeof body.quantity === "number" ? body.quantity : 1;
+  const quantity = typeof body.quantity === "number" ? body.quantity : Number.NaN;
   const unit = typeof body.unit === "string" ? body.unit.trim() : "";
   const amountMinor = majorToMinor(body.amount);
   const expenseDateRaw = typeof body.expenseDate === "string" ? body.expenseDate.trim() : "";
@@ -117,7 +130,7 @@ function parseExpenseInput(body: Record<string, unknown>): ExpenseInput | string
 
   if (title.length < 2 || title.length > 160) return "Item name must be 2 to 160 characters";
   if (category.length < 2 || category.length > 64) return "Category must be 2 to 64 characters";
-  if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000) return "Quantity must be positive";
+  if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000) return "Quantity is required and must be positive";
   if (unit.length < 1 || unit.length > 32) return "Unit is required";
   if (amountMinor === null) return "Cost must be positive and have at most two decimal places";
   if (!expenseDateRaw || Number.isNaN(parsedDate.getTime())) return "Expense date is invalid";
@@ -419,6 +432,10 @@ expenseRoutes.put("/expenses/:id", async (c) => {
   if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
   const parsed = parseExpenseInput(body);
   if (typeof parsed === "string") return c.json({ success: false, error: parsed }, 422);
+  const editReason = normalizeOptionalText(body.reason, 1000);
+  if (!editReason || editReason.length < 3) {
+    return c.json({ success: false, error: "Edit reason is required and must be at least 3 characters" }, 422);
+  }
 
   const institution = await institutionContext(c, principal.institutionId);
   const oldPeriodError = await requireOpenExpensePeriod(
@@ -437,13 +454,15 @@ expenseRoutes.put("/expenses/:id", async (c) => {
       `INSERT INTO expenses (
          id, institution_id, title, category, quantity, unit, amount_minor,
          currency_code, description, expense_date, paid_to, idempotency_key,
-         status, replaces_expense_id, created_by, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?, ?, ?)`,
+         status, replaces_expense_id, created_by, proof_key, proof_name,
+         proof_content_type, proof_size, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       replacementId, principal.institutionId, parsed.title, parsed.category,
       parsed.quantity, parsed.unit, parsed.amountMinor, institution.currencyCode,
       parsed.description, parsed.expenseDate, parsed.paidTo, idempotencyKey,
-      existing.id, principal.id, now, now,
+      existing.id, principal.id, existing.proof_key, existing.proof_name,
+      existing.proof_content_type, existing.proof_size, now, now,
     ),
     c.env.DB.prepare(
       `UPDATE expenses
@@ -452,13 +471,85 @@ expenseRoutes.put("/expenses/:id", async (c) => {
     ).bind(replacementId, now, existing.id, principal.institutionId),
   ]);
 
-  await audit(c, principal, "EXPENSE_REPLACE", existing.id, null, {
+  await audit(c, principal, "EXPENSE_REPLACE", existing.id, editReason, {
     replacementExpenseId: replacementId,
     oldAmountMinor: existing.amount_minor,
     newAmountMinor: parsed.amountMinor,
   });
   const replacement = await loadExpense(c, principal, replacementId);
   return c.json({ success: true, data: expenseResponse(replacement!) });
+});
+
+expenseRoutes.post("/expenses/:id/proof", async (c) => {
+  const principal = await principalFor(c);
+  if (principal instanceof Response) return principal;
+  const existing = await loadExpense(c, principal, c.req.param("id"));
+  if (!existing || existing.purged_at) return c.json({ success: false, error: "Expense not found" }, 404);
+  if (existing.status !== "APPROVED") {
+    return c.json({ success: false, error: "Proof can only be attached to an active approved expense" }, 422);
+  }
+
+  let formData: FormData;
+  try {
+    formData = await c.req.formData();
+  } catch {
+    return c.json({ success: false, error: "Invalid expense proof upload" }, 400);
+  }
+  const proof = formData.get("proof");
+  if (!(proof instanceof File)) return c.json({ success: false, error: "Choose a proof file to upload" }, 400);
+  if (!EXPENSE_PROOF_TYPES.has(proof.type)) {
+    return c.json({ success: false, error: "Proof must be JPEG, PNG, WebP, or PDF" }, 415);
+  }
+  if (proof.size <= 0 || proof.size > MAX_EXPENSE_PROOF_BYTES) {
+    return c.json({ success: false, error: "Proof must be smaller than 8 MB" }, 413);
+  }
+
+  const now = new Date().toISOString();
+  const key = `expense-proofs/${principal.institutionId}/${existing.id}/${crypto.randomUUID()}`;
+  await c.env.FILES.put(key, await proof.arrayBuffer(), {
+    httpMetadata: { contentType: proof.type, cacheControl: "private, max-age=300" },
+  });
+  if (existing.proof_key && existing.proof_key !== key) {
+    // Replacement expenses deliberately inherit the original proof reference.
+    // Never delete an R2 object while another historical expense row still
+    // points at it, otherwise the immutable REVERSED evidence becomes broken.
+    const sharedProof = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS count FROM expenses
+        WHERE institution_id = ? AND proof_key = ? AND id <> ?`,
+    ).bind(principal.institutionId, existing.proof_key, existing.id).first<{ count: number }>();
+    if (Number(sharedProof?.count ?? 0) === 0) {
+      await c.env.FILES.delete(existing.proof_key);
+    }
+  }
+  await c.env.DB.prepare(
+    `UPDATE expenses
+        SET proof_key = ?, proof_name = ?, proof_content_type = ?, proof_size = ?, updated_at = ?
+      WHERE id = ? AND institution_id = ?`,
+  )
+    .bind(key, proof.name.slice(0, 255), proof.type, proof.size, now, existing.id, principal.institutionId)
+    .run();
+  await audit(c, principal, "EXPENSE_PROOF_UPLOADED", existing.id, null, {
+    objectKey: key, contentType: proof.type, size: proof.size,
+  });
+  const updated = await loadExpense(c, principal, existing.id);
+  return c.json({ success: true, data: expenseResponse(updated!) });
+});
+
+expenseRoutes.get("/expenses/:id/proof", async (c) => {
+  const principal = await principalFor(c);
+  if (principal instanceof Response) return principal;
+  const existing = await loadExpense(c, principal, c.req.param("id"));
+  if (!existing || existing.purged_at || !existing.proof_key) {
+    return c.json({ success: false, error: "Expense proof not found" }, 404);
+  }
+  const object = await c.env.FILES.get(existing.proof_key);
+  if (!object) return c.json({ success: false, error: "Expense proof not found" }, 404);
+  const headers = new Headers();
+  object.writeHttpMetadata(headers);
+  headers.set("Cache-Control", "private, max-age=300");
+  headers.set("Content-Disposition", `inline; filename="${(existing.proof_name || "expense-proof").replace(/[\"\r\n]/g, "_")}"`);
+  headers.set("X-Content-Type-Options", "nosniff");
+  return new Response(object.body, { headers });
 });
 
 expenseRoutes.delete("/expenses/:id", async (c) => {

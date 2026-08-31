@@ -73,6 +73,8 @@ type MealRow = {
   id: string;
   name: string;
   display_name: string;
+  pricing_mode: "FORMULA" | "FIXED";
+  fixed_price_minor: number | null;
 };
 
 type MealCountRow = {
@@ -138,6 +140,13 @@ type ClosingDraft = {
     totalBill: FrozenFormula;
   };
   variables: FrozenVariable[];
+  mealPricing: Array<{
+    mealId: string;
+    name: string;
+    displayName: string;
+    pricingMode: "FORMULA" | "FIXED";
+    fixedPriceMinor: number | null;
+  }>;
   inputs: {
     totalExpensesMinor: number;
     totalResidentMeals: number;
@@ -245,6 +254,12 @@ function exactMajorToMinor(valueExact: string): number | null {
 
 function minorToMajor(value: number): number {
   return Number(value || 0) / 100;
+}
+
+function minorToExactMajor(value: number): string {
+  const sign = value < 0 ? "-" : "";
+  const absolute = Math.abs(value);
+  return `${sign}${Math.floor(absolute / 100)}.${String(absolute % 100).padStart(2, "0")}`;
 }
 
 function defaultDueDate(month: number, year: number): string {
@@ -457,9 +472,9 @@ async function computeReadiness(
   });
 
   const mealsResult = await c.env.DB.prepare(
-    `SELECT id, lower(name) AS name, display_name
+    `SELECT id, lower(name) AS name, display_name, pricing_mode, fixed_price_minor
        FROM meal_configurations
-      WHERE institution_id = ? AND status = 'ACTIVE'
+      WHERE institution_id = ? AND status = 'ACTIVE' AND deletion_finalized_at IS NULL
       ORDER BY display_order, id`,
   )
     .bind(principal.institutionId)
@@ -683,6 +698,7 @@ async function createDraft(
     .all<MealCountRow>();
 
   const mealById = new Map(readiness.meals.map((meal) => [meal.id, meal]));
+  const mealByName = new Map(readiness.meals.map((meal) => [meal.name, meal]));
   const countsByResident = new Map<string, Map<string, number>>();
   for (const row of mealCountsResult.results) {
     const meal = mealById.get(row.meal_id);
@@ -699,12 +715,26 @@ async function createDraft(
   for (const resident of readiness.residents) {
     const residentCounts = countsByResident.get(resident.id) ?? new Map<string, number>();
     const mealCounts: Record<string, number> = {};
+    let fixedMealChargesMinor = 0;
+    for (const meal of readiness.meals) {
+      const count = residentCounts.get(meal.name) ?? 0;
+      mealCounts[meal.name] = count;
+      if (meal.pricing_mode === "FIXED") {
+        if (meal.fixed_price_minor === null || meal.fixed_price_minor <= 0) {
+          throw new Error(`Fixed-price meal ${meal.name} has no valid fixed price`);
+        }
+        const charge = count * meal.fixed_price_minor;
+        if (!Number.isSafeInteger(charge)) throw new Error(`Fixed meal charge overflow for ${meal.name}`);
+        fixedMealChargesMinor += charge;
+      }
+    }
+
     const formulaContext: Record<string, string> = {};
     for (const contextKey of mealContextKeys) {
       const mealName = contextKey.slice(0, -"_count".length).toLowerCase();
+      const meal = mealByName.get(mealName);
       const count = residentCounts.get(mealName) ?? 0;
-      mealCounts[mealName] = count;
-      formulaContext[contextKey] = String(count);
+      formulaContext[contextKey] = String(meal?.pricing_mode === "FIXED" ? 0 : count);
     }
     const mealCount = Object.values(mealCounts).reduce((sum, count) => sum + count, 0);
     const mealResult = evaluateFormula(mealFormula.expression, {
@@ -715,14 +745,16 @@ async function createDraft(
     if (!mealResult.valid || mealResult.missingVariables.length > 0 || mealResult.missingContext.length > 0) {
       throw new Error(`Meal formula failed for resident ${resident.id}: ${mealResult.error ?? "missing dependency"}`);
     }
-    const mealChargesMinor = exactMajorToMinor(mealResult.valueExact);
-    if (mealChargesMinor === null || mealChargesMinor < 0) {
+    const formulaMealChargesMinor = exactMajorToMinor(mealResult.valueExact);
+    if (formulaMealChargesMinor === null || formulaMealChargesMinor < 0) {
       throw new Error(`Meal formula produced invalid currency for resident ${resident.id}`);
     }
+    const mealChargesMinor = formulaMealChargesMinor + fixedMealChargesMinor;
+    if (!Number.isSafeInteger(mealChargesMinor)) throw new Error(`Meal charge overflow for resident ${resident.id}`);
 
     const totalResult = evaluateFormula(totalFormula.expression, {
       variables: numericVariables,
-      context: { meal_charges: mealResult.valueExact, adjustments: "0" },
+      context: { meal_charges: minorToExactMajor(mealChargesMinor), adjustments: "0" },
       strictMissing: true,
     });
     if (!totalResult.valid || totalResult.missingVariables.length > 0 || totalResult.missingContext.length > 0) {
@@ -765,10 +797,19 @@ async function createDraft(
   for (const row of guestCountsResult.results) {
     const meal = mealById.get(row.meal_id);
     if (!meal) throw new Error(`Guest meals reference inactive/unknown meal ${row.meal_id}`);
-    const rate = variableByKey.get(`meal.rate.${meal.name}`);
-    if (!rate) throw new Error(`Missing active guest meal rate variable meal.rate.${meal.name}`);
-    const rateMinor = exactMajorToMinor(rate.value_text);
-    if (rateMinor === null || rateMinor < 0) throw new Error(`Invalid guest meal rate for ${meal.name}`);
+    let rateMinor: number;
+    if (meal.pricing_mode === "FIXED") {
+      if (meal.fixed_price_minor === null || meal.fixed_price_minor <= 0) {
+        throw new Error(`Fixed-price guest meal ${meal.name} has no valid fixed price`);
+      }
+      rateMinor = meal.fixed_price_minor;
+    } else {
+      const rate = variableByKey.get(`meal.rate.${meal.name}`);
+      if (!rate) throw new Error(`Missing active guest meal rate variable meal.rate.${meal.name}`);
+      const formulaRateMinor = exactMajorToMinor(rate.value_text);
+      if (formulaRateMinor === null || formulaRateMinor < 0) throw new Error(`Invalid guest meal rate for ${meal.name}`);
+      rateMinor = formulaRateMinor;
+    }
     const count = Number(row.count || 0);
     const revenueMinor = rateMinor * count;
     if (!Number.isSafeInteger(revenueMinor)) throw new Error("Guest meal revenue exceeds safe integer range");
@@ -824,6 +865,13 @@ async function createDraft(
       type: variable.variable_type,
       value: variable.value_text,
       unit: variable.unit,
+    })),
+    mealPricing: readiness.meals.map((meal) => ({
+      mealId: meal.id,
+      name: meal.name,
+      displayName: meal.display_name,
+      pricingMode: meal.pricing_mode,
+      fixedPriceMinor: meal.fixed_price_minor,
     })),
     inputs: {
       totalExpensesMinor,

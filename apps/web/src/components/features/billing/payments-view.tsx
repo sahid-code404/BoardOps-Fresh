@@ -257,10 +257,13 @@ export function PaymentsView() {
     email: string;
     avatarUrl: string | null;
     room: string | null;
+    billId: string;
+    billPeriodMonth: number;
+    billPeriodYear: number;
     creditAmount: number;
   }>>([]);
   const [refundLoading, setRefundLoading] = useState(false);
-  const [refundTarget, setRefundTarget] = useState<{ userId: string; name: string; creditAmount: number } | null>(null);
+  const [refundTarget, setRefundTarget] = useState<{ userId: string; name: string; billId: string; creditAmount: number } | null>(null);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundNotes, setRefundNotes] = useState("");
 
@@ -469,7 +472,8 @@ export function PaymentsView() {
       if (!refundTarget) return;
       await api.post("/payments/refund", {
         userId: refundTarget.userId,
-        amount: parseFloat(refundAmount),
+        billId: refundTarget.billId,
+        amount: refundTarget.creditAmount,
         notes: refundNotes || undefined,
       });
     },
@@ -600,7 +604,7 @@ export function PaymentsView() {
       </StaggerItem>
 
       {/* Pay Refund — admin only, centered glass card button */}
-      {isAdmin && (
+      {isAdmin && refundCreditUsers.length > 0 && (
         <StaggerItem>
           <div className="flex items-center justify-center">
             <GlassButton
@@ -657,7 +661,7 @@ export function PaymentsView() {
             icon={<RotateCcw className="h-4 w-4" />}
             color="primary"
             sub={refundPendingCount > 0 ? `₹${Math.round(refundPendingAmount).toLocaleString("en-IN")}` : "None pending"}
-            onClick={isAdmin ? fetchRefundUsers : undefined}
+            onClick={isAdmin && refundCreditUsers.length > 0 ? fetchRefundUsers : undefined}
           />
         </div>
       </StaggerItem>
@@ -1035,8 +1039,8 @@ export function PaymentsView() {
             </div>
           ) : refundUsers.length === 0 ? (
             <div className="text-center py-8 text-sm text-muted-foreground space-y-1">
-              <p>No users with refundable credit right now.</p>
-              <p className="text-[11px]">Refunds are only available after bill generation for the current month.</p>
+              <p>No generated bill has unsettled overpayment right now.</p>
+              <p className="text-[11px]">Refunds appear only after a billing cycle is completed and remain until the bill overpayment is settled.</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -1044,7 +1048,7 @@ export function PaymentsView() {
                 <button
                   key={u.userId}
                   onClick={() => {
-                    setRefundTarget({ userId: u.userId, name: u.name, creditAmount: u.creditAmount });
+                    setRefundTarget({ userId: u.userId, name: u.name, billId: u.billId, creditAmount: u.creditAmount });
                     setRefundAmount(String(u.creditAmount));
                     setRefundNotes("");
                   }}
@@ -1062,7 +1066,7 @@ export function PaymentsView() {
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-sm font-bold text-success tabular-nums">₹{Math.round(u.creditAmount).toLocaleString("en-IN")}</p>
-                    <p className="text-[10px] text-muted-foreground">credit</p>
+                    <p className="text-[10px] text-muted-foreground">unsettled overpayment</p>
                   </div>
                 </button>
               ))}
@@ -1081,7 +1085,7 @@ export function PaymentsView() {
             </DialogTitle>
             <DialogDescription>
               Refund to <span className="font-medium text-foreground">{refundTarget?.name}</span>.
-              Available credit: <span className="font-medium text-success">₹{Math.round(refundTarget?.creditAmount || 0).toLocaleString("en-IN")}</span>
+              Unsettled bill overpayment: <span className="font-medium text-success">₹{Math.round(refundTarget?.creditAmount || 0).toLocaleString("en-IN")}</span>
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -1091,7 +1095,8 @@ export function PaymentsView() {
               inputMode="decimal"
               placeholder="0.00"
               value={refundAmount}
-              onChange={(e) => setRefundAmount(e.target.value)}
+              readOnly
+              hint="Derived from the generated bill and cannot be edited."
               icon={<IndianRupee className="h-4 w-4" />}
             />
             <GlassTextarea
@@ -1236,7 +1241,7 @@ const PendingRow = memo(function PendingRow({
         </p>
       </div>
       <div className="text-right shrink-0">
-        <p className="font-bold tabular-nums">{formatINR(payment.amount)}</p>
+        <p className="text-lg font-bold tabular-nums">{formatINR(payment.amount)}</p>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <GlassButton
@@ -1715,9 +1720,9 @@ function PaymentEditBody({
   const [notes, setNotes] = useState(payment?.notes ?? "");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  // Cannot edit amount on APPROVED + bill-linked payments — backend will
-  // reject with 422. Lock the field and explain why; admin must void + resubmit.
-  const amountLocked = payment?.status === "APPROVED" && !!payment?.billId;
+  // Pending amounts are submission evidence and cannot be rewritten during
+  // approval. Approved amounts remain immutable as well.
+  const amountLocked = payment?.status === "PENDING" || payment?.status === "APPROVED";
 
   function handleSubmit() {
     if (!payment) return;
@@ -1768,7 +1773,9 @@ function PaymentEditBody({
           disabled={amountLocked}
           hint={
             amountLocked
-              ? "Amount locked — this approved payment is linked to a bill. Void it and submit a new payment to change the amount."
+              ? payment?.status === "PENDING"
+                ? "Pending amount is fixed. Reject the payment and submit a replacement to change it."
+                : "Approved amount is fixed. Void the payment and submit a replacement to change it."
               : undefined
           }
         />

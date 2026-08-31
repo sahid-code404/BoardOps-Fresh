@@ -55,7 +55,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { DigitalClockPicker } from "@/components/ui/digital-clock-picker";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
@@ -93,6 +92,12 @@ type MealConfiguration = {
   cutoffTime: string;
   startTime: string;
   endTime: string;
+  pricingMode: "FORMULA" | "FIXED";
+  fixedPrice: number | null;
+  deletionRequestedAt: string | null;
+  deletionEligibleMonth: number | null;
+  deletionEligibleYear: number | null;
+  deletionFinalizedAt: string | null;
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -179,29 +184,36 @@ const EMOJI_CHOICES = [
 // ─────────────────────────────────────────────────────────────
 
 const mealSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
+  name: z.string().min(2, "Internal name must be at least 2 characters"),
   displayName: z.string().min(2, "Display name must be at least 2 characters"),
   description: z.string().optional(),
   icon: z.string().min(1, "Pick an icon"),
   color: z.string().min(1, "Pick a color"),
-  mealType: z.enum([
-    "REGULAR",
-    "SPECIAL",
-    "GUEST_ONLY",
-    "FESTIVAL",
-    "CUSTOM",
-  ]),
-  displayOrder: z.coerce.number().int().min(0, "Must be ≥ 0"),
+  mealType: z.string().min(1, "Choose a meal type").refine(
+    (value) => MEAL_TYPES.some((type) => type.value === value),
+    "Choose a valid meal type",
+  ),
+  displayOrder: z.coerce.number().int().min(0, "Choose a display position"),
   defaultState: z.enum(["ON", "OFF"]),
   defaultVisibility: z.enum(["VISIBLE", "HIDDEN"]),
-  cutoffStrategy: z.enum(["PREVIOUS_DAY", "SAME_DAY", "CUSTOM_OFFSET"]),
-  cutoffTime: z
-    .string()
-    .regex(/^\d{2}:\d{2}$/, "Enter a valid time"),
+  cutoffStrategy: z.string().min(1, "Choose a cutoff strategy").refine(
+    (value) => CUTOFF_STRATEGIES.some((strategy) => strategy.value === value),
+    "Choose a valid cutoff strategy",
+  ),
+  cutoffTime: z.string().regex(/^\d{2}:\d{2}$/, "Choose a cutoff time"),
   cutoffOffsetMinutes: z.coerce.number().int().min(0).max(1440),
-  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Enter a valid time"),
-  endTime: z.string().regex(/^\d{2}:\d{2}$/, "Enter a valid time"),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/, "Choose a service start time"),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/, "Choose a service end time"),
+  pricingMode: z.enum(["FORMULA", "FIXED"]),
+  fixedPrice: z.preprocess(
+    (value) => value === "" || value === undefined ? undefined : value,
+    z.coerce.number().positive("Fixed price must be greater than 0").optional(),
+  ),
   notes: z.string().optional(),
+}).superRefine((value, ctx) => {
+  if (value.pricingMode === "FIXED" && !value.fixedPrice) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fixedPrice"], message: "Enter the fixed meal price" });
+  }
 });
 
 type MealFormValues = z.infer<typeof mealSchema>;
@@ -213,15 +225,17 @@ const DEFAULT_FORM_VALUES: MealFormValues = {
   description: "",
   icon: "🍽️",
   color: COLOR_SWATCHES[0],
-  mealType: "REGULAR",
+  mealType: "",
   displayOrder: 0,
-  defaultState: "ON",
+  defaultState: "OFF",
   defaultVisibility: "VISIBLE",
-  cutoffStrategy: "PREVIOUS_DAY",
-  cutoffTime: "22:00",
+  cutoffStrategy: "",
+  cutoffTime: "",
   cutoffOffsetMinutes: 0,
-  startTime: "08:00",
-  endTime: "10:00",
+  startTime: "",
+  endTime: "",
+  pricingMode: "FORMULA",
+  fixedPrice: undefined,
   notes: "",
 };
 
@@ -229,6 +243,17 @@ const DEFAULT_FORM_VALUES: MealFormValues = {
 // Helpers
 // ─────────────────────────────────────────────────────────────
 
+
+function internalNameFromDisplayName(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "_")
+    .replace(/^_+|_+$/gu, "")
+    .replace(/_+/gu, "_")
+    .slice(0, 80);
+}
 
 function formatTime12(t: string): string {
   const [h, m] = t.split(":").map(Number);
@@ -242,6 +267,7 @@ function computeCutoffPreview(
   cutoffTime: string,
   offsetMinutes: number
 ): string {
+  if (!strategy || !cutoffTime) return "Choose cutoff strategy and time";
   const time12 = formatTime12(cutoffTime);
   switch (strategy) {
     case "PREVIOUS_DAY":
@@ -276,12 +302,16 @@ function mealTypeBadgeClass(type: string): string {
 
 function MealForm({
   values,
+  mealId,
+  existingMeals,
   onSubmit,
   onCancel,
   submitting,
   submitLabel,
 }: {
   values: MealFormValues | null;
+  mealId?: string;
+  existingMeals: MealConfiguration[];
   onSubmit: (v: MealFormValues) => void;
   onCancel: () => void;
   submitting: boolean;
@@ -296,15 +326,38 @@ function MealForm({
     formState: { errors },
   } = useForm<MealFormInput, unknown, MealFormValues>({
     resolver: zodResolver(mealSchema),
-    defaultValues: values ?? DEFAULT_FORM_VALUES,
+    defaultValues: values ?? {
+      ...DEFAULT_FORM_VALUES,
+      displayOrder: existingMeals.length,
+    },
     mode: "onChange",
   });
 
+  const watchedDisplayName = useWatch({ control, name: "displayName" });
   const watchedStrategy = useWatch({ control, name: "cutoffStrategy" });
   const watchedCutoffTime = useWatch({ control, name: "cutoffTime" });
   const watchedOffset = useWatch({ control, name: "cutoffOffsetMinutes" });
   const watchedColor = useWatch({ control, name: "color" });
   const watchedIcon = useWatch({ control, name: "icon" });
+  const watchedPricingMode = useWatch({ control, name: "pricingMode" });
+
+  React.useEffect(() => {
+    if (values) return;
+    setValue("name", internalNameFromDisplayName(watchedDisplayName || ""), { shouldValidate: true });
+  }, [values, watchedDisplayName, setValue]);
+
+  const orderMeals = React.useMemo(
+    () => existingMeals
+      .filter((meal) => meal.id !== mealId)
+      .sort((a, b) => a.displayOrder - b.displayOrder),
+    [existingMeals, mealId],
+  );
+  const orderLabel = (position: number) => {
+    if (orderMeals.length === 0) return "1 — First meal";
+    if (position === 0) return `1 — Before ${orderMeals[0]?.displayName}`;
+    if (position >= orderMeals.length) return `${position + 1} — After ${orderMeals[orderMeals.length - 1]?.displayName}`;
+    return `${position + 1} — Between ${orderMeals[position - 1]?.displayName} and ${orderMeals[position]?.displayName}`;
+  };
 
   const cutoffPreview = computeCutoffPreview(
     watchedStrategy,
@@ -320,18 +373,19 @@ function MealForm({
       {/* Identity section */}
       <div className="grid grid-cols-1 gap-3">
         <GlassInput
-          label="Internal name"
-          placeholder="morning_tea"
-          {...register("name")}
-          error={errors.name?.message}
-          hint="Lowercase identifier used by the system"
-        />
-        <GlassInput
           label="Display name"
           placeholder="Morning Tea"
           {...register("displayName")}
           error={errors.displayName?.message}
           hint="Shown to residents"
+        />
+        <GlassInput
+          label="Internal name (automatic)"
+          placeholder="morning_tea"
+          {...register("name")}
+          readOnly
+          error={errors.name?.message}
+          hint="Generated from Display name and immutable after creation"
         />
       </div>
 
@@ -429,9 +483,9 @@ function MealForm({
             control={control}
             name="mealType"
             render={({ field }) => (
-              <Select value={field.value} onValueChange={field.onChange}>
+              <Select value={field.value || ""} onValueChange={field.onChange}>
                 <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
-                  <SelectValue />
+                  <SelectValue placeholder="Choose meal type" />
                 </SelectTrigger>
                 <SelectContent>
                   {MEAL_TYPES.map((t) => (
@@ -448,28 +502,45 @@ function MealForm({
           />
         </div>
 
-        <GlassInput
-          label="Display order"
-          type="number"
-          min={0}
-          {...register("displayOrder")}
-          error={errors.displayOrder?.message}
-          icon={<ArrowUpDown className="h-4 w-4" />}
-        />
+        <div>
+          <Label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+            Display order
+          </Label>
+          <Controller
+            control={control}
+            name="displayOrder"
+            render={({ field }) => (
+              <Select value={String(field.value)} onValueChange={(value) => field.onChange(Number(value))}>
+                <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
+                  <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: orderMeals.length + 1 }, (_, position) => (
+                    <SelectItem key={position} value={String(position)}>
+                      {orderLabel(position)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          />
+          {errors.displayOrder?.message && <p className="mt-1 ml-1 text-xs text-destructive">{errors.displayOrder.message}</p>}
+        </div>
       </div>
 
-      {/* Times */}
+      {/* Times — deliberately blank on create */}
       <div className="grid grid-cols-2 gap-3">
-        <DigitalClockPicker
+        <GlassInput
           label="Service start"
-          value={watch("startTime") || "08:00"}
-          onChange={(v) => setValue("startTime", v, { shouldValidate: true, shouldDirty: true })}
+          type="time"
+          {...register("startTime")}
           error={errors.startTime?.message}
         />
-        <DigitalClockPicker
+        <GlassInput
           label="Service end"
-          value={watch("endTime") || "10:00"}
-          onChange={(v) => setValue("endTime", v, { shouldValidate: true, shouldDirty: true })}
+          type="time"
+          {...register("endTime")}
           error={errors.endTime?.message}
         />
       </div>
@@ -489,9 +560,9 @@ function MealForm({
               control={control}
               name="cutoffStrategy"
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select value={field.value || ""} onValueChange={field.onChange}>
                   <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
-                    <SelectValue />
+                    <SelectValue placeholder="Choose cutoff strategy" />
                   </SelectTrigger>
                   <SelectContent>
                     {CUTOFF_STRATEGIES.map((t) => (
@@ -507,10 +578,10 @@ function MealForm({
               )}
             />
           </div>
-          <DigitalClockPicker
+          <GlassInput
             label="Cutoff time"
-            value={watch("cutoffTime") || "16:00"}
-            onChange={(v) => setValue("cutoffTime", v, { shouldValidate: true, shouldDirty: true })}
+            type="time"
+            {...register("cutoffTime")}
             error={errors.cutoffTime?.message}
           />
         </div>
@@ -536,6 +607,41 @@ function MealForm({
             </span>
           </p>
         </div>
+      </div>
+
+      {/* Pricing */}
+      <div className="glass-soft rounded-2xl p-3 space-y-3">
+        <div>
+          <p className="text-sm font-semibold">Meal price</p>
+          <p className="text-[11px] text-muted-foreground">Choose formula pricing or a direct fixed price for special meals.</p>
+        </div>
+        <Controller
+          control={control}
+          name="pricingMode"
+          render={({ field }) => (
+            <Select value={field.value} onValueChange={field.onChange}>
+              <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="FORMULA">Auto calculate via meal charge formula</SelectItem>
+                <SelectItem value="FIXED">Fixed price per meal</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        />
+        {watchedPricingMode === "FIXED" && (
+          <GlassInput
+            label="Fixed price (₹)"
+            type="number"
+            inputMode="decimal"
+            step="0.01"
+            placeholder="120.00"
+            {...register("fixedPrice")}
+            error={errors.fixedPrice?.message}
+            hint="Each confirmed meal is charged directly at this price."
+          />
+        )}
       </div>
 
       {/* Defaults */}
@@ -635,6 +741,7 @@ function MealConfigCard({
   );
   const inactive = meal.status === "INACTIVE";
   const archived = meal.status === "ARCHIVED";
+  const queued = !!meal.deletionRequestedAt;
 
   return (
     <motion.div
@@ -683,7 +790,11 @@ function MealConfigCard({
 
         {/* Status badges */}
         <div className="flex items-center gap-1.5 flex-wrap mb-3">
-          {archived ? (
+          {queued ? (
+            <Badge variant="outline" className="text-[10px] bg-destructive/10 text-destructive border-destructive/25">
+              <Trash2 className="h-2.5 w-2.5" /> Deletion queued
+            </Badge>
+          ) : archived ? (
             <Badge variant="secondary" className="text-[10px] bg-muted text-muted-foreground">
               <Archive className="h-2.5 w-2.5" /> Archived
             </Badge>
@@ -697,7 +808,12 @@ function MealConfigCard({
             </Badge>
           )}
           <Badge variant="outline" className="text-[10px]">
-            Order: {meal.displayOrder}
+            Order: {meal.displayOrder + 1}
+          </Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {meal.pricingMode === "FIXED" && meal.fixedPrice
+              ? `₹${meal.fixedPrice.toLocaleString("en-IN")} fixed`
+              : "Formula pricing"}
           </Badge>
         </div>
 
@@ -724,6 +840,15 @@ function MealConfigCard({
           {formatTime12(meal.startTime)} – {formatTime12(meal.endTime)}
         </div>
 
+        {queued && meal.deletionEligibleMonth !== null && meal.deletionEligibleYear !== null && (
+          <div className="rounded-xl bg-destructive/8 border border-destructive/20 px-3 py-2 mb-3">
+            <p className="text-[11px] font-medium text-destructive">Deletion queue</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              Finalizes after {new Date(meal.deletionEligibleYear, meal.deletionEligibleMonth, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" })} bills are generated and all due, overpayment and refund balances are settled.
+            </p>
+          </div>
+        )}
+
         {/* Actions */}
         {isAdmin && (
           <div className="mt-auto space-y-2">
@@ -731,7 +856,7 @@ function MealConfigCard({
             <Select
               value={meal.status}
               onValueChange={(v) => onStatusChange(v)}
-              disabled={statusLoading}
+              disabled={statusLoading || queued}
             >
               <SelectTrigger className="h-9 rounded-xl glass-soft border-0 text-xs w-full">
                 <div className="flex items-center gap-1.5">
@@ -766,6 +891,7 @@ function MealConfigCard({
                 size="sm"
                 className="flex-1"
                 onClick={onEdit}
+                disabled={queued}
               >
                 <Pencil className="h-3.5 w-3.5" /> Edit
               </GlassButton>
@@ -773,6 +899,7 @@ function MealConfigCard({
                 variant="ghost"
                 size="sm"
                 onClick={onDelete}
+                disabled={queued}
                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -875,7 +1002,7 @@ export function MealsConfigView() {
       await api.delete(`/meals/config/${id}`);
     },
     onSuccess: () => {
-      toast.success("Meal deleted");
+      toast.success("Meal moved to the deletion queue");
       qc.invalidateQueries({ queryKey });
       setDeleteTarget(null);
     },
@@ -933,7 +1060,8 @@ export function MealsConfigView() {
     if (!data) return [];
     return data.filter((m) => {
       if (typeFilter !== "ALL" && m.mealType !== typeFilter) return false;
-      if (statusFilter !== "ALL" && m.status !== statusFilter) return false;
+      if (statusFilter === "QUEUED" && !m.deletionRequestedAt) return false;
+      if (statusFilter !== "ALL" && statusFilter !== "QUEUED" && m.status !== statusFilter) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
         return (
@@ -983,6 +1111,7 @@ export function MealsConfigView() {
             <SelectItem value="ACTIVE">Active</SelectItem>
             <SelectItem value="INACTIVE">Inactive</SelectItem>
             <SelectItem value="ARCHIVED">Archived</SelectItem>
+            <SelectItem value="QUEUED">Deletion Queue</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -1181,10 +1310,14 @@ export function MealsConfigView() {
                             cutoffOffsetMinutes: editing.cutoffOffsetMinutes,
                             startTime: editing.startTime,
                             endTime: editing.endTime,
+                            pricingMode: editing.pricingMode,
+                            fixedPrice: editing.fixedPrice ?? undefined,
                             notes: editing.notes || "",
                           } as MealFormValues)
                         : null
                     }
+                    mealId={editing?.id}
+                    existingMeals={data ?? []}
                     onSubmit={handleSubmit}
                     onCancel={() => {
                       setFormOpen(false);
@@ -1236,10 +1369,14 @@ export function MealsConfigView() {
                           cutoffOffsetMinutes: editing.cutoffOffsetMinutes,
                           startTime: editing.startTime,
                           endTime: editing.endTime,
+                          pricingMode: editing.pricingMode,
+                          fixedPrice: editing.fixedPrice ?? undefined,
                           notes: editing.notes || "",
                         } as MealFormValues)
                       : null
                   }
+                  mealId={editing?.id}
+                  existingMeals={data ?? []}
                   onSubmit={handleSubmit}
                   onCancel={() => {
                     setFormOpen(false);
@@ -1261,17 +1398,14 @@ export function MealsConfigView() {
       >
         <AlertDialogContent className="glass-strong">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this meal?</AlertDialogTitle>
+            <AlertDialogTitle>Move this meal to the deletion queue?</AlertDialogTitle>
             <AlertDialogDescription>
               <span className="block">
-                <span className="font-medium text-foreground">
-                  {deleteTarget?.displayName}
-                </span>{" "}
-                will be permanently deleted along with all related meal entries, history, and overrides. This cannot be undone.
-                meal entries will remain accessible.
+                <span className="font-medium text-foreground">{deleteTarget?.displayName}</span>{" "}
+                will enter the deletion queue now. It remains service-active through the next eligible billing month so that month&apos;s confirmed meals are included in billing.
               </span>
               <span className="block mt-2 text-warning">
-                This action is irreversible.
+                After that billing cycle closes, the meal is archived. It is removed from configuration only when all due amounts, overpayments, and refund obligations for that month are settled. Historical meal and billing evidence is preserved.
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1283,7 +1417,7 @@ export function MealsConfigView() {
                 deleteTarget && deleteMutation.mutate(deleteTarget.id)
               }
             >
-              {deleteMutation.isPending ? "Deleting..." : "Delete meal"}
+              {deleteMutation.isPending ? "Queueing..." : "Move to deletion queue"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
