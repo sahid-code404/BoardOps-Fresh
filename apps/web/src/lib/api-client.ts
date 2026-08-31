@@ -114,6 +114,34 @@ function deleteRequest<T>(path: string, opts?: FetchOpts): Promise<T> {
   return apiFetch<T>(path, { ...opts, method: "DELETE" });
 }
 
+function putRequest<T>(path: string, data?: unknown, opts?: FetchOpts): Promise<T> {
+  // The frozen Personalization screen writes the legacy dedicated PUT /theme
+  // endpoint. Fresh already has one canonical, audited, permission-controlled
+  // settings upsert boundary, so adapt that legacy call to the public UI JSON
+  // setting instead of creating a second settings mutation path.
+  if (!VISUAL_FIXTURES_ENABLED && path === "/theme") {
+    return apiFetch<T>("/settings", {
+      ...opts,
+      method: "POST",
+      body: JSON.stringify({
+        key: "ui.theme",
+        value: JSON.stringify(data ?? {}),
+        category: "UI",
+        type: "JSON",
+        description: "Global UI theme — applies to all users",
+        isPublic: true,
+      }),
+    });
+  }
+
+  const writeOpts = accountingWriteOpts(path, "PUT", opts);
+  return apiFetch<T>(path, {
+    ...writeOpts,
+    method: "PUT",
+    body: data ? JSON.stringify(data) : undefined,
+  });
+}
+
 export const api = {
   get: <T>(path: string, opts?: FetchOpts) => apiFetch<T>(path, { ...opts, method: "GET" }),
   post: <T>(path: string, data?: unknown, opts?: FetchOpts) => {
@@ -126,14 +154,7 @@ export const api = {
   },
   postForm: <T>(path: string, data: FormData, opts?: FetchOpts) =>
     apiFetch<T>(path, { ...opts, method: "POST", body: data }),
-  put: <T>(path: string, data?: unknown, opts?: FetchOpts) => {
-    const writeOpts = accountingWriteOpts(path, "PUT", opts);
-    return apiFetch<T>(path, {
-      ...writeOpts,
-      method: "PUT",
-      body: data ? JSON.stringify(data) : undefined,
-    });
-  },
+  put: putRequest,
   patch: <T>(path: string, data?: unknown, opts?: FetchOpts) =>
     apiFetch<T>(path, { ...opts, method: "PATCH", body: data ? JSON.stringify(data) : undefined }),
   delete: deleteRequest,
