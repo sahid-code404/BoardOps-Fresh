@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("administrator User 360 renders canonical resident finance and meal domains", async ({ page }) => {
+test("administrator User 360 renders canonical resident finance, meal and restriction domains", async ({ page }) => {
   const failed360Responses: string[] = [];
   page.on("response", (response) => {
     const url = new URL(response.url());
@@ -51,6 +51,8 @@ test("administrator User 360 renders canonical resident finance and meal domains
   await expect(dialog.getByText("Resident Fund Account", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Available Balance", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Meals This Month", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Meal Booking", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Enabled", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Profile", { exact: true })).toBeVisible();
   await expect(dialog.getByText("+919123456789", { exact: true })).toBeVisible();
   await expect(dialog.getByText("BoardOps Institute", { exact: true })).toBeVisible();
@@ -68,8 +70,10 @@ test("administrator User 360 renders canonical resident finance and meal domains
   await expect(dialog.getByText("No ledger entries yet", { exact: true })).toBeVisible();
 
   await dialog.getByRole("tab", { name: "Restrictions", exact: true }).click();
-  await expect(dialog.getByText("Restriction evaluation", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("Financial and administrative restriction evaluation is not available in the current D1 schema yet.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Current Status", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("HEALTHY", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Can Book Meals", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("No active restrictions.", { exact: true })).toBeVisible();
 
   const riyaResponse = await page.evaluate(async () => {
     const r = await fetch("/api/users/usr_resident_riya_local/360", { credentials: "include" });
@@ -99,7 +103,16 @@ test("administrator User 360 renders canonical resident finance and meal domains
         totalRefunded: 0,
         ledgerEntryCount: 0,
       },
-      restrictions: null,
+      restrictions: {
+        canBookMeals: true,
+        financialStatus: "HEALTHY",
+        availableBalance: 0,
+        requiredBalance: 1000,
+        graceDaysRemaining: null,
+        hasExemption: false,
+        restrictionReason: null,
+      },
+      activeRestrictions: [],
       recentBills: [],
       recentPayments: [],
       recentRefunds: [],
@@ -113,15 +126,15 @@ test("administrator User 360 renders canonical resident finance and meal domains
         refunds: true,
         ledger: true,
         meals: true,
-        restrictions: false,
+        restrictions: true,
       },
     },
   });
   expect(riyaResponse.body.data.mealStats.currentMonthON).toBeGreaterThanOrEqual(2);
 
   // Arjun owns the deterministic historical finance fixtures. This proves the
-  // same composite endpoint is reading real canonical Bills + Payments and not
-  // simply changing availability flags for a resident with empty finance data.
+  // same composite endpoint reads canonical finance evidence and evaluates the
+  // golden low-balance grace policy rather than merely flipping availability.
   const arjunResponse = await page.evaluate(async () => {
     const r = await fetch("/api/users/usr_resident_arjun_local/360", { credentials: "include" });
     return { status: r.status, body: await r.json() };
@@ -148,7 +161,16 @@ test("administrator User 360 renders canonical resident finance and meal domains
         totalRefunded: 0,
         ledgerEntryCount: 2,
       },
-      restrictions: null,
+      restrictions: {
+        canBookMeals: true,
+        financialStatus: "LOW_BALANCE",
+        availableBalance: 0,
+        requiredBalance: 1000,
+        graceDaysRemaining: 2,
+        hasExemption: false,
+        restrictionReason: null,
+      },
+      activeRestrictions: [],
       mealStats: { currentMonthON: 0 },
       dataAvailability: {
         fundAccount: true,
@@ -157,7 +179,7 @@ test("administrator User 360 renders canonical resident finance and meal domains
         refunds: true,
         ledger: true,
         meals: true,
-        restrictions: false,
+        restrictions: true,
       },
     },
   });
