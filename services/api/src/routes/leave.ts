@@ -25,6 +25,7 @@ type LeaveRow = {
 
 type MealRow = {
   id: string;
+  default_state: "ON" | "OFF";
   cutoff_strategy: string;
   cutoff_offset_minutes: number;
   cutoff_time: string;
@@ -126,6 +127,21 @@ leaveRoutes.post("/leave", async (c) => {
     return c.json({ success: false, error: "Select at least one meal for a specific-meal leave" }, 400);
   }
 
+  const overlapping = await c.env.DB.prepare(
+    `SELECT id, status
+       FROM leave_applications
+      WHERE institution_id = ? AND user_id = ?
+        AND status IN ('PENDING','APPROVED')
+        AND start_date <= ? AND end_date >= ?
+      LIMIT 1`,
+  ).bind(principal.institutionId, principal.id, endDate, startDate).first<{ id: string; status: string }>();
+  if (overlapping) {
+    return c.json(
+      { success: false, error: `Leave dates overlap an existing ${overlapping.status.toLowerCase()} application` },
+      409,
+    );
+  }
+
   if (mealType === "SPECIFIC") {
     const placeholders = mealIds.map(() => "?").join(", ");
     const valid = await c.env.DB.prepare(
@@ -186,6 +202,24 @@ leaveRoutes.patch("/leave/:id", async (c) => {
     return c.json({ success: false, error: `Application already ${existing.status.toLowerCase()}` }, 409);
   }
 
+  if (status === "APPROVED") {
+    const lockedPeriod = await c.env.DB.prepare(
+      `SELECT period_key, status
+         FROM accounting_periods
+        WHERE institution_id = ? AND status IN ('CLOSING','CLOSED')
+          AND starts_on <= ? AND ends_on >= ?
+        ORDER BY starts_on ASC
+        LIMIT 1`,
+    ).bind(principal.institutionId, existing.end_date, existing.start_date)
+      .first<{ period_key: string; status: string }>();
+    if (lockedPeriod) {
+      return c.json(
+        { success: false, error: `Leave cannot change meals in ${lockedPeriod.status.toLowerCase()} accounting period ${lockedPeriod.period_key}` },
+        409,
+      );
+    }
+  }
+
   const now = new Date().toISOString();
   const statements = [
     c.env.DB.prepare(
@@ -210,10 +244,10 @@ leaveRoutes.patch("/leave/:id", async (c) => {
     }
 
     const mealSql = existing.meal_type === "SPECIFIC" && selectedMealIds.length > 0
-      ? `SELECT id, cutoff_strategy, cutoff_offset_minutes, cutoff_time
+      ? `SELECT id, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time
            FROM meal_configurations
           WHERE institution_id = ? AND status = 'ACTIVE' AND id IN (${selectedMealIds.map(() => "?").join(", ")})`
-      : `SELECT id, cutoff_strategy, cutoff_offset_minutes, cutoff_time
+      : `SELECT id, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time
            FROM meal_configurations
           WHERE institution_id = ? AND status = 'ACTIVE'`;
     const meals = await c.env.DB.prepare(mealSql)
@@ -232,9 +266,9 @@ leaveRoutes.patch("/leave/:id", async (c) => {
             `INSERT INTO meal_entries
               (id, institution_id, user_id, meal_id, service_date, status, original_state,
                editable_until, locked, notes, updated_by, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 'OFF', 'OFF', ?, 1, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?, 'OFF', ?, ?, 1, ?, ?, ?, ?)
              ON CONFLICT(institution_id, user_id, meal_id, service_date) DO UPDATE SET
-               status = 'OFF', original_state = 'OFF', locked = 1,
+               status = 'OFF', locked = 1,
                notes = excluded.notes, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
           ).bind(
             entryId,
@@ -242,6 +276,7 @@ leaveRoutes.patch("/leave/:id", async (c) => {
             existing.user_id,
             meal.id,
             serviceDate,
+            meal.default_state,
             editableUntil,
             `Leave application ${id} approved`,
             principal.id,
@@ -267,7 +302,13 @@ leaveRoutes.patch("/leave/:id", async (c) => {
       id,
       c.get("requestId"),
       adminNotes,
-      JSON.stringify({ userId: existing.user_id, startDate: existing.start_date, endDate: existing.end_date, mealType: existing.meal_type }),
+      JSON.stringify({
+        userId: existing.user_id,
+        startDate: existing.start_date,
+        endDate: existing.end_date,
+        mealType: existing.meal_type,
+        residentBaselinePreserved: status === "APPROVED",
+      }),
       now,
     ),
   );
