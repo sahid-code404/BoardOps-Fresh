@@ -34,8 +34,18 @@ SELECT
   (SELECT COUNT(*) FROM permissions WHERE permission_key IN (${quotedSelfPermissions})) AS resident_meal_self_permissions,
   (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'roles_bootstrap_resident_meals_self_service') AS bootstrap_triggers,
   (SELECT COUNT(*) FROM pragma_table_info('meal_entries') WHERE name IN ('original_state','locked','editable_until')) AS meal_entry_state_columns,
-  (SELECT COUNT(*) FROM meal_entries WHERE institution_id = 'inst_boardops_local') AS seeded_meal_entries,
-  (SELECT COUNT(*) FROM leave_applications WHERE institution_id = 'inst_boardops_local') AS seeded_leave_applications,
+  (SELECT COUNT(*) FROM meal_entries
+    WHERE institution_id = 'inst_boardops_local'
+      AND id IN (
+        'entry_riya_breakfast_20260830',
+        'entry_riya_lunch_20260830',
+        'entry_riya_dinner_20260830'
+      )) AS seeded_meal_entries,
+  (SELECT COUNT(*) FROM leave_applications
+    WHERE institution_id = 'inst_boardops_local'
+      AND id = 'leave_riya_pending_local'
+      AND user_id = 'usr_resident_riya_local'
+      AND status = 'PENDING') AS seeded_leave_applications,
   (SELECT COUNT(*)
      FROM roles r JOIN role_permissions rp ON rp.role_id = r.id JOIN permissions p ON p.id = rp.permission_id
     WHERE r.institution_id = 'inst_boardops_local' AND r.role_key = 'ADMIN'
