@@ -55,6 +55,7 @@ test("Counts uses real D1 meal entries, guests, overrides and leave decisions", 
     };
 
     const before = await request("/api/kitchen?date=2026-08-30");
+    const invalidDate = await request("/api/kitchen?date=2026-8-30");
     const guestCreated = await request("/api/kitchen", {
       method: "POST",
       body: JSON.stringify({
@@ -69,6 +70,24 @@ test("Counts uses real D1 meal entries, guests, overrides and leave decisions", 
     const guestDeleted = guestId
       ? await request("/api/kitchen", { method: "DELETE", body: JSON.stringify({ guestMealId: guestId }) })
       : null;
+    const invalidGuestCount = await request("/api/kitchen", {
+      method: "POST",
+      body: JSON.stringify({
+        mealId: "meal_breakfast_local",
+        guestCount: 101,
+        serviceDate: "2026-08-30",
+        notes: "Invalid runtime guest count",
+      }),
+    });
+    const closedPeriodGuest = await request("/api/kitchen", {
+      method: "POST",
+      body: JSON.stringify({
+        mealId: "meal_breakfast_local",
+        guestCount: 1,
+        serviceDate: "2026-07-15",
+        notes: "Closed-period runtime guard",
+      }),
+    });
 
     const override = await request("/api/meals/override", {
       method: "POST",
@@ -111,9 +130,12 @@ test("Counts uses real D1 meal entries, guests, overrides and leave decisions", 
 
     return {
       before,
+      invalidDate,
       guestCreated,
       afterGuest,
       guestDeleted,
+      invalidGuestCount,
+      closedPeriodGuest,
       override,
       lock,
       unlock,
@@ -136,12 +158,21 @@ test("Counts uses real D1 meal entries, guests, overrides and leave decisions", 
   expect(result.before.body.data.guestMealEntries).toEqual(
     expect.arrayContaining([expect.objectContaining({ mealId: "meal_lunch_local", guestCount: 2 })]),
   );
+  expect(result.invalidDate.status).toBe(400);
+  expect(result.invalidDate.body).toMatchObject({ success: false, error: "date must use YYYY-MM-DD" });
 
   expect(result.guestCreated.status).toBe(201);
   expect(result.guestCreated.body).toMatchObject({ success: true, data: { guestCount: 3, mealId: "meal_breakfast_local" } });
   const breakfastAfterGuest = result.afterGuest.body.data.counts.find((meal: { id: string }) => meal.id === "meal_breakfast_local");
   expect(breakfastAfterGuest.guests).toBeGreaterThanOrEqual(3);
   expect(result.guestDeleted?.status).toBe(200);
+  expect(result.invalidGuestCount.status).toBe(400);
+  expect(result.invalidGuestCount.body).toMatchObject({ success: false, error: "guestCount must be between 1 and 100" });
+  expect(result.closedPeriodGuest.status).toBe(409);
+  expect(result.closedPeriodGuest.body).toMatchObject({
+    success: false,
+    error: "Guest meals cannot be changed in a closing or closed accounting period",
+  });
 
   expect(result.override.status).toBe(200);
   expect(result.override.body).toMatchObject({
