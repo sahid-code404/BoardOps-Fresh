@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("visual User 360 renders hydrated finance, meal and ledger surfaces", async ({ page }) => {
+test("visual User 360 renders hydrated finance, meal, ledger and restriction surfaces", async ({ page }) => {
   await page.goto("/users");
   await expect(page.getByRole("heading", { name: "User Management", exact: true })).toBeVisible();
   await expect(page.getByText("Riya Sen", { exact: true })).toBeVisible();
@@ -35,6 +35,8 @@ test("visual User 360 renders hydrated finance, meal and ledger surfaces", async
   await expect(dialog.getByText("Outstanding Due", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Meals This Month", { exact: true })).toBeVisible();
   await expect(dialog.getByText("18", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Meal Booking", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Enabled", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Profile", { exact: true })).toBeVisible();
 
   await dialog.getByRole("tab", { name: "Bills", exact: true }).click();
@@ -52,6 +54,8 @@ test("visual User 360 renders hydrated finance, meal and ledger surfaces", async
   await expect(dialog.getByText(/Bill · 2026-08/u)).toBeVisible();
 
   await dialog.getByRole("tab", { name: "Restrictions", exact: true }).click();
-  await expect(dialog.getByText("Restriction evaluation", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("Financial and administrative restriction evaluation is not available in the current D1 schema yet.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Current Status", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("HEALTHY", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Can Book Meals", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("No active restrictions.", { exact: true })).toBeVisible();
 });
