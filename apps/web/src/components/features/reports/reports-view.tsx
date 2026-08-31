@@ -94,7 +94,7 @@ export function ReportsView() {
   return (
     <StaggerGroup className="space-y-5">
       <StaggerItem>
-        <div className="text-center">
+        <div className="text-center" style={{ textAlign: "center" }}>
           <h1 className="text-2xl font-bold tracking-tight flex items-center justify-center gap-2">
             <BarChart3 className="h-6 w-6 text-primary" />
             Reports & Analytics
