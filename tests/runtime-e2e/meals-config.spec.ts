@@ -155,11 +155,13 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
   expect(result.deleted?.body?.data?.meal?.deletionRequestedAt).toEqual(expect.any(String));
   expect(result.after?.status).toBe(200);
   expect(result.after?.body?.data).toHaveLength(4);
+  // displayOrder is a relative insertion position. Inserting at position 3
+  // shifts Dinner behind the new meal instead of creating a duplicate order.
   expect(result.after?.body?.data.map((meal: { name: string }) => meal.name)).toEqual([
     "breakfast",
     "lunch",
-    "dinner",
     "runtime_test_snack",
+    "dinner",
   ]);
 
   // Expected failures are duplicate creation and immutable-name mutation only.
