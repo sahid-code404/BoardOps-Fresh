@@ -16,6 +16,7 @@ import { mealOverrideRoutes } from "./routes/meal-overrides";
 import { monthlyClosingRoutes } from "./routes/monthly-closing";
 import { notificationAnnouncementRoutes } from "./routes/notifications-announcements";
 import { paymentRoutes } from "./routes/payments";
+import { productPurchaseRoutes } from "./routes/products-purchases";
 import { refundAdjustmentRoutes } from "./routes/refunds-adjustments";
 import { reportRoutes } from "./routes/reports";
 import { runtimeRoutes } from "./routes/runtime";
@@ -57,6 +58,10 @@ const REQUIRED_CORE_TABLES = [
   "adjustments",
   "financial_reference_sequences",
   "expenses",
+  "units",
+  "products",
+  "purchases",
+  "purchase_items",
   "variables",
   "variable_versions",
   "formulas",
@@ -122,9 +127,9 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 90 ||
+      Number(baseline?.permission_count ?? 0) < 96 ||
       Number(baseline?.role_count ?? 0) < 4 ||
-      Number(baseline?.grant_count ?? 0) < 222
+      Number(baseline?.grant_count ?? 0) < 234
     ) {
       throw new Error("RBAC baseline is incomplete");
     }
@@ -150,11 +155,12 @@ app.get("/api/ready", async (c) => {
 
 app.route("/api/auth", authRoutes);
 app.route("/api/auth", authWorkflowRoutes);
-// Canonical communication/report/settings/system routes must precede runtime compatibility placeholders.
+// Canonical communication/report/settings/system/procurement routes must precede runtime compatibility placeholders.
 app.route("/api", notificationAnnouncementRoutes);
 app.route("/api", reportRoutes);
 app.route("/api", settingsPoliciesHolidaysRoutes);
 app.route("/api", auditSystemRoutes);
+app.route("/api", productPurchaseRoutes);
 app.route("/api", runtimeRoutes);
 app.route("/api", userRoutes);
 app.route("/api", user360Routes);
