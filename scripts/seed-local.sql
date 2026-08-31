@@ -47,7 +47,9 @@ ON CONFLICT(id) DO UPDATE SET
 
 -- Password scheme reserved for Phase 04 verifier:
 -- pbkdf2_sha256$iterations$salt(base64)$digest(base64)
--- Local development password: BoardOps@Fresh#2026!A7
+-- Local development credentials only:
+--   Admin: admin@boardops.local / BoardOps@Fresh#2026!A7
+--   Resident: riya@boardops.local / BoardOps@Resident#2026!R7
 INSERT INTO users (
   id, institution_id, name, email, phone, password_hash, role, status,
   institution_user_id, email_verified, room, gender, emergency_contact,
@@ -63,7 +65,9 @@ INSERT INTO users (
   ),
   (
     'usr_resident_riya_local', 'inst_boardops_local', 'Riya Sen', 'riya@boardops.local',
-    '+919123456789', NULL, 'USER', 'ACTIVE', 'RES-0204', 1, 'B-204', 'FEMALE', '+919111111111',
+    '+919123456789',
+    'pbkdf2_sha256$600000$Ym9hcmRvcHMtbG9jYWwtcml5YS12MQ==$5GtCbbrHvPQv5e03kXoAqJgWfgOWdcLl8ieuxbVg4H0=',
+    'USER', 'ACTIVE', 'RES-0204', 1, 'B-204', 'FEMALE', '+919111111111',
     'system', 'en', 'Asia/Kolkata', NULL,
     '2026-08-11T10:00:00.000Z', '2026-08-29T00:00:00.000Z'
   ),
