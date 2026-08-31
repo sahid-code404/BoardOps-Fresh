@@ -4,17 +4,35 @@ import { tokenDigest } from "../auth/crypto";
 import type { AppEnv } from "../types";
 
 const SESSION_COOKIE = "boardops_session";
+const THEME_SETTING_KEY = "ui.theme";
 
 const DEFAULT_THEME = {
   primary: "#8b5cf6",
   primaryForeground: "#ffffff",
   accent: "#10b981",
   radius: "1.25rem",
+  mode: "system" as const,
   preset: "violet",
-  glassMode: "on",
-  blurIntensity: "normal",
-  transparency: "medium",
-} as const;
+  glassMode: "on" as const,
+  blurIntensity: "normal" as const,
+  transparency: "medium" as const,
+};
+
+type ThemeConfig = {
+  primary: string;
+  primaryForeground: string;
+  accent: string;
+  radius: string;
+  mode: "system" | "light" | "dark";
+  preset: string;
+  glassMode: "on" | "off";
+  blurIntensity: "light" | "normal" | "heavy";
+  transparency: "low" | "medium" | "high";
+};
+
+type ThemeSettingRow = {
+  value: string;
+};
 
 type Viewer = {
   id: string;
@@ -86,12 +104,71 @@ function safeViewer(user: Viewer) {
   };
 }
 
+function isHexColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/u.test(value);
+}
+
+function storedTheme(value: string): ThemeConfig | null {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const merged = { ...DEFAULT_THEME, ...(parsed as Record<string, unknown>) };
+    if (!isHexColor(merged.primary) || !isHexColor(merged.primaryForeground) || !isHexColor(merged.accent)) {
+      return null;
+    }
+    if (typeof merged.radius !== "string" || merged.radius.length < 4 || merged.radius.length > 20) return null;
+    if (merged.mode !== "system" && merged.mode !== "light" && merged.mode !== "dark") return null;
+    if (typeof merged.preset !== "string" || !merged.preset.trim() || merged.preset.length > 64) return null;
+    if (merged.glassMode !== "on" && merged.glassMode !== "off") return null;
+    if (!["light", "normal", "heavy"].includes(String(merged.blurIntensity))) return null;
+    if (!["low", "medium", "high"].includes(String(merged.transparency))) return null;
+    return merged as ThemeConfig;
+  } catch {
+    return null;
+  }
+}
+
+async function themeSetting(c: Context<AppEnv>, viewer: Viewer | null): Promise<ThemeSettingRow | null> {
+  if (viewer) {
+    return c.env.DB.prepare(
+      `SELECT value
+         FROM settings
+        WHERE institution_id = ? AND key = ? AND is_public = 1
+        LIMIT 1`,
+    )
+      .bind(viewer.institution_id, THEME_SETTING_KEY)
+      .first<ThemeSettingRow>();
+  }
+
+  // The golden theme contract is public so the login surface can use it before
+  // authentication. BoardOps currently has one canonical institution; ordering
+  // keeps the fallback deterministic if additional institution fixtures appear.
+  return c.env.DB.prepare(
+    `SELECT value
+       FROM settings
+      WHERE key = ? AND is_public = 1
+      ORDER BY created_at ASC, institution_id ASC
+      LIMIT 1`,
+  )
+    .bind(THEME_SETTING_KEY)
+    .first<ThemeSettingRow>();
+}
+
 export const runtimeRoutes = new Hono<AppEnv>();
 
 runtimeRoutes.get("/theme", async (c) => {
   const viewer = await currentViewer(c);
-  const mode = viewer?.theme === "light" || viewer?.theme === "dark" ? viewer.theme : "system";
-  return c.json({ success: true, data: { ...DEFAULT_THEME, mode } });
+  const setting = await themeSetting(c, viewer);
+  const persisted = setting ? storedTheme(setting.value) : null;
+  const config: ThemeConfig = persisted ?? { ...DEFAULT_THEME };
+
+  // Appearance mode remains a self-service profile preference in Fresh. Keep
+  // that preference while colors/radius/glass settings are institution-wide.
+  if (viewer?.theme === "light" || viewer?.theme === "dark" || viewer?.theme === "system") {
+    config.mode = viewer.theme;
+  }
+
+  return c.json({ success: true, data: config });
 });
 
 runtimeRoutes.get("/notifications", async (c) => {
