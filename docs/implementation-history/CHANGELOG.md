@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-08-31 — Authentication / Registration / OTP / Recovery implementation verified
+- CI run `33347865143` completed successfully with deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset through all **23 migrations**, invariant verification, Worker/API readiness smoke, **30/30 real-D1 Playwright runtime tests**, and **56/56 visual tests** at implementation verification head `2b7762f8d1f38be6c0e0d768474f3b31009d25e4`.
+- Promoted the existing verified Phase-04 authentication core to parity VERIFIED rather than creating a duplicate authentication subsystem or a new auth migration. `user_sessions`, `registration_requests`, and `auth_challenges` remain the canonical D1 authorities for sessions, review cycles, verification/recovery challenges, expiry, attempts and one-time consumption.
+- Added evergreen real-D1 password-recovery coverage proving non-enumerating reset requests, wrong/replayed OTP rejection, one-time reset-token use, revocation of the pre-reset session, old-password rejection and successful new-password login. Existing registration runtime coverage continues to prove verification, request-changes, corrected-email re-verification, approval, rejection, state-machine bypass protection and session revocation.
+- Added explicit visual coverage for the source-compatible Sign in → Register → Forgot password surfaces. The fixed golden repository remained read-only and no recognizable authentication workflow was replaced.
+- Current clean-D1 verification remains **96 permissions / 234 grants** and proves one session-digest credential column with **zero raw session-token columns**. Production auth-email delivery remains intentionally fail-closed until a real provider is configured; optional 2FA is not newly claimed.
+- The first coverage run exposed only a harness ambiguity: multiple legitimate administrator sessions can share the same browser/OS presentation label. The final test accepts duplicate labels while still requiring the `This device` marker; no session, recovery, rate-limit, authorization or authentication rule was weakened.
+- Authentication / Registration / OTP / Recovery implementation is VERIFIED. Formal project-record closure is contingent on the latest documentation-head CI run also remaining fully green. No production deployment was performed, and the golden repository remained read-only.
+
 ## 2026-08-31 — Products / Purchases implementation verified
 - CI run `33345403685` completed successfully with deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset through all 23 migrations, deterministic invariant verification, Worker/API readiness smoke, **29/29 real-D1 Playwright runtime tests**, and **55/55 visual tests** at implementation verification head `46ac0357a9af26909e47084153466acd5cb1e7b3`.
 - Added immutable `0023_products_purchases.sql` with four institution-scoped Procurement tables (`units`, `products`, `purchases`, `purchase_items`), twelve integrity/history guards, one future-role bootstrap trigger, and six fail-closed Procurement permissions. Current clean-D1 RBAC baseline is **96 permissions / 234 grants**; Admin/Super Admin receive all six Procurement permissions and non-admin roles receive none.
@@ -145,7 +154,7 @@
 - The imported golden Billing UI keeps its visual/workflow behavior, but the legacy body-less DELETE used by its Void control is routed to the explicit financial void endpoint so void and soft delete remain distinct accounting actions.
 - Billing RBAC is explicit and fail-closed: administrators receive billing mutations while resident/manager access remains read-only where required.
 - Clean-D1 verification proves deterministic June/July snapshots, the seeded July bill, bill arithmetic, immutability triggers, and least-privilege Billing grants.
-- Real-runtime browser coverage proves snapshot readiness, bill generation, idempotent regeneration, financial void, soft-delete/restore semantics, closed-period rejection, and visible real D1 Billing data. No production deployment was performed.
+- Real-runtime browser coverage proves snapshot readiness, bill generation, idempotent regeneration, financial void, soft-delete/restore semantics, closed-July rejection, and visible real D1 Billing data. No production deployment was performed.
 - Billing implementation is VERIFIED. Formal checkpoint closure is contingent on the latest documentation-head CI run also remaining fully green.
 
 ## 2026-08-30 — Phase 05 permission-based RBAC verified
