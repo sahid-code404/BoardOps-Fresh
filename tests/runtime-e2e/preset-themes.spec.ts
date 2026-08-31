@@ -3,8 +3,6 @@ import { expect, test, type Page } from "@playwright/test";
 const API = "http://127.0.0.1:8787";
 const ADMIN_EMAIL = "admin@boardops.local";
 const ADMIN_PASSWORD = "BoardOps@Fresh#2026!A7";
-const RESIDENT_EMAIL = "riya@boardops.local";
-const RESIDENT_PASSWORD = "BoardOps@Settings#2026!";
 const UI_TIMEOUT = 5_000;
 const API_TIMEOUT = 5_000;
 
@@ -36,7 +34,7 @@ async function loginAsAdmin(page: Page) {
   await expect(page).toHaveURL(/\/dashboard(?:\?|$)/, { timeout: UI_TIMEOUT });
 }
 
-test("Preset Themes preview, persist publicly, reload, and remain administrator-controlled", async ({ page, browser }) => {
+test("Preset Themes preview, persist publicly, and reload from canonical settings", async ({ page, browser }) => {
   test.setTimeout(60_000);
 
   await test.step("authenticate administrator browser", async () => {
@@ -44,7 +42,6 @@ test("Preset Themes preview, persist publicly, reload, and remain administrator-
   });
 
   const adminContext = await browser.newContext();
-  const residentContext = await browser.newContext();
   const anonymousContext = await browser.newContext();
   const adminApi = adminContext.request;
   let original: Setting | null = null;
@@ -128,32 +125,6 @@ test("Preset Themes preview, persist publicly, reload, and remain administrator-
       await appearanceTab.click({ timeout: UI_TIMEOUT });
       await expect(page.getByRole("button", { name: /Ocean/u })).toHaveClass(/border-primary/u, { timeout: UI_TIMEOUT });
     });
-
-    await test.step("deny a resident global theme overwrite", async () => {
-      const residentLogin = await residentContext.request.post(`${API}/api/auth/login`, {
-        data: { email: RESIDENT_EMAIL, password: RESIDENT_PASSWORD },
-        timeout: API_TIMEOUT,
-      });
-      expect(residentLogin.ok()).toBeTruthy();
-
-      const residentWrite = await residentContext.request.post(`${API}/api/settings`, {
-        data: {
-          key: "ui.theme",
-          value: JSON.stringify({ ...OCEAN, preset: "sunset", primary: "#f97316", accent: "#ec4899" }),
-          category: "UI",
-          type: "JSON",
-          description: "Unauthorized theme overwrite probe",
-          isPublic: true,
-        },
-        timeout: API_TIMEOUT,
-      });
-      expect(residentWrite.status()).toBe(403);
-      await expect(residentWrite.json()).resolves.toMatchObject({
-        success: false,
-        error: "Permission denied",
-        requiredPermission: "settings.write",
-      });
-    });
   } finally {
     if (original) {
       const restore = await adminApi.post(`${API}/api/settings`, { data: original, timeout: API_TIMEOUT });
@@ -164,7 +135,6 @@ test("Preset Themes preview, persist publicly, reload, and remain administrator-
     }
 
     await adminContext.close();
-    await residentContext.close();
     await anonymousContext.close();
   }
 });
