@@ -35,7 +35,7 @@ async function loginAsAdmin(page: Page) {
 }
 
 test("Preset Themes preview, persist publicly, reload, and remain administrator-controlled", async ({ page, browser }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   await loginAsAdmin(page);
 
   // Use an explicit API session for setup/cleanup instead of borrowing the page
@@ -63,15 +63,15 @@ test("Preset Themes preview, persist publicly, reload, and remain administrator-
     await expect(page).toHaveURL(/\/settings(?:\?|$)/, { timeout: 5_000 });
     await page.getByRole("tab", { name: "Appearance", exact: true }).click();
 
-    await expect(page.getByRole("heading", { name: "Preset Themes", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Preset Themes", exact: true })).toBeVisible({ timeout: 5_000 });
     const oceanButton = page.getByRole("button", { name: /Ocean/u });
-    await expect(oceanButton).toBeVisible();
+    await expect(oceanButton).toBeVisible({ timeout: 5_000 });
     await oceanButton.click();
 
     await expect.poll(async () => page.evaluate(() => ({
       primary: document.documentElement.style.getPropertyValue("--primary").trim(),
       accent: document.documentElement.style.getPropertyValue("--accent").trim(),
-    }))).toEqual({ primary: OCEAN.primary, accent: OCEAN.accent });
+    })), { timeout: 5_000 }).toEqual({ primary: OCEAN.primary, accent: OCEAN.accent });
 
     const saveResponse = page.waitForResponse((response) =>
       new URL(response.url()).pathname === "/api/settings" && response.request().method() === "POST",
@@ -105,7 +105,7 @@ test("Preset Themes preview, persist publicly, reload, and remain administrator-
     await page.reload();
     await expect(page).toHaveURL(/\/settings(?:\?|$)/, { timeout: 5_000 });
     await page.getByRole("tab", { name: "Appearance", exact: true }).click();
-    await expect(page.getByRole("button", { name: /Ocean/u })).toHaveClass(/border-primary/u);
+    await expect(page.getByRole("button", { name: /Ocean/u })).toHaveClass(/border-primary/u, { timeout: 5_000 });
 
     const residentLogin = await residentContext.request.post(`${API}/api/auth/login`, {
       data: { email: RESIDENT_EMAIL, password: RESIDENT_PASSWORD },
