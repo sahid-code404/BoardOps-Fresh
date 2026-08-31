@@ -267,6 +267,7 @@ function computeCutoffPreview(
   cutoffTime: string,
   offsetMinutes: number
 ): string {
+  if (!strategy || !cutoffTime) return "Choose cutoff strategy and time";
   const time12 = formatTime12(cutoffTime);
   switch (strategy) {
     case "PREVIOUS_DAY":
