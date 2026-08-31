@@ -97,6 +97,34 @@ type MealCountRow = {
   current_month_on: number;
 };
 
+type RestrictionRow = {
+  id: string;
+  type: "FINANCIAL" | "ADMINISTRATIVE";
+  reason: string;
+  source: "AUTOMATIC" | "MANUAL";
+  status: "ACTIVE" | "LIFTED" | "EXEMPTED" | "EXPIRED";
+  applied_at: string;
+  expires_at: string | null;
+};
+
+type PolicyVariableRow = {
+  key: string;
+  value_text: string;
+};
+
+type NotificationRow = {
+  created_at: string;
+};
+
+type RestrictionPolicy = {
+  enabled: boolean;
+  graceDays: number;
+  requiredBalance: number;
+};
+
+const DEFAULT_GRACE_PERIOD_DAYS = 2;
+const DEFAULT_REQUIRED_BALANCE = 1000;
+
 export const user360Routes = new Hono<AppEnv>();
 
 function minorToMajor(value: number | null | undefined): number {
@@ -124,17 +152,28 @@ function nextMonth(period: { month: number; year: number }): { month: number; ye
     : { month: period.month + 1, year: period.year };
 }
 
+function restrictionPolicy(rows: PolicyVariableRow[]): RestrictionPolicy {
+  const values = new Map(rows.map((row) => [row.key, row.value_text]));
+  const graceRaw = Number.parseInt(values.get("policy.lowBalance.graceDays") ?? "", 10);
+  const requiredRaw = Number.parseFloat(values.get("policy.lowBalance.requiredBalance") ?? "");
+  const enabledRaw = (values.get("policy.lowBalance.enabled") ?? "true").trim().toLowerCase();
+  return {
+    enabled: enabledRaw !== "false",
+    graceDays: Number.isFinite(graceRaw) && graceRaw > 0 ? graceRaw : DEFAULT_GRACE_PERIOD_DAYS,
+    requiredBalance: Number.isFinite(requiredRaw) && requiredRaw > 0 ? requiredRaw : DEFAULT_REQUIRED_BALANCE,
+  };
+}
+
 /**
  * GET /api/users/:id/360
  *
- * Composite administrator read model over the canonical D1 domains that exist
- * today. It does not create a second financial balance table or copy mutable
- * accounting state. Bills, Payments, Refunds and Meals remain authoritative;
- * the resident ledger and fund summary below are derived from that evidence.
- *
- * Per-resident Restriction records are intentionally still unavailable because
- * BoardOps-Fresh does not yet have a canonical D1 restriction domain. Returning
- * null is safer than inventing a booking-eligibility decision.
+ * Composite administrator read model over canonical D1 evidence. It never
+ * creates a second mutable financial balance authority: Bills, Payments,
+ * Refunds and Meals remain authoritative and both the resident ledger and fund
+ * summary are derived from those records. Restriction evaluation mirrors the
+ * golden contract over durable restriction evidence plus the canonical
+ * low-balance policy variables, with the golden defaults when no variable is
+ * configured.
  */
 user360Routes.get("/users/:id/360", async (c) => {
   const viewer = await authenticatedPrincipal(c);
@@ -173,6 +212,8 @@ user360Routes.get("/users/:id/360", async (c) => {
     refundAggregate,
     ledgerResult,
     mealCount,
+    activeRestrictionsResult,
+    policyVariablesResult,
   ] = await Promise.all([
     c.env.DB.prepare(
       `SELECT id, success, ip_address, created_at, reason
@@ -275,7 +316,7 @@ user360Routes.get("/users/:id/360", async (c) => {
            'payment:' || id AS id,
            'DEPOSIT' AS type,
            amount_minor AS amount_minor,
-           COALESCE('Payment · ' || method, 'Payment') AS description,
+           'Payment · ' || method AS description,
            created_at
          FROM payments
          WHERE institution_id = ? AND user_id = ?
@@ -333,6 +374,25 @@ user360Routes.get("/users/:id/360", async (c) => {
           AND service_date < ?
           AND status IN ('ON', 'LOCKED')`,
     ).bind(user.institution_id, user.id, monthStart, monthEnd).first<MealCountRow>(),
+
+    c.env.DB.prepare(
+      `SELECT id, type, reason, source, status, applied_at, expires_at
+         FROM restrictions
+        WHERE institution_id = ? AND user_id = ? AND status = 'ACTIVE'
+        ORDER BY applied_at DESC, id DESC`,
+    ).bind(user.institution_id, user.id).all<RestrictionRow>(),
+
+    c.env.DB.prepare(
+      `SELECT key, value_text
+         FROM variables
+        WHERE institution_id = ?
+          AND status = 'ACTIVE'
+          AND key IN (
+            'policy.lowBalance.enabled',
+            'policy.lowBalance.graceDays',
+            'policy.lowBalance.requiredBalance'
+          )`,
+    ).bind(user.institution_id).all<PolicyVariableRow>(),
   ]);
 
   const totalDepositedMinor = Number(paymentAggregate?.total_deposited_minor ?? 0);
@@ -345,12 +405,63 @@ user360Routes.get("/users/:id/360", async (c) => {
   const refundPendingMinor = Number(refundAggregate?.refund_pending_minor ?? 0);
   const totalRefundedMinor = Number(refundAggregate?.total_refunded_minor ?? 0);
   const rawAvailableMinor = totalDepositedMinor - settledBilledMinor - paidRefundMinor;
-  const financialStatus = outstandingDueMinor > 0 && rawAvailableMinor <= 0
+  const availableBalance = minorToMajor(Math.max(0, rawAvailableMinor));
+  const outstandingDue = minorToMajor(outstandingDueMinor);
+  const fundFinancialStatus = outstandingDueMinor > 0 && rawAvailableMinor <= 0
     ? "OVERDUE"
     : rawAvailableMinor < 0
       ? "LOW_BALANCE"
       : "HEALTHY";
   const ledgerEntryCount = Number(ledgerResult.results[0]?.total_count ?? 0);
+
+  const policy = restrictionPolicy(policyVariablesResult.results);
+  const activeRestrictions = activeRestrictionsResult.results;
+  const hasActiveFinancialRestriction = activeRestrictions.some((item) => item.type === "FINANCIAL");
+  const hasActiveAdminRestriction = activeRestrictions.some((item) => item.type === "ADMINISTRATIVE");
+  const hasExemption = activeRestrictions.some(
+    (item) => item.type === "FINANCIAL" && item.source === "MANUAL" && item.reason.includes("EXEMPTION"),
+  );
+
+  let graceDaysRemaining: number | null = null;
+  if (
+    policy.enabled
+    && !hasExemption
+    && !hasActiveFinancialRestriction
+    && availableBalance < policy.requiredBalance
+    && outstandingDue > 0
+  ) {
+    const now = Date.now();
+    const warningCutoff = new Date(now - policy.graceDays * 24 * 60 * 60 * 1000).toISOString();
+    const warning = await c.env.DB.prepare(
+      `SELECT created_at
+         FROM notifications
+        WHERE institution_id = ?
+          AND user_id = ?
+          AND title = 'Low Balance Warning'
+          AND created_at >= ?
+        ORDER BY created_at ASC
+        LIMIT 1`,
+    ).bind(user.institution_id, user.id, warningCutoff).first<NotificationRow>();
+
+    if (warning) {
+      const graceEnd = Date.parse(warning.created_at) + policy.graceDays * 24 * 60 * 60 * 1000;
+      graceDaysRemaining = Math.max(0, Math.ceil((graceEnd - now) / (24 * 60 * 60 * 1000)));
+    } else {
+      graceDaysRemaining = policy.graceDays;
+    }
+  }
+
+  const canBookMeals = !hasActiveAdminRestriction && (!hasActiveFinancialRestriction || hasExemption);
+  let restrictionFinancialStatus = "HEALTHY";
+  if (hasExemption) {
+    restrictionFinancialStatus = "EXEMPTED";
+  } else if (hasActiveFinancialRestriction || hasActiveAdminRestriction) {
+    restrictionFinancialStatus = "RESTRICTED";
+  } else if (policy.enabled && availableBalance < policy.requiredBalance && outstandingDue > 0) {
+    restrictionFinancialStatus = graceDaysRemaining !== null && graceDaysRemaining > 0 ? "LOW_BALANCE" : "RESTRICTED";
+  } else if (outstandingDue > 0) {
+    restrictionFinancialStatus = "OVERDUE";
+  }
 
   return c.json({
     success: true,
@@ -376,21 +487,36 @@ user360Routes.get("/users/:id/360", async (c) => {
       },
 
       fundAccount: {
-        availableBalance: minorToMajor(Math.max(0, rawAvailableMinor)),
+        availableBalance,
         pendingDeposits: minorToMajor(pendingDepositsMinor),
         refundPending: minorToMajor(refundPendingMinor),
-        outstandingDue: minorToMajor(outstandingDueMinor),
+        outstandingDue,
         previousDue: minorToMajor(previousDueMinor),
-        financialStatus,
+        financialStatus: fundFinancialStatus,
         totalDeposited: minorToMajor(totalDepositedMinor),
         totalBilled: minorToMajor(totalBilledMinor),
         totalRefunded: minorToMajor(totalRefundedMinor),
         ledgerEntryCount,
       },
 
-      // A canonical per-resident restriction domain does not exist in Fresh yet.
-      restrictions: null,
-      activeRestrictions: [],
+      restrictions: {
+        canBookMeals,
+        financialStatus: restrictionFinancialStatus,
+        availableBalance,
+        requiredBalance: policy.requiredBalance,
+        graceDaysRemaining,
+        hasExemption,
+        restrictionReason: activeRestrictions[0]?.reason ?? null,
+      },
+      activeRestrictions: activeRestrictions.map((restriction) => ({
+        id: restriction.id,
+        type: restriction.type,
+        reason: restriction.reason,
+        source: restriction.source,
+        status: restriction.status,
+        appliedAt: restriction.applied_at,
+        expiresAt: restriction.expires_at,
+      })),
 
       recentBills: recentBills.results.map((bill) => ({
         id: bill.id,
@@ -457,7 +583,7 @@ user360Routes.get("/users/:id/360", async (c) => {
         refunds: true,
         ledger: true,
         meals: true,
-        restrictions: false,
+        restrictions: true,
       },
     },
   });
