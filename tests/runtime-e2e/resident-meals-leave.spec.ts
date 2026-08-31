@@ -183,12 +183,16 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
     const afterLeaveBody = await afterLeaveResponse.json() as ApiEnvelope<ResidentSchedule>;
     const afterLeaveEntries = afterLeaveBody.data.byDate[leaveStart] ?? [];
     expect(afterLeaveEntries).toHaveLength(baselineEntries.length);
-    expect(afterLeaveEntries.every((entry) =>
-      entry.status === "OFF"
-      && entry.originalState === baselineByMeal.get(entry.mealId)
-      && entry.overridden === true
-      && entry.locked === true
-    )).toBe(true);
+    for (const entry of afterLeaveEntries) {
+      const baseline = baselineByMeal.get(entry.mealId);
+      expect(entry.status).toBe("OFF");
+      expect(entry.originalState).toBe(baseline);
+      expect(entry.locked).toBe(true);
+      // `overridden` means the enforced OFF state differs from the preserved
+      // resident baseline. Meals already OFF before leave are locked but are
+      // not falsely reported as overrides.
+      expect(entry.overridden).toBe(baseline === "ON");
+    }
 
     const selfLeaveList = await residentApi.get(`${API}/api/leave`);
     expect(selfLeaveList.ok()).toBeTruthy();
