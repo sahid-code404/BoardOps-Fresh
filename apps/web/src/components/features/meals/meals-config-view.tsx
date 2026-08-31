@@ -1402,10 +1402,10 @@ export function MealsConfigView() {
             <AlertDialogDescription>
               <span className="block">
                 <span className="font-medium text-foreground">{deleteTarget?.displayName}</span>{" "}
-                will be archived immediately and stop being available for new meal selection.
+                will enter the deletion queue now. It remains service-active through the next eligible billing month so that month&apos;s confirmed meals are included in billing.
               </span>
               <span className="block mt-2 text-warning">
-                It remains in the deletion queue until the next month&apos;s bills have been generated and every due, overpayment, and refund balance for that month is settled. Historical meal and billing evidence is preserved.
+                After that billing cycle closes, the meal is archived. It is removed from configuration only when all due amounts, overpayments, and refund obligations for that month are settled. Historical meal and billing evidence is preserved.
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
