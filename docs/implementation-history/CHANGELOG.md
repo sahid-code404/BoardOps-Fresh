@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-08-31 — Dashboard implementation verified
+- CI run `33349718965` completed successfully with deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset through all **23 migrations**, invariant verification, Worker/API readiness smoke, **31/31 real-D1 Playwright runtime tests**, and **56/56 visual tests** at implementation verification head `2078b2a2ad2961f072ea9bdf5c05ecf4ab8342d8`.
+- Replaced the Dashboard compatibility response’s placeholder zero/empty KPI data with an institution-timezone-scoped canonical D1 read model over existing meal configuration/entries, guest meals, approved Expenses, Bills, Notifications, immutable Audit evidence, and active per-meal rate Variables. No Dashboard-specific mutable store, ledger, or migration was introduced.
+- Dashboard confirmed ON/OFF and monthly resident-meal semantics now reuse the verified Kitchen rules. Current meal charge preserves the source workflow intent while using canonical integer-money Expenses and guest-meal revenue derived from active `meal.rate.*` Variables.
+- The seven-day trend preserves the golden behavior but replaces separate day-by-day reads with one bounded institution-scoped interval query. Current-month resident-meal and Expense reads are likewise bounded and timezone-aware.
+- Phase 02’s golden Dashboard composition remains unchanged, and Phase 05’s fail-closed `dashboard.read`, audit visibility, and permission-derived administrator behavior remain authoritative.
+- Dedicated runtime coverage cross-checks Dashboard against the canonical Kitchen and Expenses APIs for the same institutional period rather than relying on magic fixture KPI values. Dedicated visual coverage retains the complete golden Dashboard and responsive/theme route matrix.
+- Clean-D1 verification remains **96 permissions / 234 grants** with 4 canonical roles; no already-verified accounting, meal, billing, notification, audit, or RBAC rule was weakened.
+- Dashboard implementation is VERIFIED. Formal project-record closure is contingent on the latest documentation-head CI run also remaining fully green. No production deployment was performed, and the golden repository remained read-only.
+
 ## 2026-08-31 — Authentication / Registration / OTP / Recovery implementation verified
 - CI run `33347865143` completed successfully with deterministic lockfile validation, frozen install, TypeScript, unit tests, production builds, clean local D1 reset through all **23 migrations**, invariant verification, Worker/API readiness smoke, **30/30 real-D1 Playwright runtime tests**, and **56/56 visual tests** at implementation verification head `2b7762f8d1f38be6c0e0d768474f3b31009d25e4`.
 - Promoted the existing verified Phase-04 authentication core to parity VERIFIED rather than creating a duplicate authentication subsystem or a new auth migration. `user_sessions`, `registration_requests`, and `auth_challenges` remain the canonical D1 authorities for sessions, review cycles, verification/recovery challenges, expiry, attempts and one-time consumption.
