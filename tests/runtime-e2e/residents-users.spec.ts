@@ -7,6 +7,10 @@ const EMAIL = "browser.users.lifecycle@example.test";
 const PASSWORD = "BoardOps@Users#2026!U1";
 
 async function registerAndVerify(page: Page) {
+  // Registration throttling is intentionally IP-scoped. Give this synthetic
+  // lifecycle fixture its own TEST-NET address so it cannot consume another
+  // scenario's rate-limit budget in the shared single-worker runtime suite.
+  await page.setExtraHTTPHeaders({ "x-forwarded-for": "198.51.100.27" });
   await page.goto("/");
   await page.getByRole("tab", { name: "Register", exact: true }).click();
   await page.getByLabel("Full Name", { exact: true }).fill("Users Lifecycle Resident");
