@@ -79,6 +79,13 @@ const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["POST /api/adjustments", PERMISSIONS.ADJUSTMENTS_CREATE],
   ["GET /api/expenses", PERMISSIONS.EXPENSES_READ],
   ["POST /api/expenses", PERMISSIONS.EXPENSES_CREATE],
+  ["GET /api/units", PERMISSIONS.PRODUCTS_READ],
+  ["POST /api/units", PERMISSIONS.PRODUCTS_WRITE],
+  ["GET /api/products", PERMISSIONS.PRODUCTS_READ],
+  ["POST /api/products", PERMISSIONS.PRODUCTS_WRITE],
+  ["GET /api/purchases", PERMISSIONS.PURCHASES_READ],
+  ["GET /api/purchases/stats", PERMISSIONS.PURCHASES_READ],
+  ["POST /api/purchases", PERMISSIONS.PURCHASES_CREATE],
   ["GET /api/funds", PERMISSIONS.FUNDS_READ],
   ["GET /api/variables", PERMISSIONS.VARIABLES_READ],
   ["POST /api/variables", PERMISSIONS.VARIABLES_CREATE],
@@ -205,6 +212,24 @@ function dynamicPolicy(method: Method, path: string): DynamicPolicy {
   }
   if (method === "POST" && /^\/api\/expenses\/[^/]+\/restore$/u.test(path)) {
     return PERMISSIONS.EXPENSES_RESTORE;
+  }
+  if (method === "PATCH" && /^\/api\/units\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.PRODUCTS_WRITE;
+  }
+  if (method === "PATCH" && /^\/api\/products\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.PRODUCTS_WRITE;
+  }
+  if (method === "DELETE" && /^\/api\/products\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.PRODUCTS_WRITE;
+  }
+  if (method === "GET" && /^\/api\/purchases\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.PURCHASES_READ;
+  }
+  if (method === "PATCH" && /^\/api\/purchases\/[^/]+$/u.test(path)) {
+    return PERMISSIONS.PURCHASES_DELETE;
+  }
+  if (method === "POST" && /^\/api\/purchases\/[^/]+\/restore$/u.test(path)) {
+    return PERMISSIONS.PURCHASES_RESTORE;
   }
   if (method === "PUT" && /^\/api\/variables\/[^/]+$/u.test(path)) {
     return PERMISSIONS.VARIABLES_UPDATE;
