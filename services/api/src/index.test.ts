@@ -31,6 +31,10 @@ const CORE_TABLES = [
   "adjustments",
   "financial_reference_sequences",
   "expenses",
+  "units",
+  "products",
+  "purchases",
+  "purchase_items",
   "variables",
   "variable_versions",
   "formulas",
@@ -46,14 +50,12 @@ function mockDb(tableNames = CORE_TABLES): D1Database {
   return {
     prepare(sql: string) {
       if (sql.includes("SELECT 1 AS ok")) {
-        return {
-          first: async () => ({ ok: 1 }),
-        };
+        return { first: async () => ({ ok: 1 }) };
       }
 
       if (sql.includes("FROM permissions") && sql.includes("FROM roles") && sql.includes("FROM role_permissions")) {
         return {
-          first: async () => ({ permission_count: 90, role_count: 4, grant_count: 222 }),
+          first: async () => ({ permission_count: 96, role_count: 4, grant_count: 234 }),
         };
       }
 
@@ -80,7 +82,7 @@ describe("health endpoint", () => {
 });
 
 describe("readiness endpoint", () => {
-  it("requires the complete current RBAC + operational + accounting + formula + communication + reports + settings + system baseline", async () => {
+  it("requires the complete current RBAC + operational + accounting + procurement + formula + communication + reports + settings + system baseline", async () => {
     const response = await app.request(
       "http://boardops.local/api/ready",
       undefined,
@@ -101,7 +103,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "background_tasks")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -111,7 +112,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "meal_entries")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({
       status: "not_ready",
@@ -126,7 +126,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "billing_snapshots")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -136,7 +135,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "billing_cycles")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -146,7 +144,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "billing_cycle_events")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -156,7 +153,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "payments")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -166,7 +162,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "refund_transactions")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -176,7 +171,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "adjustments")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -186,7 +180,24 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "expenses")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
+    expect(response.status).toBe(503);
+  });
 
+  it("fails closed when procurement purchase evidence is missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "purchases")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
+    expect(response.status).toBe(503);
+  });
+
+  it("fails closed when immutable procurement item evidence is missing", async () => {
+    const response = await app.request(
+      "http://boardops.local/api/ready",
+      undefined,
+      { DB: mockDb(CORE_TABLES.filter((name) => name !== "purchase_items")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
+    );
     expect(response.status).toBe(503);
   });
 
@@ -196,7 +207,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "formula_versions")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -206,7 +216,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "variable_versions")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -216,7 +225,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "announcements")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -226,7 +234,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "notifications")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -236,7 +243,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "settings")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -246,7 +252,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "policies")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 
@@ -256,7 +261,6 @@ describe("readiness endpoint", () => {
       undefined,
       { DB: mockDb(CORE_TABLES.filter((name) => name !== "holidays")), FILES: {} as R2Bucket, ENVIRONMENT: "local" },
     );
-
     expect(response.status).toBe(503);
   });
 });
