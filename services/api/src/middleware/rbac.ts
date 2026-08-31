@@ -57,6 +57,8 @@ const EXACT_POLICIES = new Map<string, PermissionKey>([
   ["GET /api/users", PERMISSIONS.USERS_READ],
   ["GET /api/meals/config", PERMISSIONS.MEALS_CONFIG_READ],
   ["POST /api/meals/config", PERMISSIONS.MEALS_CONFIG_CREATE],
+  ["GET /api/meals/entries", PERMISSIONS.MEALS_ENTRIES_READ_SELF],
+  ["PATCH /api/meals/toggle", PERMISSIONS.MEALS_TOGGLE_SELF],
   ["POST /api/meals/override", PERMISSIONS.MEALS_OVERRIDE],
   ["GET /api/kitchen", PERMISSIONS.KITCHEN_READ],
   ["POST /api/kitchen", PERMISSIONS.KITCHEN_GUEST_CREATE],
