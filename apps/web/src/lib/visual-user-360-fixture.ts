@@ -45,7 +45,15 @@ export function visualUser360FixtureResponse<T>(path: string): T | undefined {
         totalRefunded: 400,
         ledgerEntryCount: 7,
       },
-      restrictions: null,
+      restrictions: {
+        canBookMeals: true,
+        financialStatus: "HEALTHY",
+        availableBalance: 1200,
+        requiredBalance: 1000,
+        graceDaysRemaining: null,
+        hasExemption: false,
+        restrictionReason: null,
+      },
       activeRestrictions: [],
       recentBills: [
         {
@@ -113,7 +121,7 @@ export function visualUser360FixtureResponse<T>(path: string): T | undefined {
         refunds: true,
         ledger: true,
         meals: true,
-        restrictions: false,
+        restrictions: true,
       },
     },
   } as T;
