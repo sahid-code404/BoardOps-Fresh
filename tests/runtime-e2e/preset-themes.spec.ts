@@ -1,4 +1,4 @@
-import { expect, test, type APIResponse, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const API = "http://127.0.0.1:8787";
 const ADMIN_EMAIL = "admin@boardops.local";
@@ -34,25 +34,30 @@ async function loginAsAdmin(page: Page) {
   await expect(page).toHaveURL(/\/dashboard(?:\?|$)/, { timeout: 5_000 });
 }
 
-async function json<T>(response: APIResponse): Promise<T> {
-  return response.json() as Promise<T>;
-}
-
 test("Preset Themes preview, persist publicly, reload, and remain administrator-controlled", async ({ page, browser }) => {
   test.setTimeout(60_000);
   await loginAsAdmin(page);
 
-  const settingsBefore = await page.evaluate(async () => {
-    const response = await fetch("/api/settings", { credentials: "include" });
-    return { status: response.status, body: await response.json() };
-  }) as { status: number; body: { data: Setting[] } };
-  expect(settingsBefore.status).toBe(200);
-  const original = settingsBefore.body.data.find((entry) => entry.key === "ui.theme") ?? null;
-
+  // Use an explicit API session for setup/cleanup instead of borrowing the page
+  // session. The browser portion below still performs the real golden UI save;
+  // this merely keeps fixture management deterministic across proxy/cookie paths.
+  const adminContext = await browser.newContext();
   const residentContext = await browser.newContext();
   const anonymousContext = await browser.newContext();
+  const adminApi = adminContext.request;
+  let original: Setting | null = null;
 
   try {
+    const adminLogin = await adminApi.post(`${API}/api/auth/login`, {
+      data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
+    });
+    expect(adminLogin.ok()).toBeTruthy();
+
+    const settingsBefore = await adminApi.get(`${API}/api/settings`);
+    expect(settingsBefore.ok()).toBeTruthy();
+    const settingsBeforeBody = await settingsBefore.json() as { success: boolean; data: Setting[] };
+    original = settingsBeforeBody.data.find((entry) => entry.key === "ui.theme") ?? null;
+
     const primaryNav = page.getByRole("navigation", { name: "Primary navigation" });
     await primaryNav.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(page).toHaveURL(/\/settings(?:\?|$)/, { timeout: 5_000 });
@@ -74,12 +79,9 @@ test("Preset Themes preview, persist publicly, reload, and remain administrator-
     await page.getByRole("button", { name: "Save Changes", exact: true }).click();
     expect((await saveResponse).status()).toBeLessThan(300);
 
-    const authenticatedTheme = await page.evaluate(async () => {
-      const response = await fetch("/api/theme", { credentials: "include" });
-      return { status: response.status, body: await response.json() };
-    }) as { status: number; body: { success: boolean; data: Record<string, unknown> } };
-    expect(authenticatedTheme.status).toBe(200);
-    expect(authenticatedTheme.body).toMatchObject({
+    const authenticatedTheme = await adminApi.get(`${API}/api/theme`);
+    expect(authenticatedTheme.status()).toBe(200);
+    await expect(authenticatedTheme.json()).resolves.toMatchObject({
       success: true,
       data: {
         preset: OCEAN.preset,
@@ -127,27 +129,14 @@ test("Preset Themes preview, persist publicly, reload, and remain administrator-
     });
   } finally {
     if (original) {
-      const restore = await page.evaluate(async (setting) => {
-        const response = await fetch("/api/settings", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(setting),
-        });
-        return response.status;
-      }, original);
-      expect(restore).toBeLessThan(300);
+      const restore = await adminApi.post(`${API}/api/settings`, { data: original });
+      expect(restore.ok()).toBeTruthy();
     } else {
-      const cleanup = await page.evaluate(async () => {
-        const response = await fetch("/api/settings/ui.theme", {
-          method: "DELETE",
-          credentials: "include",
-        });
-        return response.status;
-      });
-      expect(cleanup).toBe(200);
+      const cleanup = await adminApi.delete(`${API}/api/settings/ui.theme`);
+      expect(cleanup.status()).toBe(200);
     }
 
+    await adminContext.close();
     await residentContext.close();
     await anonymousContext.close();
   }
