@@ -7,7 +7,7 @@
 | Meal configuration | meals config | meals | Required | Required | immutable internal identifiers + ACTIVE-on-create lifecycle + evidence-safe delete/archive | clean D1 + runtime + visual | VERIFIED |
 | Resident meals/leave/guest | user meals + meal APIs | meals | Required | Required | self-scoped meal/leave access + overlap-safe leave + closed-period approval protection + baseline-preserving leave locks | clean D1 + runtime + visual | VERIFIED |
 | Kitchen/counts | kitchen | meals/kitchen | Required | Required | bounded institution-scoped D1 reads + least-privilege Kitchen RBAC + explicit closed-period source-lock conflicts | clean D1 + runtime + visual | VERIFIED |
-| Residents/users | users | residents/users | Required | Required | permission model | planned | AUDITED |
+| Residents/users | users | residents/users | Required | Required | least-privilege lifecycle/review RBAC + seven-day recovery + durable notifications + canonical User 360 finance/meals/restriction read model | clean D1 + runtime + visual | VERIFIED |
 | Products/purchases | billing feature | purchases | Required | Required | canonical linked Expense accounting + immutable purchase/item history + permission-aware Procurement hub | clean D1 + runtime + visual | VERIFIED |
 | Expenses | expenses view/API | expenses | Required | Required | integer money + immutability + replacement corrections | clean D1 + runtime + visual | VERIFIED |
 | Payments | payments view/API | payments | Required | Required | integer money + idempotency + immutability | clean D1 + runtime + visual | VERIFIED |
@@ -23,4 +23,4 @@
 | Audit/system/background tasks | audit/system | audit/system | Required | Required | immutable audit + durable Workers-native task history + institution-scoped cleanup + private redacted logical D1 backup | clean D1 + runtime + visual | VERIFIED |
 | Roles/permissions | schema/routes/UI | permissions | Recognizable role UX | Replace internals | canonical D1 grant resolution + live role changes + fail-closed least-privilege assignment integrity | clean D1 + runtime + visual | VERIFIED |
 
-`IMPLEMENTED`/`VERIFIED` are intentionally not used before the owning phase is built and tested.
+`IMPLEMENTED`/`VERIFIED` are intentionally not used before the owning phase is built and tested. The Residents/users row is included in its exact-head acceptance candidate so the code, tests, migration, and parity record can pass one final CI together; formal closure is still contingent on that exact head being green.
