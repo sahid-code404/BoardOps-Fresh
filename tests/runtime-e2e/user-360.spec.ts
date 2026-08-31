@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("administrator User 360 renders visible real data and explicit unavailable domains", async ({ page }) => {
+test("administrator User 360 renders canonical resident finance and meal domains", async ({ page }) => {
   const failed360Responses: string[] = [];
   page.on("response", (response) => {
     const url = new URL(response.url());
@@ -48,35 +48,38 @@ test("administrator User 360 renders visible real data and explicit unavailable 
   expect(presentation.height).toBeGreaterThan(120);
   expect(presentation.textLength).toBeGreaterThan(80);
 
+  await expect(dialog.getByText("Resident Fund Account", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Available Balance", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Meals This Month", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Profile", { exact: true })).toBeVisible();
   await expect(dialog.getByText("+919123456789", { exact: true })).toBeVisible();
   await expect(dialog.getByText("BoardOps Institute", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Recent Sign-ins", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("Resident Fund Account", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("Not available in this phase", { exact: true }).first()).toBeVisible();
 
   await dialog.getByRole("tab", { name: "Bills", exact: true }).click();
-  await expect(dialog.getByText("Billing history", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("Bills are not available in the current D1 schema yet.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("No bills yet", { exact: true })).toBeVisible();
 
   await dialog.getByRole("tab", { name: "Payments", exact: true }).click();
-  await expect(dialog.getByText("Payments & refunds", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Recent Payments", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("No payments yet", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("No refunds yet", { exact: true })).toBeVisible();
 
   await dialog.getByRole("tab", { name: "Ledger", exact: true }).click();
-  await expect(dialog.getByText("Resident ledger", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("No ledger entries yet", { exact: true })).toBeVisible();
 
   await dialog.getByRole("tab", { name: "Restrictions", exact: true }).click();
   await expect(dialog.getByText("Restriction evaluation", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Restriction evaluation is not available in the current D1 schema.", { exact: true })).toBeVisible();
 
-  const response = await page.evaluate(async () => {
+  const riyaResponse = await page.evaluate(async () => {
     const r = await fetch("/api/users/usr_resident_riya_local/360", { credentials: "include" });
     return { status: r.status, body: await r.json() };
   });
-  expect(response.status).toBe(200);
-  expect(response.body).toMatchObject({
+  expect(riyaResponse.status).toBe(200);
+  expect(riyaResponse.body).toMatchObject({
     success: true,
     data: {
-      contractVersion: 1,
+      contractVersion: 2,
       profile: {
         id: "usr_resident_riya_local",
         name: "Riya Sen",
@@ -84,9 +87,19 @@ test("administrator User 360 renders visible real data and explicit unavailable 
         institutionName: "BoardOps Institute",
         emailVerified: true,
       },
-      fundAccount: null,
+      fundAccount: {
+        availableBalance: 0,
+        pendingDeposits: 0,
+        refundPending: 0,
+        outstandingDue: 0,
+        previousDue: 0,
+        financialStatus: "HEALTHY",
+        totalDeposited: 0,
+        totalBilled: 0,
+        totalRefunded: 0,
+        ledgerEntryCount: 0,
+      },
       restrictions: null,
-      mealStats: null,
       recentBills: [],
       recentPayments: [],
       recentRefunds: [],
@@ -94,16 +107,89 @@ test("administrator User 360 renders visible real data and explicit unavailable 
       dataAvailability: {
         profile: true,
         loginHistory: true,
-        fundAccount: false,
-        bills: false,
-        payments: false,
-        refunds: false,
-        ledger: false,
-        meals: false,
+        fundAccount: true,
+        bills: true,
+        payments: true,
+        refunds: true,
+        ledger: true,
+        meals: true,
         restrictions: false,
       },
     },
   });
+  expect(riyaResponse.body.data.mealStats.currentMonthON).toBeGreaterThanOrEqual(2);
+
+  // Arjun owns the deterministic historical finance fixtures. This proves the
+  // same composite endpoint is reading real canonical Bills + Payments and not
+  // simply changing availability flags for a resident with empty finance data.
+  const arjunResponse = await page.evaluate(async () => {
+    const r = await fetch("/api/users/usr_resident_arjun_local/360", { credentials: "include" });
+    return { status: r.status, body: await r.json() };
+  });
+  expect(arjunResponse.status).toBe(200);
+  expect(arjunResponse.body).toMatchObject({
+    success: true,
+    data: {
+      contractVersion: 2,
+      profile: {
+        id: "usr_resident_arjun_local",
+        name: "Arjun Rao",
+        status: "INACTIVE",
+      },
+      fundAccount: {
+        availableBalance: 0,
+        pendingDeposits: 2500,
+        refundPending: 0,
+        outstandingDue: 13500,
+        previousDue: 13500,
+        financialStatus: "OVERDUE",
+        totalDeposited: 5000,
+        totalBilled: 18500,
+        totalRefunded: 0,
+        ledgerEntryCount: 2,
+      },
+      restrictions: null,
+      mealStats: { currentMonthON: 0 },
+      dataAvailability: {
+        fundAccount: true,
+        bills: true,
+        payments: true,
+        refunds: true,
+        ledger: true,
+        meals: true,
+        restrictions: false,
+      },
+    },
+  });
+  expect(arjunResponse.body.data.recentBills).toEqual([
+    expect.objectContaining({
+      id: "bill_arjun_2026_07_local",
+      periodMonth: 6,
+      periodYear: 2026,
+      totalAmount: 18500,
+      paidAmount: 5000,
+      dueAmount: 13500,
+      previousDue: 0,
+      status: "PARTIALLY_PAID",
+    }),
+  ]);
+  expect(arjunResponse.body.data.recentPayments).toEqual([
+    expect.objectContaining({
+      id: "payment_arjun_pending_local",
+      amount: 2500,
+      status: "PENDING",
+    }),
+    expect.objectContaining({
+      id: "bill_arjun_2026_07_local:migrated-paid-balance",
+      amount: 5000,
+      status: "APPROVED",
+    }),
+  ]);
+  expect(arjunResponse.body.data.ledger).toHaveLength(2);
+  expect(arjunResponse.body.data.ledger.map((entry: { type: string }) => entry.type).sort()).toEqual([
+    "BILL_SETTLEMENT",
+    "DEPOSIT",
+  ]);
 
   expect(failed360Responses).toEqual([]);
 });
