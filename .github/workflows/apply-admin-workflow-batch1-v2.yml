@@ -1,0 +1,37 @@
+name: Apply Admin Workflow Batch One V2
+
+on:
+  push:
+    branches:
+      - feature/admin-workflow-rules
+    paths:
+      - .github/workflows/apply-admin-workflow-batch1-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout working branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/admin-workflow-rules
+          fetch-depth: 0
+
+      - name: Apply corrected requested changes
+        run: python3 scripts/apply-admin-workflow-batch1-v2.py
+
+      - name: Validate patch whitespace
+        run: git diff --check
+
+      - name: Commit patched sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "boardops-automation"
+          git config user.email "boardops-automation@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: refine admin payment user and expense workflows"
+          git push origin HEAD:feature/admin-workflow-rules
