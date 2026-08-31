@@ -1,0 +1,51 @@
+name: Apply meal queue revive fix on PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.ref == 'fix/meal-deletion-queue-revive' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/meal-deletion-queue-revive
+          fetch-depth: 0
+
+      - name: Apply embedded patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/apply-meal-queue-revive-fix.yml').read_text()
+          patch_step = workflow.index('      - name: Patch meal deletion queue and revive flow')
+          start_marker = '        run: |\n'
+          start = workflow.index(start_marker, patch_step) + len(start_marker)
+          end = workflow.index('\n      - name: Commit fix and remove one-shot workflow', start)
+          indented = workflow[start:end]
+          script = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in indented.splitlines()
+          )
+          exec(compile(script, '<meal-queue-fix>', 'exec'), {'__name__': '__main__'})
+
+      - name: Commit implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/apply-meal-queue-revive-fix.yml
+          rm .github/workflows/apply-meal-queue-revive-on-pr.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/api/src/routes/meals-config.ts \
+                  apps/web/src/components/features/meals/meals-config-view.tsx \
+                  tests/runtime-e2e/meals-config.spec.ts \
+                  .github/workflows/apply-meal-queue-revive-fix.yml \
+                  .github/workflows/apply-meal-queue-revive-on-pr.yml
+          git commit -m "fix: hide queued meals and support revival"
+          git push origin HEAD:fix/meal-deletion-queue-revive
