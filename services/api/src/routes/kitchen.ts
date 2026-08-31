@@ -342,6 +342,23 @@ kitchenRoutes.post("/kitchen", async (c) => {
   if (guestCount < 1 || guestCount > 100) return c.json({ success: false, error: "guestCount must be between 1 and 100" }, 400);
   if ((notes?.length ?? 0) > 500) return c.json({ success: false, error: "Guest meal notes are too long" }, 400);
 
+  // Preserve the accounting lock as the first domain guard. A closed/closing
+  // historical date must continue to fail with the canonical 409 even if the
+  // selected meal was not operationally available on that old date.
+  const period = await c.env.DB.prepare(
+    `SELECT status
+       FROM accounting_periods
+      WHERE institution_id = ? AND starts_on <= ? AND ends_on >= ?
+      ORDER BY starts_on DESC
+      LIMIT 1`,
+  ).bind(principal.institutionId, serviceDate, serviceDate).first<{ status: string }>();
+  if (period?.status === "CLOSING" || period?.status === "CLOSED") {
+    return c.json(
+      { success: false, error: "Guest meals cannot be changed in a closing or closed accounting period" },
+      409,
+    );
+  }
+
   const [meal, timeZone] = await Promise.all([
     c.env.DB.prepare(
       `SELECT id, display_name, icon, color, start_time, end_time, default_state,
