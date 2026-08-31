@@ -13,7 +13,7 @@ test("Reports and Analytics preserve all five lazy report surfaces", async ({ pa
   await expect(page.getByRole("heading", { name: "Reports & Analytics", exact: true })).toBeVisible();
   await expect(page.getByText("Financial, meal, purchase, and resident reports with CSV export.", { exact: true })).toBeVisible();
   await expect(page.getByText("Total Expenses", { exact: true })).toBeVisible();
-  await expect(page.getByText("₹4,500", { exact: true })).toBeVisible();
+  await expect(page.getByText("₹5,100", { exact: true })).toBeVisible();
   await expect(page.getByText("Net Position", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Export Bills CSV/ })).toBeVisible();
 
@@ -25,6 +25,9 @@ test("Reports and Analytics preserve all five lazy report surfaces", async ({ pa
   await page.getByRole("button", { name: "Purchases", exact: true }).click();
   await expect(page.getByText("Total Spend", { exact: true })).toBeVisible();
   await expect(page.getByText("Purchase Count", { exact: true })).toBeVisible();
+  await expect(page.getByText("₹600", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Rice", { exact: true })).toBeVisible();
+  await expect(page.getByText("Local Market", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /Export CSV/ })).toBeVisible();
 
   await page.getByRole("button", { name: "Outstanding", exact: true }).click();
