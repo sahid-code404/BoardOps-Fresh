@@ -1,0 +1,42 @@
+name: Apply admin workflow batch one
+
+on:
+  push:
+    branches: [feature/admin-workflow-rules]
+    paths:
+      - scripts/apply-admin-workflow-batch1.py
+      - .github/workflows/apply-admin-workflow-batch1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/admin-workflow-rules
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply guarded source transformations
+        run: python scripts/apply-admin-workflow-batch1.py
+      - name: Install dependencies
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.23.0 --activate
+          pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
+      - name: Commit batch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm scripts/apply-admin-workflow-batch1.py .github/workflows/apply-admin-workflow-batch1.yml
+          git add -A
+          git commit -m "feat: refine admin workflows and expense evidence"
+          git push origin HEAD:feature/admin-workflow-rules
