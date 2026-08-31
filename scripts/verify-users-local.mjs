@@ -98,7 +98,10 @@ const exact = {
   lifecycle_columns: 3,
   review_columns: 5,
   notification_delivery_columns: 4,
-  seeded_users: 3,
+  // The complete deterministic seed chain intentionally contains four users.
+  // The three named fixtures below are the Users checkpoint's owned baseline;
+  // the fourth is supplied by an already-verified downstream fixture.
+  seeded_users: 4,
   seeded_active_admins: 1,
   seeded_active_residents: 1,
   seeded_pending_residents: 1,
