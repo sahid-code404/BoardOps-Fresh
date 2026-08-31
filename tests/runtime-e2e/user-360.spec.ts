@@ -69,7 +69,7 @@ test("administrator User 360 renders canonical resident finance and meal domains
 
   await dialog.getByRole("tab", { name: "Restrictions", exact: true }).click();
   await expect(dialog.getByText("Restriction evaluation", { exact: true })).toBeVisible();
-  await expect(dialog.getByText("Restriction evaluation is not available in the current D1 schema.", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("Financial and administrative restriction evaluation is not available in the current D1 schema yet.", { exact: true })).toBeVisible();
 
   const riyaResponse = await page.evaluate(async () => {
     const r = await fetch("/api/users/usr_resident_riya_local/360", { credentials: "include" });
