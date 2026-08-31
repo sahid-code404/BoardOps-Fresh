@@ -181,24 +181,24 @@ export async function createPrivateLogicalBackup(
   const stored = await env.FILES.put(objectKey, body, {
     httpMetadata: { contentType: "application/json; charset=utf-8" },
     customMetadata: {
-      institutionId,
-      createdAt,
-      sha256,
       format: "boardops-d1-logical-backup-v1",
+      institutionId,
+      sha256,
+      redacted: "true",
     },
   });
-  if (!stored) throw new Error("Private backup object was not stored");
+  if (!stored) {
+    throw new Error("R2 did not confirm the logical backup write");
+  }
+  await updateProgress(99);
 
-  await updateProgress(100);
   return {
-    summary: `Private redacted logical D1 backup created (${rowCount} rows).`,
-    result: {
-      objectKey,
-      sha256,
-      bytes: bytes.byteLength,
-      rowCount,
-      tableCount: BACKUP_TABLES.length,
-      skippedTables: [...SKIPPED_TABLES],
-    },
+    objectKey,
+    bytes: bytes.byteLength,
+    sha256,
+    rowCount,
+    tableCount: Object.keys(exported).length,
+    skippedTables: [...SKIPPED_TABLES],
+    redacted: true,
   };
 }
