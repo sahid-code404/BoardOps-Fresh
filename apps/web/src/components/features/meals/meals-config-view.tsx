@@ -13,6 +13,7 @@ import {
   Search,
   Pencil,
   Trash2,
+  RotateCcw,
   Archive,
   Clock,
   Shield,
@@ -724,15 +725,19 @@ function MealConfigCard({
   isAdmin,
   onEdit,
   onDelete,
+  onRevive,
   onStatusChange,
   statusLoading,
+  reviveLoading,
 }: {
   meal: MealConfiguration;
   isAdmin: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onRevive: () => void;
   onStatusChange: (status: string) => void;
   statusLoading?: boolean;
+  reviveLoading?: boolean;
 }) {
   const cutoffPreview = computeCutoffPreview(
     meal.cutoffStrategy,
@@ -852,59 +857,72 @@ function MealConfigCard({
         {/* Actions */}
         {isAdmin && (
           <div className="mt-auto space-y-2">
-            {/* Status selector */}
-            <Select
-              value={meal.status}
-              onValueChange={(v) => onStatusChange(v)}
-              disabled={statusLoading || queued}
-            >
-              <SelectTrigger className="h-9 rounded-xl glass-soft border-0 text-xs w-full">
-                <div className="flex items-center gap-1.5">
-                  {meal.status === "ACTIVE" && <Shield className="h-3 w-3 text-success" />}
-                  {meal.status === "INACTIVE" && <EyeOff className="h-3 w-3 text-muted-foreground" />}
-                  {meal.status === "ARCHIVED" && <Archive className="h-3 w-3 text-muted-foreground" />}
-                  <SelectValue />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ACTIVE">
-                  <span className="flex items-center gap-2">
-                    <Shield className="h-3.5 w-3.5 text-success" /> Active
-                  </span>
-                </SelectItem>
-                <SelectItem value="INACTIVE">
-                  <span className="flex items-center gap-2">
-                    <EyeOff className="h-3.5 w-3.5 text-muted-foreground" /> Inactive
-                  </span>
-                </SelectItem>
-                <SelectItem value="ARCHIVED">
-                  <span className="flex items-center gap-2">
-                    <Archive className="h-3.5 w-3.5 text-muted-foreground" /> Archived
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            {/* Edit + Delete */}
-            <div className="flex items-center gap-2">
+            {queued ? (
               <GlassButton
                 variant="secondary"
                 size="sm"
-                className="flex-1"
-                onClick={onEdit}
-                disabled={queued}
+                className="w-full"
+                onClick={onRevive}
+                disabled={reviveLoading}
+                aria-label={`Revive ${meal.displayName}`}
               >
-                <Pencil className="h-3.5 w-3.5" /> Edit
+                <RotateCcw className="h-3.5 w-3.5" />
+                {reviveLoading ? "Reviving..." : "Revive meal"}
               </GlassButton>
-              <GlassButton
-                variant="ghost"
-                size="sm"
-                onClick={onDelete}
-                disabled={queued}
-                className="text-destructive hover:text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </GlassButton>
-            </div>
+            ) : (
+              <>
+                {/* Status selector */}
+                <Select
+                  value={meal.status}
+                  onValueChange={(v) => onStatusChange(v)}
+                  disabled={statusLoading}
+                >
+                  <SelectTrigger className="h-9 rounded-xl glass-soft border-0 text-xs w-full">
+                    <div className="flex items-center gap-1.5">
+                      {meal.status === "ACTIVE" && <Shield className="h-3 w-3 text-success" />}
+                      {meal.status === "INACTIVE" && <EyeOff className="h-3 w-3 text-muted-foreground" />}
+                      {meal.status === "ARCHIVED" && <Archive className="h-3 w-3 text-muted-foreground" />}
+                      <SelectValue />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ACTIVE">
+                      <span className="flex items-center gap-2">
+                        <Shield className="h-3.5 w-3.5 text-success" /> Active
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="INACTIVE">
+                      <span className="flex items-center gap-2">
+                        <EyeOff className="h-3.5 w-3.5 text-muted-foreground" /> Inactive
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="ARCHIVED">
+                      <span className="flex items-center gap-2">
+                        <Archive className="h-3.5 w-3.5 text-muted-foreground" /> Archived
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center gap-2">
+                  <GlassButton
+                    variant="secondary"
+                    size="sm"
+                    className="flex-1"
+                    onClick={onEdit}
+                  >
+                    <Pencil className="h-3.5 w-3.5" /> Edit
+                  </GlassButton>
+                  <GlassButton
+                    variant="ghost"
+                    size="sm"
+                    onClick={onDelete}
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </GlassButton>
+                </div>
+              </>
+            )}
           </div>
         )}
       </GlassCard>
@@ -1015,6 +1033,27 @@ export function MealsConfigView() {
     },
   });
 
+  const reviveMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.put<{ success: boolean; data: MealConfiguration }>(
+        `/meals/config/${id}`,
+        { action: "REVIVE" },
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      toast.success("Meal revived and returned to active configuration");
+      qc.invalidateQueries({ queryKey });
+    },
+    onError: (e) => {
+      toast.error(
+        e instanceof ApiError
+          ? e.message
+          : "Failed to revive meal. Please try again."
+      );
+    },
+  });
+
   const statusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       const res = await api.put<{ success: boolean; data: MealConfiguration }>(
@@ -1060,6 +1099,7 @@ export function MealsConfigView() {
     if (!data) return [];
     return data.filter((m) => {
       if (typeFilter !== "ALL" && m.mealType !== typeFilter) return false;
+      if (statusFilter === "ALL" && m.deletionRequestedAt) return false;
       if (statusFilter === "QUEUED" && !m.deletionRequestedAt) return false;
       if (statusFilter !== "ALL" && statusFilter !== "QUEUED" && m.status !== statusFilter) return false;
       if (search.trim()) {
@@ -1247,12 +1287,17 @@ export function MealsConfigView() {
                       isAdmin={!!isAdmin}
                       onEdit={() => openEdit(m)}
                       onDelete={() => setDeleteTarget(m)}
+                      onRevive={() => reviveMutation.mutate(m.id)}
                       onStatusChange={(status) =>
                         statusMutation.mutate({ id: m.id, status })
                       }
                       statusLoading={
                         statusMutation.isPending &&
                         statusMutation.variables?.id === m.id
+                      }
+                      reviveLoading={
+                        reviveMutation.isPending &&
+                        reviveMutation.variables === m.id
                       }
                     />
                   </StaggerItem>
