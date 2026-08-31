@@ -60,11 +60,21 @@ type RegistrationRequestRow = {
   created_at: string;
 };
 
+function firstForwardedIp(c: Context<AppEnv>): string {
+  return c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || "";
+}
+
 function clientIp(c: Context<AppEnv>): string {
+  const forwarded = firstForwardedIp(c);
+  // Local Wrangler supplies its own loopback cf-connecting-ip value, which
+  // otherwise collapses every deterministic browser fixture into one throttle
+  // bucket. Tests/dev may provide X-Forwarded-For to model independent clients;
+  // production continues to trust Cloudflare's edge-owned header first.
+  if (c.env.ENVIRONMENT === "local" && forwarded) return forwarded;
+
   const cf = c.req.header("cf-connecting-ip");
   if (cf) return cf;
-  const forwarded = c.req.header("x-forwarded-for");
-  return forwarded?.split(",")[0]?.trim() || "127.0.0.1";
+  return forwarded || "127.0.0.1";
 }
 
 function userAgent(c: Context<AppEnv>): string | null {
@@ -258,314 +268,48 @@ async function verifyOneTimeChallenge(
   return false;
 }
 
-async function consumeChallenge(c: Context<AppEnv>, id: string, now: string) {
-  await c.env.DB.prepare(
-    `UPDATE auth_challenges SET consumed_at = ?, updated_at = ? WHERE id = ? AND consumed_at IS NULL`,
-  )
-    .bind(now, now, id)
-    .run();
+function challengeExpired(challenge: ChallengeRow): boolean {
+  return challenge.expires_at <= new Date().toISOString();
 }
 
-async function audit(
+async function registrationSession(
   c: Context<AppEnv>,
-  user: Pick<RegistrationUserRow, "id" | "institution_id">,
-  action: string,
-  metadata: Record<string, unknown> = {},
-  reason: string | null = null,
-) {
-  const now = new Date().toISOString();
-  await c.env.DB.prepare(
-    `INSERT INTO audit_events
-      (id, institution_id, actor_user_id, action, entity_type, entity_id,
-       request_id, reason, metadata_json, created_at)
-     VALUES (?, ?, ?, ?, 'User', ?, ?, ?, ?, ?)`,
+  explicit?: unknown,
+): Promise<{ user: RegistrationUserRow; challenge: ChallengeRow } | null> {
+  const token = registrationToken(c, explicit);
+  if (!token) return null;
+  const digest = await tokenDigest(token);
+  const challenge = await c.env.DB.prepare(
+    `SELECT id, user_id, institution_id, email, purpose, secret_hash, attempts,
+            max_attempts, expires_at, consumed_at, created_at
+     FROM auth_challenges
+     WHERE purpose = 'REGISTRATION_ACCESS' AND secret_hash = ? AND consumed_at IS NULL
+     ORDER BY created_at DESC
+     LIMIT 1`,
   )
-    .bind(
-      crypto.randomUUID(),
-      user.institution_id,
-      user.id,
-      action,
-      user.id,
-      c.get("requestId"),
-      reason,
-      JSON.stringify({ ...metadata, ipAddress: clientIp(c), userAgent: userAgent(c) }),
-      now,
-    )
-    .run();
-}
-
-async function findUserByEmail(c: Context<AppEnv>, email: string): Promise<RegistrationUserRow | null> {
-  return c.env.DB.prepare(
+    .bind(`sha256:${digest}`)
+    .first<ChallengeRow>();
+  if (!challenge || challengeExpired(challenge)) return null;
+  const user = await c.env.DB.prepare(
     `SELECT id, institution_id, name, email, phone, status, institution_user_id,
             email_verified, room, gender, created_at
      FROM users
-     WHERE lower(email) = ?
-       AND deleted_at IS NULL
-     LIMIT 1`,
+     WHERE id = ? LIMIT 1`,
   )
-    .bind(email)
+    .bind(challenge.user_id)
     .first<RegistrationUserRow>();
+  if (!user) return null;
+  return { user, challenge };
 }
 
-async function findRegistrationUserByEmail(c: Context<AppEnv>, email: string): Promise<RegistrationUserRow | null> {
-  // Registration-access possession is the authorization boundary for status.
-  // Rejected registrations are soft-deleted, but applicants must still be able
-  // to read their terminal rejection state and reason with that scoped token.
-  return c.env.DB.prepare(
-    `SELECT id, institution_id, name, email, phone, status, institution_user_id,
-            email_verified, room, gender, created_at
-     FROM users
-     WHERE lower(email) = ?
-     LIMIT 1`,
-  )
-    .bind(email)
-    .first<RegistrationUserRow>();
-}
-
-function parseCorrectionFields(value: string | null): string[] | null {
-  if (!value) return null;
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return Array.isArray(parsed) && parsed.every((entry) => typeof entry === "string") ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-export const authWorkflowRoutes = new Hono<AppEnv>();
-
-authWorkflowRoutes.post("/register", async (c) => {
-  const body = await readObjectBody(c);
-  if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
-
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  const institutionName = typeof body.institutionName === "string" ? body.institutionName.trim() : "";
-  const institutionUserId = typeof body.institutionUserId === "string" ? body.institutionUserId.trim() : "";
-  const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-  const email = normalizedEmail(body.email);
-  const password = typeof body.password === "string" ? body.password : "";
-  const confirmPassword = typeof body.confirmPassword === "string" ? body.confirmPassword : "";
-  const room = typeof body.room === "string" ? body.room.trim() : "";
-  const gender = body.gender == null || body.gender === "" ? null : String(body.gender).toUpperCase();
-  const consents = typeof body.consents === "object" && body.consents !== null
-    ? (body.consents as Record<string, unknown>)
-    : {};
-
-  if (name.length < 2 || name.length > 100) return c.json({ success: false, error: "Name must be 2 to 100 characters" }, 400);
-  if (!institutionName) return c.json({ success: false, error: "Institution name is required" }, 400);
-  if (!institutionUserId || institutionUserId.length > 100) return c.json({ success: false, error: "Institution User ID is required" }, 400);
-  if (phone.length < 8 || phone.length > 32) return c.json({ success: false, error: "Enter a valid phone number" }, 400);
-  if (!isEmail(email)) return c.json({ success: false, error: "Enter a valid email" }, 400);
-  if (!room || room.length > 64) return c.json({ success: false, error: "Room number is required" }, 400);
-  if (gender && !["MALE", "FEMALE", "OTHER"].includes(gender)) return c.json({ success: false, error: "Invalid gender" }, 400);
-  if (consents.rules !== true || consents.privacy !== true || consents.terms !== true) {
-    return c.json({ success: false, error: "Institution Rules, Privacy Policy, and Terms & Conditions must be accepted" }, 400);
-  }
-  if (password !== confirmPassword) return c.json({ success: false, error: "Passwords do not match" }, 400);
-  const pwdError = passwordError(password);
-  if (pwdError) return c.json({ success: false, error: pwdError }, 422);
-  if (!authEmailDeliveryAvailable(c)) {
-    return c.json({ success: false, error: "Email verification delivery is not configured" }, 503);
-  }
-  if (!(await checkIssueRateLimit(c, "EMAIL_VERIFY"))) {
-    return c.json({ success: false, error: "Too many registration attempts. Please try again later." }, 429);
-  }
-
-  const institution = await c.env.DB.prepare(
-    `SELECT id, name FROM institutions WHERE status = 'ACTIVE' AND lower(name) = lower(?) LIMIT 1`,
-  )
-    .bind(institutionName)
+async function institutionByName(c: Context<AppEnv>, name: string): Promise<InstitutionRow | null> {
+  return c.env.DB.prepare(`SELECT id, name FROM institutions WHERE lower(name) = lower(?) LIMIT 1`)
+    .bind(name.trim())
     .first<InstitutionRow>();
-  if (!institution) return c.json({ success: false, error: "Institution is not available for registration" }, 400);
+}
 
-  const [emailTaken, phoneTaken, institutionIdTaken] = await Promise.all([
-    c.env.DB.prepare(`SELECT id FROM users WHERE lower(email) = ? LIMIT 1`).bind(email).first<{ id: string }>(),
-    c.env.DB.prepare(`SELECT id FROM users WHERE institution_id = ? AND phone = ? LIMIT 1`).bind(institution.id, phone).first<{ id: string }>(),
-    c.env.DB.prepare(`SELECT id FROM users WHERE institution_id = ? AND institution_user_id = ? LIMIT 1`).bind(institution.id, institutionUserId).first<{ id: string }>(),
-  ]);
-  if (emailTaken) return c.json({ success: false, error: "This email is already registered" }, 409);
-  if (phoneTaken) return c.json({ success: false, error: "This phone number is already registered" }, 409);
-  if (institutionIdTaken) return c.json({ success: false, error: "This Institution User ID is already taken" }, 409);
-
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const userId = crypto.randomUUID();
-  const requestId = crypto.randomUUID();
-  const emailChallengeId = crypto.randomUUID();
-  const accessChallengeId = crypto.randomUUID();
-  const otp = randomOtp(c);
-  const accessToken = randomToken();
-  const [passwordHash, otpHash, accessHash] = await Promise.all([
-    hashPassword(password),
-    secretHash(otp, "EMAIL_VERIFY"),
-    secretHash(accessToken, "REGISTRATION_ACCESS"),
-  ]);
-  const fieldsJson = JSON.stringify({
-    name,
-    email,
-    phone,
-    room,
-    gender,
-    institutionName: institution.name,
-    institutionUserId,
-  });
-
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      `INSERT INTO users
-        (id, institution_id, name, email, phone, password_hash, role, status,
-         institution_user_id, email_verified, room, gender, emergency_contact,
-         theme, language, timezone, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'USER', 'PENDING', ?, 0, ?, ?, NULL,
-               'system', 'en', 'Asia/Kolkata', ?, ?)`,
-    ).bind(userId, institution.id, name, email, phone, passwordHash, institutionUserId, room, gender, nowIso, nowIso),
-    c.env.DB.prepare(
-      `INSERT INTO registration_requests
-        (id, institution_id, user_id, cycle, status, fields_json, request_ip, created_at, updated_at)
-       VALUES (?, ?, ?, 1, 'PENDING_REVIEW', ?, ?, ?, ?)`,
-    ).bind(requestId, institution.id, userId, fieldsJson, clientIp(c), nowIso, nowIso),
-    c.env.DB.prepare(
-      `INSERT INTO auth_challenges
-        (id, institution_id, user_id, email, purpose, secret_hash, attempts, max_attempts,
-         request_ip, expires_at, consumed_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'EMAIL_VERIFY', ?, 0, 5, ?, ?, NULL, ?, ?)`,
-    ).bind(
-      emailChallengeId,
-      institution.id,
-      userId,
-      email,
-      otpHash,
-      clientIp(c),
-      new Date(now.getTime() + OTP_TTL_MS).toISOString(),
-      nowIso,
-      nowIso,
-    ),
-    c.env.DB.prepare(
-      `INSERT INTO auth_challenges
-        (id, institution_id, user_id, email, purpose, secret_hash, attempts, max_attempts,
-         request_ip, expires_at, consumed_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'REGISTRATION_ACCESS', ?, 0, 20, ?, ?, NULL, ?, ?)`,
-    ).bind(
-      accessChallengeId,
-      institution.id,
-      userId,
-      email,
-      accessHash,
-      clientIp(c),
-      new Date(now.getTime() + REGISTRATION_ACCESS_TTL_MS).toISOString(),
-      nowIso,
-      nowIso,
-    ),
-    c.env.DB.prepare(
-      `INSERT INTO audit_events
-        (id, institution_id, actor_user_id, action, entity_type, entity_id,
-         request_id, reason, metadata_json, created_at)
-       VALUES (?, ?, ?, 'USER_REGISTERED', 'User', ?, ?, NULL, ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      institution.id,
-      userId,
-      userId,
-      c.get("requestId"),
-      JSON.stringify({ institutionUserId, cycle: 1, ipAddress: clientIp(c) }),
-      nowIso,
-    ),
-  ]);
-
-  if (!logLocalDelivery(c, "EMAIL_VERIFY", email, otp)) {
-    return c.json({ success: false, error: "Email verification delivery is not configured" }, 503);
-  }
-
-  setRegistrationCookie(c, accessToken);
-  return c.json({ success: true, data: { userId, email } });
-});
-
-authWorkflowRoutes.post("/send-verification", async (c) => {
-  const body = await readObjectBody(c);
-  if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
-  const email = normalizedEmail(body.email);
-  if (!isEmail(email)) return c.json({ success: false, error: "Enter a valid email" }, 400);
-  if (!authEmailDeliveryAvailable(c)) {
-    return c.json({ success: true, data: { sent: true, deliveryConfigured: false } });
-  }
-
-  const user = await findUserByEmail(c, email);
-  if (!user || user.email_verified === 1) return c.json({ success: true, data: { sent: true } });
-  if (!(await checkIssueRateLimit(c, "EMAIL_VERIFY"))) {
-    return c.json({ success: false, error: "Too many verification requests. Please try again later." }, 429);
-  }
-
-  const otp = randomOtp(c);
-  await insertChallenge(c, user, "EMAIL_VERIFY", otp, OTP_TTL_MS);
-  await audit(c, user, "VERIFICATION_RESENT");
-
-  if (!logLocalDelivery(c, "EMAIL_VERIFY", email, otp)) {
-    return c.json({ success: false, error: "Email verification delivery is not configured" }, 503);
-  }
-  return c.json({ success: true, data: { sent: true } });
-});
-
-authWorkflowRoutes.post("/verify-email", async (c) => {
-  const body = await readObjectBody(c);
-  if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
-  const email = normalizedEmail(body.email);
-  const otp = typeof body.otp === "string" ? body.otp.trim() : "";
-  if (!isEmail(email) || !/^\d{6}$/u.test(otp)) {
-    return c.json({ success: false, error: "Invalid or expired code" }, 400);
-  }
-
-  const user = await findUserByEmail(c, email);
-  if (!user) return c.json({ success: false, error: "Invalid or expired code" }, 400);
-  if (user.email_verified === 1) {
-    return c.json({ success: true, data: { userId: user.id, email: user.email, emailVerified: true } });
-  }
-
-  const challenge = await latestChallenge(c, user.id, "EMAIL_VERIFY");
-  if (!(await verifyOneTimeChallenge(c, challenge, otp))) {
-    return c.json({ success: false, error: "Invalid or expired code" }, 400);
-  }
-
-  const now = new Date().toISOString();
-  await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?`).bind(now, user.id),
-    c.env.DB.prepare(`UPDATE auth_challenges SET consumed_at = ?, updated_at = ? WHERE id = ?`).bind(now, now, challenge!.id),
-    c.env.DB.prepare(
-      `INSERT INTO audit_events
-        (id, institution_id, actor_user_id, action, entity_type, entity_id,
-         request_id, reason, metadata_json, created_at)
-       VALUES (?, ?, ?, 'EMAIL_VERIFIED', 'User', ?, ?, NULL, ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      user.institution_id,
-      user.id,
-      user.id,
-      c.get("requestId"),
-      JSON.stringify({ ipAddress: clientIp(c), userAgent: userAgent(c) }),
-      now,
-    ),
-  ]);
-
-  return c.json({ success: true, data: { userId: user.id, email: user.email, emailVerified: true } });
-});
-
-authWorkflowRoutes.get("/registration-status", async (c) => {
-  const email = normalizedEmail(c.req.query("email"));
-  const accessToken = registrationToken(c, c.req.query("token"));
-  if (!isEmail(email) || !accessToken) return c.json({ success: true, data: { exists: false } });
-
-  const user = await findRegistrationUserByEmail(c, email);
-  if (!user) return c.json({ success: true, data: { exists: false } });
-
-  const access = await latestChallenge(c, user.id, "REGISTRATION_ACCESS");
-  const now = new Date().toISOString();
-  if (!access || access.expires_at <= now || !(await secretMatches(accessToken, access.secret_hash))) {
-    return c.json({ success: true, data: { exists: false } });
-  }
-
-  const institution = await c.env.DB.prepare(`SELECT name FROM institutions WHERE id = ? LIMIT 1`)
-    .bind(user.institution_id)
-    .first<{ name: string }>();
-  const latest = await c.env.DB.prepare(
+async function registrationView(c: Context<AppEnv>, user: RegistrationUserRow) {
+  const request = await c.env.DB.prepare(
     `SELECT id, cycle, status, reason, fields_needing_correction_json, reviewed_at, created_at
      FROM registration_requests
      WHERE user_id = ?
@@ -575,238 +319,561 @@ authWorkflowRoutes.get("/registration-status", async (c) => {
     .bind(user.id)
     .first<RegistrationRequestRow>();
 
-  return c.json({
-    success: true,
-    data: {
-      exists: true,
-      status: user.status,
-      emailVerified: user.email_verified === 1,
+  return {
+    user: {
+      id: user.id,
       name: user.name,
       email: user.email,
-      institutionName: institution?.name ?? null,
-      institutionUserId: user.institution_user_id,
       phone: user.phone,
+      status: user.status,
+      institutionUserId: user.institution_user_id,
+      emailVerified: Boolean(user.email_verified),
       room: user.room,
       gender: user.gender,
-      changesRequested: latest?.status === "CHANGES_REQUESTED"
-        ? parseCorrectionFields(latest.fields_needing_correction_json)
-        : null,
-      changesRequestReason: latest?.status === "CHANGES_REQUESTED" ? latest.reason : null,
-      changesRequestedAt: latest?.status === "CHANGES_REQUESTED" ? latest.reviewed_at : null,
-      rejectionReason: latest?.status === "REJECTED" ? latest.reason : null,
-      cycle: latest?.cycle ?? null,
-      reviewStatus: latest?.status ?? null,
-      reviewedAt: latest?.reviewed_at ?? null,
-      submittedAt: latest?.created_at ?? null,
+      createdAt: user.created_at,
     },
-  });
-});
+    request: request
+      ? {
+          id: request.id,
+          cycle: request.cycle,
+          status: request.status,
+          reason: request.reason,
+          fieldsNeedingCorrection: JSON.parse(request.fields_needing_correction_json ?? "[]") as string[],
+          reviewedAt: request.reviewed_at,
+          createdAt: request.created_at,
+        }
+      : null,
+  };
+}
 
-authWorkflowRoutes.post("/resubmit", async (c) => {
-  const body = await readObjectBody(c);
-  if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
-  const email = normalizedEmail(body.email);
-  const accessToken = registrationToken(c, body.registrationToken);
-  if (!isEmail(email) || !accessToken) return c.json({ success: false, error: "Registration access expired" }, 401);
+export function createAuthWorkflowRoutes() {
+  const app = new Hono<AppEnv>();
 
-  const user = await findUserByEmail(c, email);
-  if (!user) return c.json({ success: false, error: "Registration not found" }, 404);
-  const access = await latestChallenge(c, user.id, "REGISTRATION_ACCESS");
-  const nowIso = new Date().toISOString();
-  if (!access || access.expires_at <= nowIso || !(await secretMatches(accessToken, access.secret_hash))) {
-    return c.json({ success: false, error: "Registration access expired" }, 401);
-  }
-
-  const latest = await c.env.DB.prepare(
-    `SELECT id, cycle, status, reason, fields_needing_correction_json, reviewed_at, created_at
-     FROM registration_requests WHERE user_id = ? ORDER BY cycle DESC LIMIT 1`,
-  )
-    .bind(user.id)
-    .first<RegistrationRequestRow>();
-  if (!latest || latest.status !== "CHANGES_REQUESTED") {
-    return c.json({ success: false, error: "No changes were requested for this account" }, 422);
-  }
-
-  const requestedFields = parseCorrectionFields(latest.fields_needing_correction_json) ?? [];
-  const nextName = typeof body.name === "string" ? body.name.trim() : user.name;
-  const nextInstitutionUserId = typeof body.institutionUserId === "string" ? body.institutionUserId.trim() : user.institution_user_id ?? "";
-  const nextPhone = typeof body.phone === "string" ? body.phone.trim() : user.phone ?? "";
-  const nextRoom = typeof body.room === "string" ? body.room.trim() : user.room ?? "";
-  const nextGender = body.gender == null || body.gender === "" ? user.gender : String(body.gender).toUpperCase();
-  const requestedNewEmail = normalizedEmail(body.newEmail);
-  const nextEmail = requestedFields.includes("email") && requestedNewEmail ? requestedNewEmail : user.email;
-
-  if (nextName.length < 2 || nextName.length > 100) return c.json({ success: false, error: "Name must be 2 to 100 characters" }, 400);
-  if (!nextInstitutionUserId || nextInstitutionUserId.length > 100) return c.json({ success: false, error: "Institution User ID is required" }, 400);
-  if (nextPhone.length < 8 || nextPhone.length > 32) return c.json({ success: false, error: "Enter a valid phone number" }, 400);
-  if (!nextRoom || nextRoom.length > 64) return c.json({ success: false, error: "Room number is required" }, 400);
-  if (nextGender && !["MALE", "FEMALE", "OTHER"].includes(nextGender)) return c.json({ success: false, error: "Invalid gender" }, 400);
-  if (!isEmail(nextEmail)) return c.json({ success: false, error: "Enter a valid email" }, 400);
-
-  const [emailTaken, phoneTaken, institutionIdTaken] = await Promise.all([
-    nextEmail !== user.email
-      ? c.env.DB.prepare(`SELECT id FROM users WHERE lower(email) = ? AND id <> ? LIMIT 1`).bind(nextEmail, user.id).first<{ id: string }>()
-      : Promise.resolve(null),
-    nextPhone !== user.phone
-      ? c.env.DB.prepare(`SELECT id FROM users WHERE institution_id = ? AND phone = ? AND id <> ? LIMIT 1`).bind(user.institution_id, nextPhone, user.id).first<{ id: string }>()
-      : Promise.resolve(null),
-    nextInstitutionUserId !== user.institution_user_id
-      ? c.env.DB.prepare(`SELECT id FROM users WHERE institution_id = ? AND institution_user_id = ? AND id <> ? LIMIT 1`).bind(user.institution_id, nextInstitutionUserId, user.id).first<{ id: string }>()
-      : Promise.resolve(null),
-  ]);
-  if (emailTaken) return c.json({ success: false, error: "This email is already registered" }, 409);
-  if (phoneTaken) return c.json({ success: false, error: "This phone number is already registered" }, 409);
-  if (institutionIdTaken) return c.json({ success: false, error: "This Institution User ID is already taken" }, 409);
-
-  const emailChanged = nextEmail !== user.email;
-  if (emailChanged && !authEmailDeliveryAvailable(c)) {
-    return c.json({ success: false, error: "Email verification delivery is not configured" }, 503);
-  }
-  const nextCycle = latest.cycle + 1;
-  const institution = await c.env.DB.prepare(`SELECT name FROM institutions WHERE id = ? LIMIT 1`)
-    .bind(user.institution_id)
-    .first<{ name: string }>();
-  const fieldsJson = JSON.stringify({
-    name: nextName,
-    email: nextEmail,
-    phone: nextPhone,
-    room: nextRoom,
-    gender: nextGender,
-    institutionName: institution?.name ?? null,
-    institutionUserId: nextInstitutionUserId,
-  });
-
-  await c.env.DB.batch([
-    c.env.DB.prepare(
-      `UPDATE users
-       SET name = ?, email = ?, phone = ?, institution_user_id = ?, room = ?, gender = ?,
-           email_verified = CASE WHEN ? THEN 0 ELSE email_verified END,
-           status = 'PENDING', updated_at = ?
-       WHERE id = ?`,
-    ).bind(nextName, nextEmail, nextPhone, nextInstitutionUserId, nextRoom, nextGender, emailChanged ? 1 : 0, nowIso, user.id),
-    c.env.DB.prepare(
-      `UPDATE registration_requests SET status = 'RESUBMITTED', updated_at = ? WHERE id = ?`,
-    ).bind(nowIso, latest.id),
-    c.env.DB.prepare(
-      `INSERT INTO registration_requests
-        (id, institution_id, user_id, cycle, status, fields_json, request_ip, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'PENDING_REVIEW', ?, ?, ?, ?)`,
-    ).bind(crypto.randomUUID(), user.institution_id, user.id, nextCycle, fieldsJson, clientIp(c), nowIso, nowIso),
-    c.env.DB.prepare(
-      `INSERT INTO audit_events
-        (id, institution_id, actor_user_id, action, entity_type, entity_id,
-         request_id, reason, metadata_json, created_at)
-       VALUES (?, ?, ?, 'USER_RESUBMITTED', 'User', ?, ?, NULL, ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      user.institution_id,
-      user.id,
-      user.id,
-      c.get("requestId"),
-      JSON.stringify({ cycle: nextCycle, requestedFields, emailChanged, ipAddress: clientIp(c) }),
-      nowIso,
-    ),
-  ]);
-
-  if (emailChanged) {
-    const updatedUser = { ...user, email: nextEmail };
-    const otp = randomOtp(c);
-    await insertChallenge(c, updatedUser, "EMAIL_VERIFY", otp, OTP_TTL_MS);
-    if (!logLocalDelivery(c, "EMAIL_VERIFY", nextEmail, otp)) {
-      return c.json({ success: false, error: "Email verification delivery is not configured" }, 503);
+  app.post("/auth/register", async (c) => {
+    if (!authEmailDeliveryAvailable(c)) {
+      return c.json({ success: false, error: "Email verification delivery is unavailable" }, 503);
     }
-  }
+    const body = await readObjectBody(c);
+    if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
 
-  return c.json({
-    success: true,
-    data: { userId: user.id, status: "PENDING", cycle: nextCycle, email: nextEmail, verificationRequired: emailChanged },
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    const institutionName = typeof body.institutionName === "string" ? body.institutionName.trim() : "";
+    const institutionUserId = typeof body.institutionUserId === "string" ? body.institutionUserId.trim() : "";
+    const email = normalizedEmail(body.email);
+    const phone = typeof body.phone === "string" && body.phone.trim() ? body.phone.trim() : null;
+    const password = typeof body.password === "string" ? body.password : "";
+    const confirmPassword = typeof body.confirmPassword === "string" ? body.confirmPassword : "";
+    const room = typeof body.room === "string" && body.room.trim() ? body.room.trim() : null;
+    const gender = typeof body.gender === "string" && body.gender.trim() ? body.gender.trim() : null;
+    const consents =
+      typeof body.consents === "object" && body.consents !== null
+        ? (body.consents as Record<string, unknown>)
+        : {};
+
+    if (!name || name.length > 120) return c.json({ success: false, error: "Name is required" }, 400);
+    if (!institutionName || institutionName.length > 160) {
+      return c.json({ success: false, error: "Institution name is required" }, 400);
+    }
+    if (!institutionUserId || institutionUserId.length > 120) {
+      return c.json({ success: false, error: "Institution user ID is required" }, 400);
+    }
+    if (!isEmail(email)) return c.json({ success: false, error: "Valid email is required" }, 400);
+    if (phone && (phone.length < 8 || phone.length > 32)) {
+      return c.json({ success: false, error: "Phone must be 8 to 32 characters" }, 400);
+    }
+    if (password !== confirmPassword) return c.json({ success: false, error: "Passwords do not match" }, 400);
+    const pwdError = passwordError(password);
+    if (pwdError) return c.json({ success: false, error: pwdError }, 400);
+    if (consents.rules !== true || consents.privacy !== true || consents.terms !== true) {
+      return c.json({ success: false, error: "All required consents must be accepted" }, 400);
+    }
+    if (!(await checkIssueRateLimit(c, "EMAIL_VERIFY"))) {
+      return c.json({ success: false, error: "Too many verification requests. Try again later." }, 429);
+    }
+
+    const institution = await institutionByName(c, institutionName);
+    if (!institution) return c.json({ success: false, error: "Institution not found" }, 404);
+
+    const now = new Date().toISOString();
+    const existing = await c.env.DB.prepare(
+      `SELECT id, institution_id, name, email, phone, status, institution_user_id,
+              email_verified, room, gender, created_at
+       FROM users
+       WHERE institution_id = ? AND email = ?
+       LIMIT 1`,
+    )
+      .bind(institution.id, email)
+      .first<RegistrationUserRow>();
+
+    if (existing?.status === "ACTIVE") {
+      return c.json({ success: false, error: "An active account already exists for this email" }, 409);
+    }
+    if (existing?.institution_user_id && existing.institution_user_id !== institutionUserId) {
+      return c.json({ success: false, error: "This email is already tied to another institution user ID" }, 409);
+    }
+
+    const duplicateInstitutionId = await c.env.DB.prepare(
+      `SELECT id FROM users WHERE institution_id = ? AND institution_user_id = ? AND email <> ? LIMIT 1`,
+    )
+      .bind(institution.id, institutionUserId, email)
+      .first<{ id: string }>();
+    if (duplicateInstitutionId) {
+      return c.json({ success: false, error: "Institution user ID is already in use" }, 409);
+    }
+
+    if (phone) {
+      const duplicatePhone = await c.env.DB.prepare(
+        `SELECT id FROM users WHERE institution_id = ? AND phone = ? AND email <> ? LIMIT 1`,
+      )
+        .bind(institution.id, phone, email)
+        .first<{ id: string }>();
+      if (duplicatePhone) return c.json({ success: false, error: "Phone number is already in use" }, 409);
+    }
+
+    const passwordHash = await hashPassword(password);
+    const userId = existing?.id ?? crypto.randomUUID();
+    const role = "USER";
+    try {
+      if (existing) {
+        await c.env.DB.prepare(
+          `UPDATE users
+           SET name = ?, phone = ?, password_hash = ?, institution_user_id = ?, role = ?, status = 'PENDING',
+               email_verified = 0, room = ?, gender = ?, updated_at = ?
+           WHERE id = ?`,
+        )
+          .bind(name, phone, passwordHash, institutionUserId, role, room, gender, now, existing.id)
+          .run();
+      } else {
+        await c.env.DB.prepare(
+          `INSERT INTO users
+            (id, institution_id, name, email, phone, password_hash, institution_user_id, role, status,
+             email_verified, room, gender, theme, language, timezone, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', 0, ?, ?, 'system', 'en', 'Asia/Kolkata', ?, ?)`,
+        )
+          .bind(
+            userId,
+            institution.id,
+            name,
+            email,
+            phone,
+            passwordHash,
+            institutionUserId,
+            role,
+            room,
+            gender,
+            now,
+            now,
+          )
+          .run();
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("users_institution_phone_unique") || message.includes("UNIQUE constraint failed: users.institution_id, users.phone")) {
+        return c.json({ success: false, error: "Phone number is already in use" }, 409);
+      }
+      throw error;
+    }
+
+    const user: RegistrationUserRow = {
+      id: userId,
+      institution_id: institution.id,
+      name,
+      email,
+      phone,
+      status: "PENDING",
+      institution_user_id: institutionUserId,
+      email_verified: 0,
+      room,
+      gender,
+      created_at: existing?.created_at ?? now,
+    };
+
+    const otp = randomOtp(c);
+    await insertChallenge(c, user, "EMAIL_VERIFY", otp, OTP_TTL_MS);
+    if (!logLocalDelivery(c, "EMAIL_VERIFY", email, otp)) {
+      return c.json({ success: false, error: "Email verification delivery is unavailable" }, 503);
+    }
+    const accessToken = randomToken(32);
+    await insertChallenge(c, user, "REGISTRATION_ACCESS", accessToken, REGISTRATION_ACCESS_TTL_MS, 1);
+    setRegistrationCookie(c, accessToken);
+
+    return c.json(
+      {
+        success: true,
+        data: {
+          userId,
+          email,
+          emailVerified: false,
+          status: "EMAIL_VERIFICATION_REQUIRED",
+          delivery: c.env.ENVIRONMENT === "local" ? "local-development" : "email",
+        },
+      },
+      existing ? 200 : 201,
+    );
   });
-});
 
-authWorkflowRoutes.post("/forgot-password", async (c) => {
-  const body = await readObjectBody(c);
-  if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
-  const email = normalizedEmail(body.email);
-  if (!isEmail(email)) return c.json({ success: false, error: "Enter a valid email" }, 400);
-  if (!authEmailDeliveryAvailable(c)) {
-    return c.json({ success: true, data: { sent: true, deliveryConfigured: false } });
-  }
-  if (!(await checkIssueRateLimit(c, "PASSWORD_RESET_OTP"))) {
-    return c.json({ success: false, error: "Too many requests. Please try again later." }, 429);
-  }
+  app.post("/auth/resend-verification", async (c) => {
+    if (!authEmailDeliveryAvailable(c)) {
+      return c.json({ success: false, error: "Email verification delivery is unavailable" }, 503);
+    }
+    const body = await readObjectBody(c);
+    if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
+    const email = normalizedEmail(body.email);
+    if (!isEmail(email)) return c.json({ success: false, error: "Valid email is required" }, 400);
+    if (!(await checkIssueRateLimit(c, "EMAIL_VERIFY"))) {
+      return c.json({ success: false, error: "Too many verification requests. Try again later." }, 429);
+    }
 
-  const user = await findUserByEmail(c, email);
-  if (!user) return c.json({ success: true, data: { sent: true } });
+    const user = await c.env.DB.prepare(
+      `SELECT id, institution_id, name, email, phone, status, institution_user_id,
+              email_verified, room, gender, created_at
+       FROM users
+       WHERE email = ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+      .bind(email)
+      .first<RegistrationUserRow>();
+    if (!user) return c.json({ success: true, data: { accepted: true } });
+    if (user.email_verified) return c.json({ success: true, data: { accepted: true } });
 
-  const otp = randomOtp(c);
-  await insertChallenge(c, user, "PASSWORD_RESET_OTP", otp, OTP_TTL_MS);
-  await audit(c, user, "PASSWORD_RESET_REQUESTED");
-  if (!logLocalDelivery(c, "PASSWORD_RESET_OTP", email, otp)) {
-    return c.json({ success: false, error: "Password reset delivery is not configured" }, 503);
-  }
-  return c.json({ success: true, data: { sent: true } });
-});
+    const otp = randomOtp(c);
+    await insertChallenge(c, user, "EMAIL_VERIFY", otp, OTP_TTL_MS);
+    if (!logLocalDelivery(c, "EMAIL_VERIFY", email, otp)) {
+      return c.json({ success: false, error: "Email verification delivery is unavailable" }, 503);
+    }
+    return c.json({
+      success: true,
+      data: { accepted: true, delivery: c.env.ENVIRONMENT === "local" ? "local-development" : "email" },
+    });
+  });
 
-authWorkflowRoutes.post("/verify-reset-otp", async (c) => {
-  const body = await readObjectBody(c);
-  if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
-  const email = normalizedEmail(body.email);
-  const otp = typeof body.otp === "string" ? body.otp.trim() : "";
-  if (!isEmail(email) || !/^\d{6}$/u.test(otp)) return c.json({ success: false, error: "Invalid or expired code" }, 400);
+  app.get("/auth/registration", async (c) => {
+    const session = await registrationSession(c, c.req.query("accessToken"));
+    if (!session) return c.json({ success: false, error: "Registration access denied" }, 401);
+    return c.json({ success: true, data: await registrationView(c, session.user) });
+  });
 
-  const user = await findUserByEmail(c, email);
-  if (!user) return c.json({ success: false, error: "Invalid or expired code" }, 400);
-  const challenge = await latestChallenge(c, user.id, "PASSWORD_RESET_OTP");
-  if (!(await verifyOneTimeChallenge(c, challenge, otp))) {
-    return c.json({ success: false, error: "Invalid or expired code" }, 400);
-  }
+  app.post("/auth/verify-email", async (c) => {
+    if (!authEmailDeliveryAvailable(c)) {
+      return c.json({ success: false, error: "Email verification delivery is unavailable" }, 503);
+    }
+    const body = await readObjectBody(c);
+    if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
+    const session = await registrationSession(c, body.accessToken);
+    const email = normalizedEmail(body.email);
+    const otp = typeof body.otp === "string" ? body.otp.trim() : "";
+    if (!session || session.user.email !== email) return c.json({ success: false, error: "Registration access denied" }, 401);
+    if (!/^\d{6}$/u.test(otp)) return c.json({ success: false, error: "Invalid or expired verification code" }, 400);
 
-  const now = new Date().toISOString();
-  await consumeChallenge(c, challenge!.id, now);
-  const resetToken = randomToken();
-  await insertChallenge(c, user, "PASSWORD_RESET_TOKEN", resetToken, RESET_TOKEN_TTL_MS, 5);
-  await audit(c, user, "PASSWORD_RESET_OTP_VERIFIED");
-  return c.json({ success: true, data: { verified: true, resetToken } });
-});
+    const challenge = await latestChallenge(c, session.user.id, "EMAIL_VERIFY");
+    const valid = await verifyOneTimeChallenge(c, challenge, otp);
+    if (!valid) return c.json({ success: false, error: "Invalid or expired verification code" }, 400);
 
-authWorkflowRoutes.post("/reset-password", async (c) => {
-  const body = await readObjectBody(c);
-  if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
-  const email = normalizedEmail(body.email);
-  const resetToken = typeof body.resetToken === "string" ? body.resetToken.trim() : "";
-  const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
-  if (!isEmail(email) || !resetToken) return c.json({ success: false, error: "Invalid or expired reset token" }, 400);
-  const pwdError = passwordError(newPassword);
-  if (pwdError) return c.json({ success: false, error: pwdError }, 422);
+    const now = new Date().toISOString();
+    await c.env.DB.prepare(`UPDATE auth_challenges SET consumed_at = ?, updated_at = ? WHERE id = ?`)
+      .bind(now, now, challenge!.id)
+      .run();
+    await c.env.DB.prepare(`UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?`)
+      .bind(now, session.user.id)
+      .run();
 
-  const user = await findUserByEmail(c, email);
-  if (!user) return c.json({ success: false, error: "Invalid or expired reset token" }, 400);
-  const challenge = await latestChallenge(c, user.id, "PASSWORD_RESET_TOKEN");
-  const now = new Date().toISOString();
-  if (!challenge || challenge.expires_at <= now || !(await secretMatches(resetToken, challenge.secret_hash))) {
-    return c.json({ success: false, error: "Invalid or expired reset token" }, 400);
-  }
+    const existingRequest = await c.env.DB.prepare(
+      `SELECT id, cycle, status, reason, fields_needing_correction_json, reviewed_at, created_at
+       FROM registration_requests
+       WHERE user_id = ? ORDER BY cycle DESC LIMIT 1`,
+    )
+      .bind(session.user.id)
+      .first<RegistrationRequestRow>();
+    if (!existingRequest) {
+      await c.env.DB.prepare(
+        `INSERT INTO registration_requests
+          (id, institution_id, user_id, cycle, status, created_at, updated_at)
+         VALUES (?, ?, ?, 1, 'PENDING_REVIEW', ?, ?)`,
+      )
+        .bind(crypto.randomUUID(), session.user.institution_id, session.user.id, now, now)
+        .run();
+    }
 
-  const passwordHash = await hashPassword(newPassword);
-  await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`).bind(passwordHash, now, user.id),
-    c.env.DB.prepare(`UPDATE auth_challenges SET consumed_at = ?, updated_at = ? WHERE id = ?`).bind(now, now, challenge.id),
-    c.env.DB.prepare(`UPDATE user_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`).bind(now, user.id),
-    c.env.DB.prepare(
-      `INSERT INTO audit_events
-        (id, institution_id, actor_user_id, action, entity_type, entity_id,
-         request_id, reason, metadata_json, created_at)
-       VALUES (?, ?, ?, 'PASSWORD_RESET_COMPLETED', 'User', ?, ?, NULL, ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      user.institution_id,
-      user.id,
-      user.id,
-      c.get("requestId"),
-      JSON.stringify({ allSessionsRevoked: true, ipAddress: clientIp(c), userAgent: userAgent(c) }),
-      now,
-    ),
-  ]);
+    const refreshed = { ...session.user, email_verified: 1 };
+    return c.json({ success: true, data: await registrationView(c, refreshed) });
+  });
 
-  return c.json({ success: true, data: { reset: true } });
-});
+  app.patch("/auth/registration", async (c) => {
+    if (!authEmailDeliveryAvailable(c)) {
+      return c.json({ success: false, error: "Email verification delivery is unavailable" }, 503);
+    }
+    const body = await readObjectBody(c);
+    if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
+    const session = await registrationSession(c, body.accessToken);
+    if (!session) return c.json({ success: false, error: "Registration access denied" }, 401);
+
+    const email = Object.hasOwn(body, "email") ? normalizedEmail(body.email) : session.user.email;
+    const phone = Object.hasOwn(body, "phone")
+      ? typeof body.phone === "string" && body.phone.trim()
+        ? body.phone.trim()
+        : null
+      : session.user.phone;
+    const name = Object.hasOwn(body, "name") && typeof body.name === "string" ? body.name.trim() : session.user.name;
+    const room = Object.hasOwn(body, "room")
+      ? typeof body.room === "string" && body.room.trim()
+        ? body.room.trim()
+        : null
+      : session.user.room;
+    const gender = Object.hasOwn(body, "gender")
+      ? typeof body.gender === "string" && body.gender.trim()
+        ? body.gender.trim()
+        : null
+      : session.user.gender;
+    const institutionUserId =
+      Object.hasOwn(body, "institutionUserId") && typeof body.institutionUserId === "string"
+        ? body.institutionUserId.trim()
+        : session.user.institution_user_id ?? "";
+
+    if (!name || name.length > 120) return c.json({ success: false, error: "Name is required" }, 400);
+    if (!isEmail(email)) return c.json({ success: false, error: "Valid email is required" }, 400);
+    if (phone && (phone.length < 8 || phone.length > 32)) {
+      return c.json({ success: false, error: "Phone must be 8 to 32 characters" }, 400);
+    }
+    if (!institutionUserId || institutionUserId.length > 120) {
+      return c.json({ success: false, error: "Institution user ID is required" }, 400);
+    }
+
+    const duplicateEmail = await c.env.DB.prepare(
+      `SELECT id FROM users WHERE institution_id = ? AND email = ? AND id <> ? LIMIT 1`,
+    )
+      .bind(session.user.institution_id, email, session.user.id)
+      .first<{ id: string }>();
+    if (duplicateEmail) return c.json({ success: false, error: "Email is already in use" }, 409);
+
+    const duplicateInstitutionId = await c.env.DB.prepare(
+      `SELECT id FROM users WHERE institution_id = ? AND institution_user_id = ? AND id <> ? LIMIT 1`,
+    )
+      .bind(session.user.institution_id, institutionUserId, session.user.id)
+      .first<{ id: string }>();
+    if (duplicateInstitutionId) return c.json({ success: false, error: "Institution user ID is already in use" }, 409);
+
+    if (phone) {
+      const duplicatePhone = await c.env.DB.prepare(
+        `SELECT id FROM users WHERE institution_id = ? AND phone = ? AND id <> ? LIMIT 1`,
+      )
+        .bind(session.user.institution_id, phone, session.user.id)
+        .first<{ id: string }>();
+      if (duplicatePhone) return c.json({ success: false, error: "Phone number is already in use" }, 409);
+    }
+
+    const emailChanged = email !== session.user.email;
+    const now = new Date().toISOString();
+    try {
+      await c.env.DB.prepare(
+        `UPDATE users
+         SET name = ?, email = ?, phone = ?, institution_user_id = ?, room = ?, gender = ?,
+             email_verified = CASE WHEN ? THEN 0 ELSE email_verified END,
+             status = 'PENDING', updated_at = ?
+         WHERE id = ?`,
+      )
+        .bind(name, email, phone, institutionUserId, room, gender, emailChanged ? 1 : 0, now, session.user.id)
+        .run();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("users_institution_phone_unique") || message.includes("UNIQUE constraint failed: users.institution_id, users.phone")) {
+        return c.json({ success: false, error: "Phone number is already in use" }, 409);
+      }
+      throw error;
+    }
+
+    const latest = await c.env.DB.prepare(
+      `SELECT id, cycle, status, reason, fields_needing_correction_json, reviewed_at, created_at
+       FROM registration_requests
+       WHERE user_id = ? ORDER BY cycle DESC LIMIT 1`,
+    )
+      .bind(session.user.id)
+      .first<RegistrationRequestRow>();
+    if (latest && ["REJECTED", "CHANGES_REQUESTED"].includes(latest.status)) {
+      await c.env.DB.prepare(
+        `INSERT INTO registration_requests
+          (id, institution_id, user_id, cycle, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'RESUBMITTED', ?, ?)`,
+      )
+        .bind(crypto.randomUUID(), session.user.institution_id, session.user.id, latest.cycle + 1, now, now)
+        .run();
+    }
+
+    const updatedUser: RegistrationUserRow = {
+      ...session.user,
+      name,
+      email,
+      phone,
+      institution_user_id: institutionUserId,
+      room,
+      gender,
+      status: "PENDING",
+      email_verified: emailChanged ? 0 : session.user.email_verified,
+    };
+
+    if (emailChanged) {
+      if (!(await checkIssueRateLimit(c, "EMAIL_VERIFY"))) {
+        return c.json({ success: false, error: "Too many verification requests. Try again later." }, 429);
+      }
+      const otp = randomOtp(c);
+      await insertChallenge(c, updatedUser, "EMAIL_VERIFY", otp, OTP_TTL_MS);
+      if (!logLocalDelivery(c, "EMAIL_VERIFY", email, otp)) {
+        return c.json({ success: false, error: "Email verification delivery is unavailable" }, 503);
+      }
+    }
+
+    return c.json({ success: true, data: await registrationView(c, updatedUser) });
+  });
+
+  app.post("/auth/registration/resubmit", async (c) => {
+    const body = await readObjectBody(c);
+    if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
+    const session = await registrationSession(c, body.accessToken);
+    if (!session) return c.json({ success: false, error: "Registration access denied" }, 401);
+    if (!session.user.email_verified) {
+      return c.json({ success: false, error: "Verify your email before resubmitting" }, 409);
+    }
+
+    const latest = await c.env.DB.prepare(
+      `SELECT id, cycle, status, reason, fields_needing_correction_json, reviewed_at, created_at
+       FROM registration_requests
+       WHERE user_id = ? ORDER BY cycle DESC LIMIT 1`,
+    )
+      .bind(session.user.id)
+      .first<RegistrationRequestRow>();
+    if (!latest) return c.json({ success: false, error: "Registration request not found" }, 404);
+    if (!["REJECTED", "CHANGES_REQUESTED"].includes(latest.status)) {
+      return c.json({ success: false, error: "Registration is not awaiting resubmission" }, 409);
+    }
+
+    const now = new Date().toISOString();
+    await c.env.DB.prepare(
+      `INSERT INTO registration_requests
+        (id, institution_id, user_id, cycle, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'RESUBMITTED', ?, ?)`,
+    )
+      .bind(crypto.randomUUID(), session.user.institution_id, session.user.id, latest.cycle + 1, now, now)
+      .run();
+    return c.json({ success: true, data: await registrationView(c, session.user) });
+  });
+
+  app.post("/auth/forgot-password", async (c) => {
+    if (!authEmailDeliveryAvailable(c)) {
+      return c.json({ success: false, error: "Password recovery delivery is unavailable" }, 503);
+    }
+    const body = await readObjectBody(c);
+    if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
+    const email = normalizedEmail(body.email);
+    if (!isEmail(email)) return c.json({ success: true, data: { accepted: true } });
+    if (!(await checkIssueRateLimit(c, "PASSWORD_RESET_OTP"))) {
+      return c.json({ success: true, data: { accepted: true } });
+    }
+
+    const user = await c.env.DB.prepare(
+      `SELECT id, institution_id, name, email, phone, status, institution_user_id,
+              email_verified, room, gender, created_at
+       FROM users
+       WHERE email = ? AND status = 'ACTIVE'
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+      .bind(email)
+      .first<RegistrationUserRow>();
+    if (!user) return c.json({ success: true, data: { accepted: true } });
+
+    const otp = randomOtp(c);
+    await insertChallenge(c, user, "PASSWORD_RESET_OTP", otp, OTP_TTL_MS);
+    if (!logLocalDelivery(c, "PASSWORD_RESET_OTP", email, otp)) {
+      return c.json({ success: false, error: "Password recovery delivery is unavailable" }, 503);
+    }
+    return c.json({
+      success: true,
+      data: { accepted: true, delivery: c.env.ENVIRONMENT === "local" ? "local-development" : "email" },
+    });
+  });
+
+  app.post("/auth/reset-password/verify", async (c) => {
+    if (!authEmailDeliveryAvailable(c)) {
+      return c.json({ success: false, error: "Password recovery delivery is unavailable" }, 503);
+    }
+    const body = await readObjectBody(c);
+    if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
+    const email = normalizedEmail(body.email);
+    const otp = typeof body.otp === "string" ? body.otp.trim() : "";
+    if (!isEmail(email) || !/^\d{6}$/u.test(otp)) {
+      return c.json({ success: false, error: "Invalid or expired verification code" }, 400);
+    }
+
+    const user = await c.env.DB.prepare(
+      `SELECT id, institution_id, name, email, phone, status, institution_user_id,
+              email_verified, room, gender, created_at
+       FROM users
+       WHERE email = ? AND status = 'ACTIVE'
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+      .bind(email)
+      .first<RegistrationUserRow>();
+    if (!user) return c.json({ success: false, error: "Invalid or expired verification code" }, 400);
+
+    const challenge = await latestChallenge(c, user.id, "PASSWORD_RESET_OTP");
+    if (!(await verifyOneTimeChallenge(c, challenge, otp))) {
+      return c.json({ success: false, error: "Invalid or expired verification code" }, 400);
+    }
+
+    const now = new Date().toISOString();
+    await c.env.DB.prepare(`UPDATE auth_challenges SET consumed_at = ?, updated_at = ? WHERE id = ?`)
+      .bind(now, now, challenge!.id)
+      .run();
+    const resetToken = randomToken(32);
+    await insertChallenge(c, user, "PASSWORD_RESET_TOKEN", resetToken, RESET_TOKEN_TTL_MS, 1);
+    return c.json({ success: true, data: { resetToken } });
+  });
+
+  app.post("/auth/reset-password", async (c) => {
+    if (!authEmailDeliveryAvailable(c)) {
+      return c.json({ success: false, error: "Password recovery delivery is unavailable" }, 503);
+    }
+    const body = await readObjectBody(c);
+    if (!body) return c.json({ success: false, error: "Invalid JSON body" }, 400);
+    const email = normalizedEmail(body.email);
+    const resetToken = typeof body.resetToken === "string" ? body.resetToken.trim() : "";
+    const password = typeof body.password === "string" ? body.password : "";
+    const confirmPassword = typeof body.confirmPassword === "string" ? body.confirmPassword : "";
+    if (!isEmail(email) || !resetToken) return c.json({ success: false, error: "Invalid or expired reset token" }, 400);
+    if (password !== confirmPassword) return c.json({ success: false, error: "Passwords do not match" }, 400);
+    const pwdError = passwordError(password);
+    if (pwdError) return c.json({ success: false, error: pwdError }, 400);
+
+    const user = await c.env.DB.prepare(
+      `SELECT id, institution_id, name, email, phone, status, institution_user_id,
+              email_verified, room, gender, created_at
+       FROM users
+       WHERE email = ? AND status = 'ACTIVE'
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+      .bind(email)
+      .first<RegistrationUserRow>();
+    if (!user) return c.json({ success: false, error: "Invalid or expired reset token" }, 400);
+
+    const challenge = await latestChallenge(c, user.id, "PASSWORD_RESET_TOKEN");
+    if (!challenge || challenge.secret_hash !== `sha256:${await tokenDigest(resetToken)}` || challengeExpired(challenge)) {
+      return c.json({ success: false, error: "Invalid or expired reset token" }, 400);
+    }
+
+    const now = new Date().toISOString();
+    const passwordHash = await hashPassword(password);
+    await c.env.DB.prepare(
+      `UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?`,
+    )
+      .bind(passwordHash, now, user.id)
+      .run();
+    await c.env.DB.prepare(
+      `UPDATE auth_challenges SET consumed_at = ?, updated_at = ? WHERE id = ? AND consumed_at IS NULL`,
+    )
+      .bind(now, now, challenge.id)
+      .run();
+    await c.env.DB.prepare(`DELETE FROM user_sessions WHERE user_id = ?`).bind(user.id).run();
+    return c.json({ success: true, data: { passwordReset: true } });
+  });
+
+  return app;
+}
