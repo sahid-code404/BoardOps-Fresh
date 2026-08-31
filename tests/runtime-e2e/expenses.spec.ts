@@ -102,6 +102,7 @@ test("Expenses renders real D1 data and preserves accounting history through rep
         title: "Runtime groceries corrected",
         amount: 222.22,
         description: "Replacement accounting proof",
+        reason: "Correct runtime expense amount",
       }),
     });
     const replacementId = replacement.body?.data?.id as string;

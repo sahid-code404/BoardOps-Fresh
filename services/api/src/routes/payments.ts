@@ -742,10 +742,10 @@ paymentRoutes.put("/payments/:id", async (c) => {
   const updates: string[] = [];
   const bindings: unknown[] = [];
   if (body.amount !== undefined) {
-    if (existing.status === "APPROVED") {
+    if (existing.status === "PENDING" || existing.status === "APPROVED") {
       return c.json({
         success: false,
-        error: "Approved payment amounts are immutable. Void the payment and submit a replacement instead.",
+        error: "Pending and approved payment amounts are immutable. Reject or void the payment and submit a replacement instead.",
       }, 422);
     }
     const amountMinor = majorToMinor(body.amount);

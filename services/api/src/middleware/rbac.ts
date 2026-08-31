@@ -206,6 +206,12 @@ function dynamicPolicy(method: Method, path: string): DynamicPolicy {
   if (method === "GET" && /^\/api\/expenses\/[^/]+$/u.test(path)) {
     return PERMISSIONS.EXPENSES_READ;
   }
+  if (method === "POST" && /^\/api\/expenses\/[^/]+\/proof$/u.test(path)) {
+    return PERMISSIONS.EXPENSES_REPLACE;
+  }
+  if (method === "GET" && /^\/api\/expenses\/[^/]+\/proof$/u.test(path)) {
+    return PERMISSIONS.EXPENSES_READ;
+  }
   if (method === "PUT" && /^\/api\/expenses\/[^/]+$/u.test(path)) {
     return PERMISSIONS.EXPENSES_REPLACE;
   }

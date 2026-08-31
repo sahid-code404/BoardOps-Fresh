@@ -712,25 +712,27 @@ export function KitchenView() {
                           </p>
                           <p className="text-[11px] text-foreground/80 mt-1 line-clamp-2">{l.reason}</p>
                         </div>
-                        <div className="flex flex-col gap-1.5 shrink-0">
-                          <button
-                            type="button"
+                        <div className="flex flex-col sm:flex-row gap-1.5 shrink-0">
+                          <GlassButton
+                            size="sm"
+                            variant="success"
                             onClick={() => decideLeaveMutation.mutate({ id: l.id, status: "APPROVED" })}
                             disabled={isLoading}
-                            aria-label="Approve leave"
-                            className="grid place-items-center h-8 w-8 rounded-xl bg-success/15 text-success hover:bg-success/25 transition-colors disabled:opacity-50"
+                            className="!h-8 !px-3"
                           >
-                            <CheckCircle2 className="h-4 w-4" />
-                          </button>
-                          <button
-                            type="button"
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Approve
+                          </GlassButton>
+                          <GlassButton
+                            size="sm"
+                            variant="danger"
                             onClick={() => decideLeaveMutation.mutate({ id: l.id, status: "REJECTED" })}
                             disabled={isLoading}
-                            aria-label="Reject leave"
-                            className="grid place-items-center h-8 w-8 rounded-xl bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors disabled:opacity-50"
+                            className="!h-8 !px-3"
                           >
-                            <Ban className="h-4 w-4" />
-                          </button>
+                            <Ban className="h-3.5 w-3.5" />
+                            Reject
+                          </GlassButton>
                         </div>
                       </div>
                     );

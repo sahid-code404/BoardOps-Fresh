@@ -368,8 +368,9 @@ export function UsersView() {
   });
 
   const kpis = useMemo(() => {
-    // Total Users includes everyone (admins + residents, excluding deleted)
-    const total = users.filter((u) => !u.deletedAt).length;
+    // Pending registrations are not institution members yet, regardless of the
+    // role requested/assigned during review.
+    const total = users.filter((u) => !u.deletedAt && u.status !== "PENDING" && u.status !== "ARCHIVED").length;
     // Active/Pending/Suspended exclude admins — these are resident-facing metrics
     const residents = users.filter((u) => u.role !== "ADMIN" && u.role !== "SUPER_ADMIN");
     const active = residents.filter((u) => u.status === "ACTIVE" && !u.deletedAt).length;
@@ -378,6 +379,17 @@ export function UsersView() {
     const inQueue = residents.filter((u) => u.deletedAt).length;
     return { total, active, pending, suspended, inQueue };
   }, [users]);
+
+  const activeAdminCount = useMemo(
+    () => users.filter(
+      (u) => !u.deletedAt && u.status === "ACTIVE" && (u.role === "ADMIN" || u.role === "SUPER_ADMIN"),
+    ).length,
+    [users],
+  );
+  const lastAdminRoleLocked = !!assignRole
+    && assignRole.status === "ACTIVE"
+    && (assignRole.role === "ADMIN" || assignRole.role === "SUPER_ADMIN")
+    && activeAdminCount <= 1;
 
   const filteredUsers = useMemo(() => {
     if (status === "DELETED") return users.filter((u) => u.deletedAt);
@@ -495,6 +507,10 @@ export function UsersView() {
 
   const submitAssignRole = useCallback(() => {
     if (!assignRole) return;
+    if (lastAdminRoleLocked && newRole !== "ADMIN" && newRole !== "SUPER_ADMIN") {
+      toast.error("Assign another active administrator before changing this admin role");
+      return;
+    }
     actionMutation.mutate({
       id: assignRole.id,
       action: "ASSIGN_ROLE",
@@ -503,7 +519,7 @@ export function UsersView() {
     });
     setAssignRole(null);
     setAssignReason("");
-  }, [assignRole, newRole, assignReason, actionMutation]);
+  }, [assignRole, newRole, assignReason, actionMutation, lastAdminRoleLocked]);
 
   const submitDelete = useCallback(() => {
     if (!deleteTarget) return;
@@ -548,7 +564,7 @@ export function UsersView() {
       {/* KPIs */}
       <StaggerItem>
         <div className="grid grid-cols-3 gap-3">
-          <KpiCard label="Total Users" value={kpis.total} icon={UsersIcon} color="primary" sub="All members" />
+          <KpiCard label="Total Users" value={kpis.total} icon={UsersIcon} color="primary" sub="Approved members" />
           <KpiCard label="Active" value={kpis.active} icon={UserCheck} color="success" sub="Approved" />
           <KpiCard label="Pending Approval" value={kpis.pending} icon={UserPlus} color="warning" sub={kpis.pending > 0 ? "Awaiting" : "All clear"} />
         </div>
@@ -633,7 +649,7 @@ export function UsersView() {
                     user={u}
                     onAction={(action) => handleAction(u, action)}
                     canEditRole={role === "ADMIN" || role === "SUPER_ADMIN"}
-                    onView360={setView360Target}
+                    onView360={u.role === "USER" ? setView360Target : undefined}
                   />
                 </motion.div>
               ))}
@@ -693,7 +709,11 @@ export function UsersView() {
           <div className="space-y-3">
             <div>
               <label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">Role</label>
-              <Select value={newRole} onValueChange={(v) => setNewRole(v as Role)}>
+              <Select
+                value={newRole}
+                onValueChange={(v) => setNewRole(v as Role)}
+                disabled={lastAdminRoleLocked}
+              >
                 <SelectTrigger className="w-full glass-soft border-0">
                   <SelectValue />
                 </SelectTrigger>
@@ -703,6 +723,17 @@ export function UsersView() {
                 </SelectContent>
               </Select>
             </div>
+            {lastAdminRoleLocked && (
+              <div className="rounded-2xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>This is the only active administrator. Assign another active admin before changing this role.</span>
+              </div>
+            )}
+            {newRole === "ADMIN" && assignRole?.role === "USER" && (
+              <div className="rounded-2xl border border-primary/25 bg-primary/8 p-3 text-xs text-muted-foreground">
+                Admins do not have resident fund accounts and are excluded from Resident 360 financial/meal domains. Existing resident financial history remains historical and is not converted into an admin balance.
+              </div>
+            )}
             <GlassTextarea
               label="Reason (optional)"
               rows={2}
@@ -715,7 +746,13 @@ export function UsersView() {
             <GlassButton variant="ghost" size="md" onClick={() => setAssignRole(null)}>
               Cancel
             </GlassButton>
-            <GlassButton variant="primary" size="md" onClick={submitAssignRole} loading={actionMutation.isPending}>
+            <GlassButton
+              variant="primary"
+              size="md"
+              onClick={submitAssignRole}
+              loading={actionMutation.isPending}
+              disabled={lastAdminRoleLocked && newRole !== "ADMIN" && newRole !== "SUPER_ADMIN"}
+            >
               <Shield className="h-4 w-4" />
               Assign Role
             </GlassButton>

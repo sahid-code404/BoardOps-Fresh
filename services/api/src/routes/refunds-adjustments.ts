@@ -429,26 +429,6 @@ refundAdjustmentRoutes.get("/payments/refund", async (c) => {
   const principal = await principalFor(c);
   if (principal instanceof Response) return principal;
 
-  const timeZoneRow = await c.env.DB.prepare(`SELECT timezone FROM institutions WHERE id = ? LIMIT 1`)
-    .bind(principal.institutionId)
-    .first<{ timezone: string }>();
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timeZoneRow?.timezone || "UTC",
-    year: "numeric",
-    month: "2-digit",
-  }).formatToParts(new Date());
-  const year = Number(parts.find((part) => part.type === "year")?.value ?? new Date().getUTCFullYear());
-  const month = Number(parts.find((part) => part.type === "month")?.value ?? new Date().getUTCMonth() + 1) - 1;
-  const currentBills = await c.env.DB.prepare(
-    `SELECT COUNT(*) AS count FROM bills
-      WHERE institution_id = ? AND period_month = ? AND period_year = ?
-        AND deleted_on IS NULL AND purged_at IS NULL
-        AND status NOT IN ('VOID', 'DELETED', 'DRAFT')`,
-  )
-    .bind(principal.institutionId, month, year)
-    .first<{ count: number }>();
-  if (Number(currentBills?.count ?? 0) === 0) return c.json({ success: true, data: [] });
-
   const residents = await c.env.DB.prepare(
     `SELECT id, name, email, room, avatar_url
        FROM users
@@ -460,21 +440,53 @@ refundAdjustmentRoutes.get("/payments/refund", async (c) => {
 
   const result = [];
   for (const resident of residents.results) {
-    const credit = await availableCredit(c, principal.institutionId, resident.id);
-    if (credit.availableMinor <= 0) continue;
+    // Refund eligibility is bill-specific. A generic deposit/credit balance is
+    // not enough: a completed generated bill must still be net-overpaid.
+    const overpaid = await c.env.DB.prepare(
+      `SELECT b.id, b.period_month, b.period_year,
+              b.paid_amount_minor - b.total_amount_minor AS overpaid_minor
+         FROM bills b
+        WHERE b.institution_id = ? AND b.user_id = ?
+          AND b.deleted_on IS NULL AND b.purged_at IS NULL
+          AND b.generated_at IS NOT NULL
+          AND b.status IN ('GENERATED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE')
+          AND b.paid_amount_minor > b.total_amount_minor
+          AND EXISTS (
+            SELECT 1 FROM billing_cycles bc
+             WHERE bc.institution_id = b.institution_id
+               AND bc.period_month = b.period_month
+               AND bc.period_year = b.period_year
+               AND bc.status = 'CLOSED'
+          )
+        ORDER BY (b.paid_amount_minor - b.total_amount_minor) DESC,
+                 b.period_year DESC, b.period_month DESC, b.created_at DESC
+        LIMIT 1`,
+    )
+      .bind(principal.institutionId, resident.id)
+      .first<{ id: string; period_month: number; period_year: number; overpaid_minor: number }>();
+    if (!overpaid || Number(overpaid.overpaid_minor) <= 0) continue;
+
+    const reserved = await c.env.DB.prepare(
+      `SELECT COALESCE(SUM(remaining_amount_minor), 0) AS total
+         FROM refunds
+        WHERE institution_id = ? AND user_id = ? AND bill_id = ?
+          AND status IN ('PENDING', 'PARTIALLY_PAID')`,
+    )
+      .bind(principal.institutionId, resident.id, overpaid.id)
+      .first<{ total: number }>();
+    const refundableMinor = Math.max(0, Number(overpaid.overpaid_minor) - Number(reserved?.total ?? 0));
+    if (refundableMinor <= 0) continue;
+
     result.push({
       userId: resident.id,
       name: resident.name,
       email: resident.email,
       room: resident.room,
       avatarUrl: resident.avatar_url,
-      creditAmount: minorToMajor(credit.availableMinor),
-      breakdown: {
-        totalApproved: minorToMajor(credit.totalApprovedMinor),
-        totalBilled: minorToMajor(credit.totalBilledMinor),
-        totalRefunded: minorToMajor(credit.totalRefundedMinor),
-        reservedRefunds: minorToMajor(credit.reservedMinor),
-      },
+      billId: overpaid.id,
+      billPeriodMonth: overpaid.period_month,
+      billPeriodYear: overpaid.period_year,
+      creditAmount: minorToMajor(refundableMinor),
     });
   }
   result.sort((a, b) => b.creditAmount - a.creditAmount);

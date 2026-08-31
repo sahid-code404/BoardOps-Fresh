@@ -36,6 +36,11 @@ test("Payments renders real D1 data and recomputes bill state from canonical evi
       body: JSON.stringify({ amount: 100, method: "CASH" }),
     });
 
+    const pendingAmountEdit = await request("/api/payments/payment_arjun_pending_local", {
+      method: "PUT",
+      body: JSON.stringify({ action: "EDIT", amount: 2600 }),
+    });
+
     const approved = await request("/api/payments/payment_arjun_pending_local", {
       method: "PATCH",
       body: JSON.stringify({ action: "APPROVE" }),
@@ -89,6 +94,7 @@ test("Payments renders real D1 data and recomputes bill state from canonical evi
       augustBefore,
       billBefore,
       adminSubmitDenied,
+      pendingAmountEdit,
       approved,
       billAfterApprove,
       approvedAgain,
@@ -140,6 +146,9 @@ test("Payments renders real D1 data and recomputes bill state from canonical evi
     requiredPermission: "payments.create",
   });
 
+  expect(result.pendingAmountEdit.status).toBe(422);
+  expect(String(result.pendingAmountEdit.body.error)).toContain("Pending and approved payment amounts are immutable");
+
   expect(result.approved.status).toBe(200);
   expect(result.approved.body).toMatchObject({ success: true, data: { status: "APPROVED", amount: 2500 } });
   expect(result.billAfterApprove.body).toMatchObject({
@@ -156,7 +165,7 @@ test("Payments renders real D1 data and recomputes bill state from canonical evi
 
   expect(result.approvedAmountEdit.status).toBe(422);
   expect(result.approvedAmountEdit.body).toMatchObject({ success: false });
-  expect(String(result.approvedAmountEdit.body.error)).toContain("Approved payment amounts are immutable");
+  expect(String(result.approvedAmountEdit.body.error)).toContain("Pending and approved payment amounts are immutable");
 
   expect(result.rejected.status).toBe(200);
   expect(result.rejected.body).toMatchObject({ success: true, data: { status: "REJECTED" } });

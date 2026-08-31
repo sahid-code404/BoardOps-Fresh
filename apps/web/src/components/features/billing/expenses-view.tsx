@@ -24,6 +24,8 @@ import {
   RotateCcw,
   AlertTriangle,
   Clock,
+  Paperclip,
+  ExternalLink,
 } from "lucide-react";
 
 import { api } from "@/lib/api-client";
@@ -103,6 +105,7 @@ type Expense = {
   deletedAt: string | null;
   deletionReason: string | null;
   user: { name: string } | null;
+  proof: { name: string | null; contentType: string | null; size: number | null; url: string } | null;
 };
 
 type ApiResponse<T> = { success: boolean; data: T; error?: string };
@@ -116,6 +119,7 @@ type ExpensePayload = {
   amount: number;
   description?: string;
   expenseDate: string;
+  reason?: string;
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -308,8 +312,15 @@ export function ExpensesView() {
   });
 
   const addMutation = useMutation({
-    mutationFn: (payload: ExpensePayload) =>
-      api.post<ApiResponse<Expense>>("/expenses", payload),
+    mutationFn: async ({ payload, proof }: { payload: ExpensePayload; proof: File | null }) => {
+      const created = await api.post<ApiResponse<Expense>>("/expenses", payload);
+      if (proof) {
+        const form = new FormData();
+        form.append("proof", proof);
+        await api.postForm<ApiResponse<Expense>>(`/expenses/${created.data.id}/proof`, form);
+      }
+      return created;
+    },
     onSuccess: () => {
       toast.success("Expense added successfully");
       closeForm();
@@ -319,8 +330,15 @@ export function ExpensesView() {
   });
 
   const editMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: ExpensePayload }) =>
-      api.put<ApiResponse<Expense>>(`/expenses/${id}`, payload),
+    mutationFn: async ({ id, payload, proof }: { id: string; payload: ExpensePayload; proof: File | null }) => {
+      const updated = await api.put<ApiResponse<Expense>>(`/expenses/${id}`, payload);
+      if (proof) {
+        const form = new FormData();
+        form.append("proof", proof);
+        await api.postForm<ApiResponse<Expense>>(`/expenses/${updated.data.id}/proof`, form);
+      }
+      return updated;
+    },
     onSuccess: () => {
       toast.success("Expense updated successfully");
       closeForm();
@@ -344,11 +362,11 @@ export function ExpensesView() {
     setEditTarget(null);
   }, []);
 
-  const handleSubmit = useCallback((payload: ExpensePayload, id?: string) => {
+  const handleSubmit = useCallback((payload: ExpensePayload, id?: string, proof: File | null = null) => {
     if (id) {
-      editMutation.mutate({ id, payload });
+      editMutation.mutate({ id, payload, proof });
     } else {
-      addMutation.mutate(payload);
+      addMutation.mutate({ payload, proof });
     }
   }, [addMutation, editMutation]);
 
@@ -960,6 +978,16 @@ const ExpenseRow = memo(function ExpenseRow({
                     · {expense.description}
                   </span>
                 )}
+                {expense.proof && (
+                  <a
+                    href={expense.proof.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                  >
+                    <Paperclip className="h-3 w-3" /> Proof <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
               </div>
             </div>
 
@@ -1016,7 +1044,7 @@ function ExpenseFormSheet({
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  onSubmit: (payload: ExpensePayload, id?: string) => void;
+  onSubmit: (payload: ExpensePayload, id?: string, proof?: File | null) => void;
   loading: boolean;
   expense: Expense | null;
 }) {
@@ -1051,7 +1079,7 @@ function ExpenseFormBody({
   onCancel,
 }: {
   expense: Expense | null;
-  onSubmit: (payload: ExpensePayload, id?: string) => void;
+  onSubmit: (payload: ExpensePayload, id?: string, proof?: File | null) => void;
   loading: boolean;
   onCancel: () => void;
 }) {
@@ -1097,6 +1125,8 @@ function ExpenseFormBody({
       : today
   );
   const [description, setDescription] = useState(expense?.description ?? "");
+  const [editReason, setEditReason] = useState("");
+  const [proofFile, setProofFile] = useState<File | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   function handleSubmit() {
@@ -1109,7 +1139,8 @@ function ExpenseFormBody({
       next.customCategory = "Enter a custom category name";
     }
     const qty = quantity ? parseFloat(quantity) : 0;
-    if (quantity && (!qty || qty <= 0)) next.quantity = "Enter a valid quantity";
+    if (!quantity || !qty || qty <= 0) next.quantity = "Quantity is required";
+    if (isEdit && editReason.trim().length < 3) next.editReason = "Edit reason is required (min 3 characters)";
     if (unit === "CUSTOM" && customUnit.trim().length < 1) {
       next.customUnit = "Enter a custom unit";
     }
@@ -1127,12 +1158,14 @@ function ExpenseFormBody({
         title: title.trim(),
         amount: amt,
         category: finalCategory,
-        quantity: qty || 0,
+        quantity: qty,
         unit: finalUnit,
         expenseDate: new Date(date).toISOString(),
         description: description.trim() || undefined,
+        reason: isEdit ? editReason.trim() : undefined,
       },
-      isEdit ? expense!.id : undefined
+      isEdit ? expense!.id : undefined,
+      proofFile,
     );
   }
 
@@ -1252,6 +1285,32 @@ function ExpenseFormBody({
             icon={<Calendar />}
           />
         </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground ml-1">Proof (photo or PDF)</label>
+          <label className="flex items-center gap-2 rounded-2xl glass-soft px-3 py-3 cursor-pointer hover:ring-1 hover:ring-primary/30 transition-all">
+            <Paperclip className="h-4 w-4 text-primary" />
+            <span className="text-sm truncate">{proofFile?.name || expense?.proof?.name || "Choose proof file"}</span>
+            <input
+              type="file"
+              className="sr-only"
+              accept="image/jpeg,image/png,image/webp,application/pdf"
+              onChange={(e) => setProofFile(e.target.files?.[0] ?? null)}
+            />
+          </label>
+          <p className="text-[11px] text-muted-foreground ml-1">JPEG, PNG, WebP, or PDF · max 8 MB</p>
+        </div>
+
+        {isEdit && (
+          <GlassTextarea
+            label="Reason for edit"
+            placeholder="Why are you correcting this expense?"
+            value={editReason}
+            onChange={(e) => setEditReason(e.target.value)}
+            rows={2}
+            error={errors.editReason}
+          />
+        )}
 
         <GlassTextarea
           label="Notes (optional)"
