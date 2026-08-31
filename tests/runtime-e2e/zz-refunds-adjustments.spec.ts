@@ -12,10 +12,10 @@ test("Refund obligations reserve credit, partial payouts create canonical eviden
 
   const adminContext = await browser.newContext();
   // Registration throttling is intentionally IP-scoped. Give this synthetic
-  // refunds fixture its own TEST-NET address so the shared single-worker suite
-  // cannot exhaust its registration budget before this final accounting test.
+  // refunds fixture its own TEST-NET address through the same trusted proxy
+  // header used by the production limiter and the verified RBAC runtime test.
   const residentContext = await browser.newContext({
-    extraHTTPHeaders: { "x-forwarded-for": "203.0.113.63" },
+    extraHTTPHeaders: { "cf-connecting-ip": "203.0.113.63" },
   });
 
   try {
