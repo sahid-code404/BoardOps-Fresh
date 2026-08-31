@@ -166,14 +166,15 @@ test("Products and Purchases use immutable linked accounting evidence and least 
 
     const adminPage = await adminContext.newPage();
     await adminPage.goto(`${WEB}/expenses`);
-    await expect(adminPage.getByRole("button", { name: "Expenses", exact: true })).toBeVisible();
-    await expect(adminPage.getByRole("button", { name: "Purchases", exact: true })).toBeVisible();
-    await expect(adminPage.getByRole("button", { name: "Products", exact: true })).toBeVisible();
-    await adminPage.getByRole("button", { name: "Purchases", exact: true }).click();
-    await expect(adminPage.getByRole("heading", { name: "Purchases", exact: true })).toBeVisible();
-    await expect(adminPage.getByText("Runtime Procurement Market", { exact: true })).toBeVisible();
-    await adminPage.getByRole("button", { name: "Products", exact: true }).click();
-    await expect(adminPage.getByRole("heading", { name: "Products", exact: true })).toBeVisible();
+    const main = adminPage.locator("main");
+    await expect(main.getByRole("tab", { name: "Expenses", exact: true })).toBeVisible();
+    await expect(main.getByRole("tab", { name: "Purchases", exact: true })).toBeVisible();
+    await expect(main.getByRole("tab", { name: "Products", exact: true })).toBeVisible();
+    await main.getByRole("tab", { name: "Purchases", exact: true }).click();
+    await expect(adminPage.getByRole("heading", { name: "Purchases & Shopping", exact: true })).toBeVisible();
+    await expect(adminPage.getByText("Runtime Procurement Market", { exact: true }).first()).toBeVisible();
+    await main.getByRole("tab", { name: "Products", exact: true }).click();
+    await expect(adminPage.getByRole("heading", { name: "Product Catalog", exact: true })).toBeVisible();
     await expect(adminPage.getByText("Rice", { exact: true }).first()).toBeVisible();
 
     const registration = await residentApi.post(`${API}/api/auth/register`, {
