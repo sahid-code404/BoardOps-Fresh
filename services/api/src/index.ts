@@ -13,6 +13,7 @@ import { kitchenRoutes } from "./routes/kitchen";
 import { leaveRoutes } from "./routes/leave";
 import { mealConfigRoutes } from "./routes/meals-config";
 import { mealOverrideRoutes } from "./routes/meal-overrides";
+import { residentMealRoutes } from "./routes/resident-meals";
 import { monthlyClosingRoutes } from "./routes/monthly-closing";
 import { notificationAnnouncementRoutes } from "./routes/notifications-announcements";
 import { paymentRoutes } from "./routes/payments";
@@ -110,9 +111,9 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 96 ||
+      Number(baseline?.permission_count ?? 0) < 98 ||
       Number(baseline?.role_count ?? 0) < 4 ||
-      Number(baseline?.grant_count ?? 0) < 234
+      Number(baseline?.grant_count ?? 0) < 242
     ) {
       throw new Error("RBAC baseline is incomplete");
     }
@@ -149,6 +150,7 @@ app.route("/api", runtimeRoutes);
 app.route("/api", userRoutes);
 app.route("/api", user360Routes);
 app.route("/api", mealConfigRoutes);
+app.route("/api", residentMealRoutes);
 app.route("/api", kitchenRoutes);
 app.route("/api", mealOverrideRoutes);
 app.route("/api", leaveRoutes);
