@@ -22,27 +22,17 @@ test("Reports and Analytics preserve all five lazy report surfaces", async ({ pa
     const tablist = document.querySelector('[role="tablist"][aria-label="Section navigation"]') as HTMLElement | null;
     const heading = Array.from(document.querySelectorAll("h1")).find((node) => node.textContent?.includes("Reports & Analytics")) as HTMLElement | undefined;
     const tabRect = tablist?.getBoundingClientRect();
-    const iconRect = heading?.querySelector("svg")?.getBoundingClientRect();
-    const headingTextNode = heading
-      ? Array.from(heading.childNodes).find((node) => node.nodeType === Node.TEXT_NODE && node.textContent?.includes("Reports & Analytics"))
-      : undefined;
-    let textRect: DOMRect | undefined;
-    if (headingTextNode) {
-      const range = document.createRange();
-      range.selectNodeContents(headingTextNode);
-      textRect = range.getBoundingClientRect();
-    }
-    const headingContentCenter = iconRect && textRect
-      ? (Math.min(iconRect.left, textRect.left) + Math.max(iconRect.right, textRect.right)) / 2
-      : -1;
+    const headingRect = heading?.getBoundingClientRect();
     return {
       viewportCenter: window.innerWidth / 2,
       tabCenter: tabRect ? tabRect.left + tabRect.width / 2 : -1,
-      headingContentCenter,
+      headingCenter: headingRect ? headingRect.left + headingRect.width / 2 : -1,
+      headingJustify: heading ? getComputedStyle(heading).justifyContent : "",
     };
   });
   expect(Math.abs(centeredGeometry.tabCenter - centeredGeometry.viewportCenter)).toBeLessThanOrEqual(16);
-  expect(Math.abs(centeredGeometry.headingContentCenter - centeredGeometry.viewportCenter)).toBeLessThanOrEqual(16);
+  expect(Math.abs(centeredGeometry.headingCenter - centeredGeometry.viewportCenter)).toBeLessThanOrEqual(16);
+  expect(centeredGeometry.headingJustify).toBe("center");
 
   await expect(page.getByText("Total Expenses", { exact: true })).toBeVisible();
   await expect(page.getByText("₹5,100", { exact: true })).toBeVisible();
