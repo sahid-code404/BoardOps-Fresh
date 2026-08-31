@@ -171,8 +171,7 @@ test("real local runtime loads a complete and usable golden-master administrator
     `${sessionPresentation.browser} on ${sessionPresentation.os}`,
     { exact: true },
   );
-  expect(await matchingSessionLabels.count()).toBeGreaterThanOrEqual(1);
-  await expect(matchingSessionLabels.first()).toBeVisible();
+  await expect(matchingSessionLabels.first()).toBeVisible({ timeout: 5_000 });
   await expect(sessionsSheet.getByText("This device", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(sessionsSheet).toBeHidden();
