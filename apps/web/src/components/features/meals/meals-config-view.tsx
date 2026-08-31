@@ -327,7 +327,7 @@ function MealForm({
     resolver: zodResolver(mealSchema),
     defaultValues: values ?? {
       ...DEFAULT_FORM_VALUES,
-      displayOrder: existingMeals.filter((meal) => !meal.deletionRequestedAt).length,
+      displayOrder: existingMeals.length,
     },
     mode: "onChange",
   });
@@ -347,7 +347,7 @@ function MealForm({
 
   const orderMeals = React.useMemo(
     () => existingMeals
-      .filter((meal) => !meal.deletionRequestedAt && meal.id !== mealId)
+      .filter((meal) => meal.id !== mealId)
       .sort((a, b) => a.displayOrder - b.displayOrder),
     [existingMeals, mealId],
   );

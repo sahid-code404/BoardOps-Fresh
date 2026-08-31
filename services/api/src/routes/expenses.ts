@@ -510,7 +510,16 @@ expenseRoutes.post("/expenses/:id/proof", async (c) => {
     httpMetadata: { contentType: proof.type, cacheControl: "private, max-age=300" },
   });
   if (existing.proof_key && existing.proof_key !== key) {
-    await c.env.FILES.delete(existing.proof_key);
+    // Replacement expenses deliberately inherit the original proof reference.
+    // Never delete an R2 object while another historical expense row still
+    // points at it, otherwise the immutable REVERSED evidence becomes broken.
+    const sharedProof = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS count FROM expenses
+        WHERE institution_id = ? AND proof_key = ? AND id <> ?`,
+    ).bind(principal.institutionId, existing.proof_key, existing.id).first<{ count: number }>();
+    if (Number(sharedProof?.count ?? 0) === 0) {
+      await c.env.FILES.delete(existing.proof_key);
+    }
   }
   await c.env.DB.prepare(
     `UPDATE expenses

@@ -315,6 +315,24 @@ async function finalizeEligibleDeletionQueue(c: Context<AppEnv>, principal: Auth
     ).first<{ id: string }>();
     if (!cycle) continue;
 
+    // The requested meal remains service-active through the eligible billing
+    // month so every confirmed entry is captured by that month's immutable
+    // bill snapshot. Once that billing cycle closes, stop future service even
+    // if resident balances/refunds still need time to settle.
+    const serviceEndedAt = new Date().toISOString();
+    const serviceEnd = await c.env.DB.prepare(
+      `UPDATE meal_configurations
+          SET status = 'ARCHIVED', updated_at = ?
+        WHERE id = ? AND institution_id = ?
+          AND deletion_finalized_at IS NULL AND status <> 'ARCHIVED'`,
+    ).bind(serviceEndedAt, meal.id, principal.institutionId).run();
+    if (Number(serviceEnd.meta.changes ?? 0) > 0) {
+      await writeAudit(c, principal, "MEAL_CONFIGURATION_DELETION_SERVICE_ENDED", meal.id, {
+        eligibleMonth: meal.deletion_eligible_month,
+        eligibleYear: meal.deletion_eligible_year,
+      });
+    }
+
     const settlement = await c.env.DB.prepare(
       `SELECT
          (SELECT COALESCE(SUM(b.due_amount_minor), 0)
@@ -563,7 +581,7 @@ mealConfigRoutes.delete("/meals/config/:id", async (c) => {
   const now = new Date().toISOString();
   await c.env.DB.prepare(
     `UPDATE meal_configurations
-        SET status = 'ARCHIVED', deletion_requested_at = ?,
+        SET deletion_requested_at = ?,
             deletion_eligible_month = ?, deletion_eligible_year = ?,
             deletion_requested_by = ?, updated_at = ?
       WHERE id = ? AND institution_id = ? AND deletion_finalized_at IS NULL`,

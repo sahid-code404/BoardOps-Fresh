@@ -104,7 +104,7 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
 
     const updated = await getJson(`/api/meals/config/${id}`, {
       method: "PUT",
-      body: JSON.stringify({ status: "INACTIVE", displayName: "Runtime Test Snack Updated" }),
+      body: JSON.stringify({ displayName: "Runtime Test Snack Updated" }),
     });
     const deleted = await getJson(`/api/meals/config/${id}`, { method: "DELETE" });
     const after = await getJson("/api/meals/config");
@@ -142,14 +142,14 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
   expect(result.updated?.status).toBe(200);
   expect(result.updated?.body).toMatchObject({
     success: true,
-    data: { name: "runtime_test_snack", displayName: "Runtime Test Snack Updated", status: "INACTIVE" },
+    data: { name: "runtime_test_snack", displayName: "Runtime Test Snack Updated", status: "ACTIVE" },
   });
   expect(result.deleted?.status).toBe(200);
   expect(result.deleted?.body).toMatchObject({
     success: true,
     data: {
       queued: true,
-      meal: { name: "runtime_test_snack", status: "ARCHIVED" },
+      meal: { name: "runtime_test_snack", status: "ACTIVE" },
     },
   });
   expect(result.deleted?.body?.data?.meal?.deletionRequestedAt).toEqual(expect.any(String));
