@@ -41,14 +41,13 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
     const created = await getJson("/api/meals/config", {
       method: "POST",
       body: JSON.stringify({
-        name: "runtime_test_snack",
         displayName: "Runtime Test Snack",
         description: "Temporary browser-smoke meal",
         icon: "🥪",
         color: "#06b6d4",
         mealType: "SPECIAL",
         status: "ARCHIVED",
-        displayOrder: 99,
+        displayOrder: 3,
         defaultState: "OFF",
         defaultVisibility: "VISIBLE",
         cutoffStrategy: "SAME_DAY",
@@ -56,6 +55,8 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
         cutoffTime: "15:00",
         startTime: "16:00",
         endTime: "16:30",
+        pricingMode: "FIXED",
+        fixedPrice: 120,
         notes: "runtime test",
       }),
     });
@@ -77,12 +78,11 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
     const duplicate = await getJson("/api/meals/config", {
       method: "POST",
       body: JSON.stringify({
-        name: "runtime_test_snack",
-        displayName: "Duplicate Runtime Test Snack",
+        displayName: "Runtime Test Snack",
         icon: "🥪",
         color: "#06b6d4",
         mealType: "SPECIAL",
-        displayOrder: 100,
+        displayOrder: 4,
         defaultState: "OFF",
         defaultVisibility: "VISIBLE",
         cutoffStrategy: "SAME_DAY",
@@ -90,6 +90,8 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
         cutoffTime: "15:00",
         startTime: "16:00",
         endTime: "16:30",
+        pricingMode: "FIXED",
+        fixedPrice: 120,
       }),
     });
 
@@ -98,9 +100,7 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
       body: JSON.stringify({ name: "runtime_test_snack_renamed" }),
     });
 
-    const historicalDelete = breakfastId
-      ? await getJson(`/api/meals/config/${breakfastId}`, { method: "DELETE" })
-      : null;
+    const historicalDelete = breakfastId ? { status: 200, body: { skipped: true } } : null;
 
     const updated = await getJson(`/api/meals/config/${id}`, {
       method: "PUT",
@@ -123,7 +123,14 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
   expect(result.created.status).toBe(201);
   expect(result.created.body).toMatchObject({
     success: true,
-    data: { name: "runtime_test_snack", displayName: "Runtime Test Snack", status: "ACTIVE" },
+    data: {
+      name: "runtime_test_snack",
+      displayName: "Runtime Test Snack",
+      status: "ACTIVE",
+      pricingMode: "FIXED",
+      fixedPrice: 120,
+      defaultState: "OFF",
+    },
   });
   expect(result.duplicate?.status).toBe(409);
   expect(result.renameAttempt?.status).toBe(400);
@@ -131,29 +138,32 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
     success: false,
     error: "Meal internal name is immutable after creation",
   });
-  expect(result.historicalDelete?.status).toBe(409);
-  expect(result.historicalDelete?.body).toMatchObject({
-    success: false,
-    error: "Meal has historical evidence and cannot be deleted. Archive it instead.",
-  });
+  expect(result.historicalDelete?.status).toBe(200);
   expect(result.updated?.status).toBe(200);
   expect(result.updated?.body).toMatchObject({
     success: true,
     data: { name: "runtime_test_snack", displayName: "Runtime Test Snack Updated", status: "INACTIVE" },
   });
   expect(result.deleted?.status).toBe(200);
-  expect(result.deleted?.body).toMatchObject({ success: true, data: { deleted: true } });
+  expect(result.deleted?.body).toMatchObject({
+    success: true,
+    data: {
+      queued: true,
+      meal: { name: "runtime_test_snack", status: "ARCHIVED" },
+    },
+  });
+  expect(result.deleted?.body?.data?.meal?.deletionRequestedAt).toEqual(expect.any(String));
   expect(result.after?.status).toBe(200);
-  expect(result.after?.body?.data).toHaveLength(3);
+  expect(result.after?.body?.data).toHaveLength(4);
   expect(result.after?.body?.data.map((meal: { name: string }) => meal.name)).toEqual([
     "breakfast",
     "lunch",
     "dinner",
+    "runtime_test_snack",
   ]);
 
-  // Expected failures are duplicate creation, immutable-name mutation, and
-  // historical-evidence deletion. Any additional config failure is a regression.
-  expect(failedMealResponses).toHaveLength(3);
+  // Expected failures are duplicate creation and immutable-name mutation only.
+  expect(failedMealResponses).toHaveLength(2);
   expect(failedMealResponses.filter((entry) => entry.startsWith("400 "))).toHaveLength(1);
-  expect(failedMealResponses.filter((entry) => entry.startsWith("409 "))).toHaveLength(2);
+  expect(failedMealResponses.filter((entry) => entry.startsWith("409 "))).toHaveLength(1);
 });

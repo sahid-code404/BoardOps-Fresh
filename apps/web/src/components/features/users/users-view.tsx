@@ -256,9 +256,9 @@ export function UsersView() {
       }
       return { prev };
     },
-    onError: (_e, _v, ctx) => {
+    onError: (e: Error, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(["users", { search, status }], ctx.prev);
-      toast.error("Action failed");
+      toast.error(e.message || "Action failed");
     },
     onSuccess: (_u, vars) => {
       const labels: Record<Action, string> = {
@@ -368,11 +368,10 @@ export function UsersView() {
   });
 
   const kpis = useMemo(() => {
-    // Pending registrations are not institution members yet, regardless of the
-    // role requested/assigned during review.
-    const total = users.filter((u) => !u.deletedAt && u.status !== "PENDING" && u.status !== "ARCHIVED").length;
-    // Active/Pending/Suspended exclude admins — these are resident-facing metrics
+    // Membership KPIs are resident-only. Pending registrations and every
+    // administrator role are excluded from Total Users.
     const residents = users.filter((u) => u.role !== "ADMIN" && u.role !== "SUPER_ADMIN");
+    const total = residents.filter((u) => !u.deletedAt && u.status !== "PENDING" && u.status !== "ARCHIVED").length;
     const active = residents.filter((u) => u.status === "ACTIVE" && !u.deletedAt).length;
     const pending = residents.filter((u) => u.status === "PENDING").length;
     const suspended = residents.filter((u) => u.status === "SUSPENDED").length;

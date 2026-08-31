@@ -531,6 +531,28 @@ refundAdjustmentRoutes.post("/payments/refund", async (c) => {
   } else {
     billId = (await overpaidBill(c, principal.institutionId, userId, amountMinor))?.id ?? null;
   }
+  if (!billId) {
+    return c.json({ success: false, error: "Refunds are available only for overpayment on a generated bill" }, 422);
+  }
+  const eligibleBill = await c.env.DB.prepare(
+    `SELECT b.id, b.paid_amount_minor - b.total_amount_minor AS overpaid_minor
+       FROM bills b
+       JOIN billing_cycles bc
+         ON bc.institution_id = b.institution_id
+        AND bc.period_month = b.period_month
+        AND bc.period_year = b.period_year
+      WHERE b.id = ? AND b.institution_id = ? AND b.user_id = ?
+        AND b.generated_at IS NOT NULL
+        AND b.deleted_on IS NULL AND b.purged_at IS NULL
+        AND b.status IN ('GENERATED', 'PARTIALLY_PAID', 'PAID', 'OVERDUE')
+        AND bc.status = 'CLOSED'
+      LIMIT 1`,
+  )
+    .bind(billId, principal.institutionId, userId)
+    .first<{ id: string; overpaid_minor: number }>();
+  if (!eligibleBill || Number(eligibleBill.overpaid_minor) < amountMinor) {
+    return c.json({ success: false, error: "Refund is not backed by unsettled overpayment on a completed generated bill" }, 422);
+  }
 
   const headerKey = c.req.header("Idempotency-Key")?.trim().slice(0, 200) || null;
   if (headerKey) {
