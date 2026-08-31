@@ -175,6 +175,18 @@ app.onError((error, c) => {
       409,
     );
   }
+  if (message.includes("guest meal source period is closing or closed")) {
+    return c.json(
+      { success: false, error: "Guest meals cannot be changed in a closing or closed accounting period" },
+      409,
+    );
+  }
+  if (message.includes("meal source period is closing or closed")) {
+    return c.json(
+      { success: false, error: "Meal entries cannot be changed in a closing or closed accounting period" },
+      409,
+    );
+  }
   console.error("[BoardOps] Unhandled API error", error);
   return c.json({ success: false, error: "Internal server error" }, 500);
 });
