@@ -116,8 +116,8 @@ if (!row) {
 }
 
 const exact = {
-  permissions: 90,
-  role_permissions: 222,
+  permissions: 96,
+  role_permissions: 234,
   settings_domain_permissions: 11,
   settings_count: 4,
   public_settings: 3,
@@ -178,7 +178,6 @@ expectFailure(
   "meal booking disabled by active holiday",
 );
 
-// Cancellation/OFF evidence remains legal on a meals-disabled holiday.
 executeJson(`
   INSERT INTO meal_entries
     (id, institution_id, user_id, meal_id, service_date, status, original_state, editable_until, locked, updated_by)
