@@ -78,6 +78,18 @@ main .glass:has(button[aria-label="Upload avatar"]) .text-center > div {
   transform: none !important;
 }
 
+/* Reports is the only space-y-5 hub that puts a centered heading in its first
+ * stagger item and the section tablist in its second. Keep the heading box
+ * intrinsic and auto-centered so its visible icon/text center matches the
+ * already-centered GlassNav instead of inheriting a wider transformed box. */
+main .space-y-5:has(> :nth-child(2) [role="tablist"][aria-label="Section navigation"])
+  > :first-child
+  > .text-center
+  > h1 {
+  width: fit-content;
+  margin-inline: auto;
+}
+
 /* AuthLayout structure: background + centered content column + Motion panel.
  * Keep the panel above the mesh and visible even when its initial Motion style
  * gets stranded at opacity: 0 during a cold load or interrupted HMR cycle. */
