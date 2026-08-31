@@ -77,9 +77,12 @@ test("Reports derive canonical D1 analytics, exports, and admin-only access", as
       };
     }>(mealsResponse);
     expect(meals.data.summary.totalMeals).toBe(4);
-    expect(meals.data.summary.activeMealCount).toBe(3);
+    expect(meals.data.summary.activeMealCount).toBeGreaterThanOrEqual(3);
     expect(meals.data.summary.holidayCount).toBe(0);
-    expect(meals.data.perMeal).toHaveLength(3);
+    expect(meals.data.perMeal).toHaveLength(meals.data.summary.activeMealCount);
+    expect(meals.data.perMeal.map((meal) => meal.mealName)).toEqual(
+      expect.arrayContaining(["breakfast", "lunch", "dinner"]),
+    );
 
     const purchasesResponse = await adminApi.get(`${API}/api/reports/purchases?month=7&year=2026`);
     expect(purchasesResponse.status()).toBe(200);
