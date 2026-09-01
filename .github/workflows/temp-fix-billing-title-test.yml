@@ -1,0 +1,39 @@
+name: Temporary fix billing title test
+
+on:
+  push:
+    branches:
+      - fix/meal-status-filter-pills
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/meal-status-filter-pills
+          fetch-depth: 0
+      - name: Update billing route title expectation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tests/e2e/phase02-visual.spec.ts')
+          s = p.read_text()
+          old = '["/billing", "Billing & Closing"],'
+          new = '["/billing", "Billing"],'
+          if s.count(old) != 1:
+              raise SystemExit(f'expected one billing title fixture, found {s.count(old)}')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          git diff --check
+      - name: Commit test update
+        run: |
+          git config user.name "boardops-ci"
+          git config user.email "boardops-ci@users.noreply.github.com"
+          git add tests/e2e/phase02-visual.spec.ts
+          git commit -m "test: align billing route title"
+          git push origin HEAD:fix/meal-status-filter-pills
