@@ -37,26 +37,30 @@ jobs:
               raise SystemExit(f"email challenge consumed bind count={s.count(consumed_bind)}")
           s = s.replace(consumed_bind, "", 1)
 
-          old_verify = '''  if (user.email_verified === 1) {
-            return c.json({ success: true, data: { userId: user.id, email: user.email, emailVerified: true } });
-          }
+          verified_condition = "  if (user.email_verified === 1) {"
+          if s.count(verified_condition) != 1:
+              raise SystemExit(f"verified condition match count={s.count(verified_condition)}")
+          s = s.replace(
+              verified_condition,
+              "  if (user.email_verified === 1 && EMAIL_VERIFICATION_ENABLED) {",
+              1,
+          )
 
-          const challenge = await latestChallenge(c, user.id, "EMAIL_VERIFY");
-          if (!(await verifyOneTimeChallenge(c, challenge, otp))) {'''
-          new_verify = '''  if (user.email_verified === 1 && EMAIL_VERIFICATION_ENABLED) {
-            return c.json({ success: true, data: { userId: user.id, email: user.email, emailVerified: true } });
-          }
+          challenge_line = '  const challenge = await latestChallenge(c, user.id, "EMAIL_VERIFY");\n'
+          if s.count(challenge_line) != 1:
+              raise SystemExit(f"challenge lookup match count={s.count(challenge_line)}")
+          s = s.replace(
+              challenge_line,
+              challenge_line
+              + '  // Verification is temporarily optional, but older clients can still\n'
+              + '  // complete the legacy challenge if they explicitly present it.\n'
+              + '  if (user.email_verified === 1 && (!challenge || challenge.consumed_at)) {\n'
+              + '    return c.json({ success: true, data: { userId: user.id, email: user.email, emailVerified: true } });\n'
+              + '  }\n',
+              1,
+          )
 
-          const challenge = await latestChallenge(c, user.id, "EMAIL_VERIFY");
-          // Verification is temporarily optional, but older clients can still
-          // complete the legacy challenge if they explicitly present it.
-          if (user.email_verified === 1 && (!challenge || challenge.consumed_at)) {
-            return c.json({ success: true, data: { userId: user.id, email: user.email, emailVerified: true } });
-          }
-          if (!(await verifyOneTimeChallenge(c, challenge, otp))) {'''
-          if s.count(old_verify) != 1:
-              raise SystemExit(f"verify-email block match count={s.count(old_verify)}")
-          p.write_text(s.replace(old_verify, new_verify, 1))
+          p.write_text(s)
           PY
           git diff --check services/api/src/routes/auth-workflows.ts
           grep -q 'user.email_verified === 1 && EMAIL_VERIFICATION_ENABLED' services/api/src/routes/auth-workflows.ts
