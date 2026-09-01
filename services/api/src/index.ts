@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { enforceFormulaDependencyPolicy } from "./middleware/formula-dependencies";
 import { enforcePasswordMutationPolicy } from "./middleware/password-policy";
 import { enforceRbacPolicy } from "./middleware/rbac";
 import { auditSystemRoutes } from "./routes/audit-system";
@@ -24,7 +23,6 @@ import { runtimeRoutes } from "./routes/runtime";
 import { settingsPoliciesHolidaysRoutes } from "./routes/settings-policies-holidays";
 import { userRoutes } from "./routes/users";
 import { user360Routes } from "./routes/user-360";
-import { variableFormulaRoutes } from "./routes/variables-formulas";
 import type { AppEnv } from "./types";
 
 const app = new Hono<AppEnv>();
@@ -63,10 +61,6 @@ const REQUIRED_CORE_TABLES = [
   "products",
   "purchases",
   "purchase_items",
-  "variables",
-  "variable_versions",
-  "formulas",
-  "formula_versions",
   "announcements",
   "notifications",
   "settings",
@@ -83,7 +77,6 @@ app.use("*", async (c, next) => {
 
 app.use("/api/*", enforcePasswordMutationPolicy);
 app.use("/api/*", enforceRbacPolicy);
-app.use("/api/*", enforceFormulaDependencyPolicy);
 
 app.get("/api/health", (c) => c.json({ status: "ok", service: "boardops-api" }));
 
@@ -104,6 +97,15 @@ app.get("/api/ready", async (c) => {
       throw new Error(`Missing database core tables: ${missing.join(", ")}`);
     }
 
+    const retired = await c.env.DB.prepare(
+      `SELECT COUNT(*) AS count
+         FROM sqlite_master
+        WHERE type = 'table' AND name IN ('variables','variable_versions','formulas','formula_versions')`,
+    ).first<{ count: number }>();
+    if (Number(retired?.count ?? 0) !== 0) {
+      throw new Error("Retired Variables/Formula tables are still present");
+    }
+
     const baseline = await c.env.DB.prepare(
       `SELECT
          (SELECT COUNT(*) FROM permissions) AS permission_count,
@@ -111,9 +113,9 @@ app.get("/api/ready", async (c) => {
          (SELECT COUNT(*) FROM role_permissions) AS grant_count`,
     ).first<{ permission_count: number; role_count: number; grant_count: number }>();
     if (
-      Number(baseline?.permission_count ?? 0) < 98 ||
+      Number(baseline?.permission_count ?? 0) < 89 ||
       Number(baseline?.role_count ?? 0) < 4 ||
-      Number(baseline?.grant_count ?? 0) < 242
+      Number(baseline?.grant_count ?? 0) < 222
     ) {
       throw new Error("RBAC baseline is incomplete");
     }
@@ -121,16 +123,14 @@ app.get("/api/ready", async (c) => {
     return c.json({
       status: "ready",
       service: "boardops-api",
-      // Phase 05 remains the last formally closed numbered checkpoint; later
-      // integration migrations extend that verified core without weakening it.
-      schema: "phase05-rbac",
+      schema: "experimental-fixed-pricing",
     });
   } catch {
     return c.json(
       {
         status: "not_ready",
         service: "boardops-api",
-        schema: "phase05-rbac",
+        schema: "experimental-fixed-pricing",
       },
       503,
     );
@@ -139,7 +139,6 @@ app.get("/api/ready", async (c) => {
 
 app.route("/api/auth", authRoutes);
 app.route("/api/auth", authWorkflowRoutes);
-// Canonical communication/report/settings/system/procurement routes must precede runtime compatibility placeholders.
 app.route("/api", notificationAnnouncementRoutes);
 app.route("/api", reportRoutes);
 app.route("/api", settingsPoliciesHolidaysRoutes);
@@ -154,18 +153,12 @@ app.route("/api", residentMealRoutes);
 app.route("/api", kitchenRoutes);
 app.route("/api", mealOverrideRoutes);
 app.route("/api", leaveRoutes);
-// Monthly Closing owns /billing-cycles. It is mounted before Billing Core so
-// its live-input readiness contract supersedes the older snapshot-required
-// generation readiness route while /bills remains owned by Billing Core.
 app.route("/api", monthlyClosingRoutes);
 app.route("/api", billingRoutes);
-// Refund/adjustment routes intentionally precede the legacy Payments router so
-// their richer canonical /payments/refund and /refunds contracts own those paths.
 app.route("/api", refundAdjustmentRoutes);
 app.route("/api", paymentRoutes);
 app.route("/api", expenseRoutes);
 app.route("/api", fundRoutes);
-app.route("/api", variableFormulaRoutes);
 
 app.onError((error, c) => {
   const message = error instanceof Error ? error.message : String(error);
