@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics", async ({ page }) => {
+test("Billing is read/manage-only and bill generation is owned by Monthly Closing", async ({ page }) => {
   test.setTimeout(50_000);
 
   await page.goto("/");
@@ -12,7 +12,8 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
 
   await page.goto("/billing");
   await expect(page).toHaveURL(/\/billing(?:\?|$)/, { timeout: 5_000 });
-  await expect(page.getByText("Generate Bills", { exact: true }).first()).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByRole("button", { name: "Monthly Closing", exact: true })).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByText("Generate Bills", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Previous month", exact: true }).click();
   await expect(page.getByText("Arjun Rao", { exact: true }).first()).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("RBAC policy missing for endpoint", { exact: true })).toHaveCount(0);
@@ -29,19 +30,11 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
 
     const julyBefore = await request("/api/bills?month=6&year=2026");
     const juneClosingReadiness = await request("/api/billing-cycles/readiness?month=5&year=2026");
-    const juneGenerated = await request("/api/bills", {
+    const manualGenerate = await request("/api/bills", {
       method: "POST",
       body: JSON.stringify({ month: 5, year: 2026, dueDate: "2026-12-10" }),
     });
-    const juneAfter = await request("/api/bills?month=5&year=2026");
-    const juneRegenerated = await request("/api/bills", {
-      method: "POST",
-      body: JSON.stringify({ month: 5, year: 2026, dueDate: "2026-12-11" }),
-    });
-    const juneBillId = juneAfter.body?.data?.[0]?.id as string | undefined;
-    const juneVoided = juneBillId
-      ? await request(`/api/bills/${juneBillId}/void`, { method: "POST", body: "{}" })
-      : null;
+    const juneAfterBlockedGenerate = await request("/api/bills?month=5&year=2026");
 
     const julyDeleted = await request("/api/bills/bill_arjun_2026_07_local", {
       method: "DELETE",
@@ -64,24 +57,16 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
     const futureReadiness = await request(
       `/api/billing-cycles/readiness?month=${futurePeriod.getUTCMonth()}&year=${futurePeriod.getUTCFullYear()}`,
     );
-    const closedJulyGenerate = await request("/api/bills", {
-      method: "POST",
-      body: JSON.stringify({ month: 6, year: 2026 }),
-    });
-
     return {
       julyBefore,
       juneClosingReadiness,
-      juneGenerated,
-      juneAfter,
-      juneRegenerated,
-      juneVoided,
+      manualGenerate,
+      juneAfterBlockedGenerate,
       julyDeleted,
       julyQueue,
       julyRestored,
       julyAfterRestore,
       futureReadiness,
-      closedJulyGenerate,
     };
   });
 
@@ -101,9 +86,8 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
     ]),
   );
 
-  // `/billing-cycles/readiness` is the Monthly Closing contract now. June has
-  // an immutable Billing-Core snapshot but no cycle-owned closing workflow, so
-  // closing must fail closed while direct snapshot bill generation remains valid.
+  // `/billing-cycles/readiness` belongs to Monthly Closing. The Billing
+  // surface cannot publish the seeded June snapshot directly anymore.
   expect(result.juneClosingReadiness.status).toBe(200);
   expect(result.juneClosingReadiness.body).toMatchObject({ success: true, data: { canClose: false } });
   expect(result.juneClosingReadiness.body.data.items).toEqual(
@@ -113,34 +97,13 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
     ]),
   );
 
-  expect(result.juneGenerated.status).toBe(200);
-  expect(result.juneGenerated.body).toMatchObject({
-    success: true,
-    data: { generated: 1, created: 1, updated: 0, skipped: 0, month: 5, year: 2026 },
+  expect(result.manualGenerate.status).toBe(409);
+  expect(result.manualGenerate.body).toMatchObject({
+    success: false,
+    error: "Bills are generated only through Monthly Closing. Close the billing period to create bills.",
   });
-  expect(result.juneAfter.status).toBe(200);
-  expect(result.juneAfter.body.data).toHaveLength(1);
-  expect(result.juneAfter.body.data[0]).toMatchObject({
-    totalAmount: 17300,
-    paidAmount: 0,
-    dueAmount: 17300,
-    status: "GENERATED",
-    user: { name: "Arjun Rao" },
-  });
-
-  // Re-running generation must not re-price the immutable generated bill even
-  // though a different due date was supplied on the second request.
-  expect(result.juneRegenerated.status).toBe(200);
-  expect(result.juneRegenerated.body).toMatchObject({
-    success: true,
-    data: { generated: 0, created: 0, updated: 0, skipped: 1 },
-  });
-
-  expect(result.juneVoided?.status).toBe(200);
-  expect(result.juneVoided?.body).toMatchObject({
-    success: true,
-    data: { status: "VOID", totalAmount: 17300, dueAmount: 0 },
-  });
+  expect(result.juneAfterBlockedGenerate.status).toBe(200);
+  expect(result.juneAfterBlockedGenerate.body.data).toHaveLength(0);
 
   expect(result.julyDeleted.status).toBe(200);
   expect(result.julyQueue.status).toBe(200);
@@ -161,6 +124,4 @@ test("Billing uses immutable D1 snapshots and preserves bill lifecycle semantics
     expect.arrayContaining([expect.objectContaining({ key: "period", status: "error" })]),
   );
 
-  expect(result.closedJulyGenerate.status).toBe(422);
-  expect(result.closedJulyGenerate.body).toMatchObject({ success: false });
 });

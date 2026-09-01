@@ -39,7 +39,7 @@ test("Monthly Closing fails closed without a compatible canonical formula, then 
   // through the real month controls to the isolated May closing fixture.
   await page.getByRole("button", { name: "Previous month", exact: true }).click();
   await page.getByRole("button", { name: "Previous month", exact: true }).click();
-  await expect(page.getByRole("button", { name: /Close May 2026/u })).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByRole("button", { name: /Generate Bills & Close May 2026/u })).toBeVisible({ timeout: 8_000 });
 
   const result = await page.evaluate(async ({ formulaId }) => {
     const request = async (path: string, init?: RequestInit) => {
