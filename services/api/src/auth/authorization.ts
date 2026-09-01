@@ -95,15 +95,6 @@ export const PERMISSIONS = {
   PURCHASES_DELETE: "purchases.delete",
   PURCHASES_RESTORE: "purchases.restore",
   FUNDS_READ: "funds.read",
-  VARIABLES_READ: "variables.read",
-  VARIABLES_CREATE: "variables.create",
-  VARIABLES_UPDATE: "variables.update",
-  VARIABLES_ARCHIVE: "variables.archive",
-  FORMULAS_READ: "formulas.read",
-  FORMULAS_CREATE: "formulas.create",
-  FORMULAS_UPDATE: "formulas.update",
-  FORMULAS_ARCHIVE: "formulas.archive",
-  FORMULAS_TEST: "formulas.test",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -148,9 +139,6 @@ export async function permissionsForRole(
 }
 
 export async function authenticatedPrincipal(c: Context<AppEnv>): Promise<AuthPrincipal | null> {
-  // Phase 05 deliberately finishes the browser credential migration from the
-  // source audit: protected authorization accepts only the server-managed
-  // HttpOnly cookie. Bearer fallback is not part of the canonical RBAC path.
   const token = getCookie(c, SESSION_COOKIE)?.trim();
   if (!token) return null;
 
