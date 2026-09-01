@@ -9,7 +9,7 @@ const ADMIN_ROUTES = [
   ["/meals", "Meal Configuration"],
   ["/user-meals", "Meals"],
   ["/kitchen", "Meal Counts"],
-  ["/billing", "Billing & Closing"],
+  ["/billing", "Billing"],
   ["/payments", "Payments & Wallet"],
   ["/expenses", "Expenses"],
   ["/funds", "Funds Overview"],

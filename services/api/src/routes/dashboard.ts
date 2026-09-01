@@ -23,6 +23,8 @@ type MealRow = {
   cutoff_strategy: string;
   cutoff_offset_minutes: number;
   cutoff_time: string;
+  service_schedule: "DAILY" | "DATE_SPECIFIC";
+  service_date: string | null;
 };
 
 type MealEntryRow = {
@@ -136,7 +138,7 @@ dashboardRoutes.get("/dashboard", async (c) => {
     ).bind(viewer.institutionId).first<{ active_count: number | null; pending_count: number | null }>(),
     c.env.DB.prepare(
       `SELECT id, name, display_name, icon, color, start_time, end_time, default_state,
-              cutoff_strategy, cutoff_offset_minutes, cutoff_time
+              cutoff_strategy, cutoff_offset_minutes, cutoff_time, service_schedule, service_date
          FROM meal_configurations
         WHERE institution_id = ? AND status = 'ACTIVE'
         ORDER BY display_order ASC, created_at ASC`,
@@ -218,7 +220,9 @@ dashboardRoutes.get("/dashboard", async (c) => {
   ]);
 
   const viewerEntries = new Map(viewerEntriesResult.results.map((entry) => [entry.meal_id, entry]));
-  const todayMeals = mealsResult.results.map((meal) => {
+  const todayMeals = mealsResult.results
+    .filter((meal) => meal.service_schedule !== "DATE_SPECIFIC" || meal.service_date === today)
+    .map((meal) => {
     const entry = viewerEntries.get(meal.id);
     const editableUntil = entry?.editable_until ?? computeEditableUntilIso(meal, today, timeZone);
     const status = entry?.status ?? meal.default_state;

@@ -36,16 +36,11 @@ async function registerAndVerify(
   for (let index = 0; index < 3; index += 1) await consents.nth(index).check();
 
   await page.getByRole("button", { name: /Create account/u }).click();
-  await expect(page.getByText("Verify your email", { exact: true })).toBeVisible();
-  await expect(page.getByText(applicant.email, { exact: true })).toBeVisible();
-
-  const otpInput = page.locator('[data-slot="input-otp"]');
-  await expect(otpInput).toBeVisible();
-  await otpInput.fill("424242");
-  await page.getByRole("button", { name: "Verify Email", exact: true }).click();
-
   await expect(page.getByText("Registration received", { exact: true })).toBeVisible();
   await expect(page.getByText("Email verified", { exact: true })).toBeVisible();
+  await expect(page.getByText(applicant.email, { exact: true })).toBeVisible();
+  await expect(page.getByText("Verify your email", { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-slot="input-otp"]')).toHaveCount(0);
 }
 
 test("registration UI survives verification, correction, reverification, resubmit and approval", async ({ page, browser }) => {
@@ -124,14 +119,11 @@ test("registration UI survives verification, correction, reverification, resubmi
     await correctedEmailInput.fill(UPDATED_EMAIL);
     await page.getByRole("button", { name: "Submit updated registration", exact: true }).click();
 
-    await expect(page.getByText("Verify your email", { exact: true })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(UPDATED_EMAIL, { exact: true })).toBeVisible();
-    const otpInput = page.locator('[data-slot="input-otp"]');
-    await otpInput.fill("424242");
-    await page.getByRole("button", { name: "Verify Email", exact: true }).click();
-
-    await expect(page.getByText("Registration received", { exact: true })).toBeVisible();
+    await expect(page.getByText("Registration received", { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText("Email verified", { exact: true })).toBeVisible();
+    await expect(page.getByText(UPDATED_EMAIL, { exact: true })).toBeVisible();
+    await expect(page.getByText("Verify your email", { exact: true })).toHaveCount(0);
+    await expect(page.locator('[data-slot="input-otp"]')).toHaveCount(0);
     await expect(page.getByText("In review", { exact: true })).toBeVisible({ timeout: 10_000 });
 
     const correctedUsers = await adminApi.get(`${API}/api/users`, { params: { q: UPDATED_EMAIL } });

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { motion } from "framer-motion";
+import { DigitalClockPicker } from "@/components/ui/digital-clock-picker";
 import { cn } from "@/lib/utils";
 
 export interface GlassInputProps
@@ -14,9 +15,72 @@ export interface GlassInputProps
 }
 
 export const GlassInput = React.forwardRef<HTMLInputElement, GlassInputProps>(
-  ({ className, label, error, icon, trailing, hint, id, ...props }, ref) => {
+  ({ className, label, error, icon, trailing, hint, id, type, ...props }, ref) => {
     const generatedId = React.useId();
     const inputId = id || generatedId;
+    const hiddenTimeRef = React.useRef<HTMLInputElement | null>(null);
+    const [timeValue, setTimeValue] = React.useState(() => {
+      const initial = props.value ?? props.defaultValue;
+      return typeof initial === "string" ? initial : "";
+    });
+
+    const assignTimeRef = React.useCallback(
+      (node: HTMLInputElement | null) => {
+        hiddenTimeRef.current = node;
+        if (node) {
+          const next = typeof props.value === "string" ? props.value : node.value;
+          setTimeValue((current) => (current === next ? current : next));
+        }
+        if (typeof ref === "function") ref(node);
+        else if (ref) ref.current = node;
+      },
+      [ref, props.value],
+    );
+
+    React.useEffect(() => {
+      if (type !== "time" || typeof props.value !== "string") return;
+      setTimeValue(props.value);
+      if (hiddenTimeRef.current) hiddenTimeRef.current.value = props.value;
+    }, [type, props.value]);
+
+    if (type === "time") {
+      const updateTime = (value: string) => {
+        setTimeValue(value);
+        const hidden = hiddenTimeRef.current;
+        if (!hidden) return;
+        hidden.value = value;
+        props.onChange?.({
+          target: hidden,
+          currentTarget: hidden,
+        } as React.ChangeEvent<HTMLInputElement>);
+      };
+
+      return (
+        <div className="w-full">
+          <input
+            ref={assignTimeRef}
+            type="hidden"
+            name={props.name}
+            defaultValue={typeof props.defaultValue === "string" ? props.defaultValue : undefined}
+            disabled={props.disabled}
+            required={props.required}
+          />
+          <DigitalClockPicker
+            id={inputId}
+            label={label}
+            ariaLabel={typeof props["aria-label"] === "string" ? props["aria-label"] : label}
+            value={timeValue}
+            onChange={updateTime}
+            error={error}
+            className={className}
+          />
+          {!error && hint ? (
+            <p className="mt-1.5 ml-1 text-xs text-muted-foreground/70">{hint}</p>
+          ) : null}
+        </div>
+      );
+    }
+
     const hasValue = props.value !== undefined && props.value !== "";
     return (
       <div className="w-full">
@@ -48,6 +112,7 @@ export const GlassInput = React.forwardRef<HTMLInputElement, GlassInputProps>(
           <input
             ref={ref}
             id={inputId}
+            type={type}
             className={cn(
               "flex-1 bg-transparent py-3 text-sm",
               "placeholder:text-muted-foreground/60",

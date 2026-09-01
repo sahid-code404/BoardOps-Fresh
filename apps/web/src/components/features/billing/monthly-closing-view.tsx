@@ -348,7 +348,7 @@ export function MonthlyClosingView() {
                 disabled={isClosed}
               >
                 <Lock className="h-4 w-4" />
-                {isClosed ? "Cycle Already Closed" : `Close ${MONTHS[selectedMonth]} ${selectedYear}`}
+                {isClosed ? "Cycle Already Closed" : `Generate Bills & Close ${MONTHS[selectedMonth]} ${selectedYear}`}
                 <ArrowRight className="h-4 w-4" />
               </GlassButton>
             ) : (
@@ -428,10 +428,10 @@ export function MonthlyClosingView() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Lock className="h-5 w-5 text-primary" />
-              Close {MONTHS[selectedMonth]} {selectedYear}
+              Generate Bills & Close {MONTHS[selectedMonth]} {selectedYear}
             </DialogTitle>
             <DialogDescription>
-              This will freeze all data into an immutable snapshot, execute the formula engine, generate bills, and settle resident fund accounts. This action is logged.
+              This will freeze the month into an immutable snapshot, execute the formula engine, generate resident bills, derive settlement totals, and close the accounting period. This action is logged.
             </DialogDescription>
           </DialogHeader>
           {readiness && (
@@ -471,7 +471,7 @@ export function MonthlyClosingView() {
               onClick={() => closeMutation.mutate()}
             >
               <Lock className="h-4 w-4" />
-              Execute Closing
+              Generate Bills & Close Month
             </GlassButton>
           </DialogFooter>
         </DialogContent>

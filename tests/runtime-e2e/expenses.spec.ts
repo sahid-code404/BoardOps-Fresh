@@ -28,6 +28,12 @@ test("Expenses renders real D1 data and preserves accounting history through rep
   // currently rendering the secondary Expenses destination.
   await page.goto("/expenses");
   await expect(page).toHaveURL(/\/expenses(?:\?|$)/, { timeout: 5_000 });
+  const expensesNow = new Date();
+  const expensesCurrentKey = expensesNow.getFullYear() * 12 + expensesNow.getMonth();
+  const august2026Key = 2026 * 12 + 7;
+  for (let step = 0; step < Math.max(0, expensesCurrentKey - august2026Key); step += 1) {
+    await page.getByRole("button", { name: "Previous month", exact: true }).click();
+  }
   await expect(page.getByText("Monthly groceries", { exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("Electricity bill", { exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("₹3,000", { exact: true }).first()).toBeVisible();

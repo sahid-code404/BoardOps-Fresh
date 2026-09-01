@@ -25,6 +25,8 @@ type MealRow = {
   cutoff_time: string;
   start_time: string;
   end_time: string;
+  service_schedule: "DAILY" | "DATE_SPECIFIC";
+  service_date: string | null;
 };
 
 type EntryRow = {
@@ -73,6 +75,8 @@ type ToggleEntryRow = EntryRow & {
   meal_cutoff_time: string;
   meal_start_time: string;
   meal_end_time: string;
+  meal_service_schedule: "DAILY" | "DATE_SPECIFIC";
+  meal_service_date: string | null;
 };
 
 export const residentMealRoutes = new Hono<AppEnv>();
@@ -87,6 +91,8 @@ function mappedMeal(row: MealRow) {
     startTime: row.start_time,
     endTime: row.end_time,
     cutoffTime: row.cutoff_time,
+    serviceSchedule: row.service_schedule,
+    serviceDate: row.service_date,
   };
 }
 
@@ -134,6 +140,8 @@ function mealFromToggleRow(row: ToggleEntryRow): MealRow {
     cutoff_time: row.meal_cutoff_time,
     start_time: row.meal_start_time,
     end_time: row.meal_end_time,
+    service_schedule: row.meal_service_schedule,
+    service_date: row.meal_service_date,
   };
 }
 
@@ -147,7 +155,8 @@ async function readPrincipalContext(c: Context<AppEnv>, principal: AuthPrincipal
     ).bind(principal.institutionId).first<InstitutionRow>(),
     c.env.DB.prepare(
       `SELECT id, name, display_name, icon, color, meal_type, default_state,
-              cutoff_strategy, cutoff_offset_minutes, cutoff_time, start_time, end_time
+              cutoff_strategy, cutoff_offset_minutes, cutoff_time, start_time, end_time,
+              service_schedule, service_date
          FROM meal_configurations
         WHERE institution_id = ? AND status = 'ACTIVE'
         ORDER BY display_order ASC, created_at ASC`,
@@ -199,6 +208,10 @@ residentMealRoutes.get("/meals/entries", async (c) => {
   const range = requestedRange(c, context.timeZone);
   if ("error" in range) return c.json({ success: false, error: range.error }, 400);
 
+  const rangeMeals = context.meals.filter((meal) =>
+    range.dates.some((date) => meal.service_schedule !== "DATE_SPECIFIC" || meal.service_date === date),
+  );
+
   const [existing, holidays, lockedPeriods] = await Promise.all([
     c.env.DB.prepare(
       `SELECT id, institution_id, user_id, meal_id, service_date, status,
@@ -229,7 +242,8 @@ residentMealRoutes.get("/meals/entries", async (c) => {
 
   for (const serviceDate of range.dates) {
     if (dateCovered(serviceDate, holidays.results) || dateCovered(serviceDate, lockedPeriods.results)) continue;
-    for (const meal of context.meals) {
+    for (const meal of rangeMeals) {
+      if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== serviceDate) continue;
       if (existingKey.has(`${serviceDate}\u0000${meal.id}`)) continue;
       if (isBeforeEnrollment(serviceDate, context.user.created_at, meal, context.timeZone)) continue;
 
@@ -276,6 +290,7 @@ residentMealRoutes.get("/meals/entries", async (c) => {
   for (const entry of refreshed.results) {
     const meal = mealById.get(entry.meal_id);
     if (!meal) continue;
+    if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== entry.service_date) continue;
     const preRegistration = isBeforeEnrollment(entry.service_date, context.user.created_at, meal, context.timeZone);
     // Old auto-generated pre-enrollment rows are not resident-visible. A genuine
     // administrator override remains visible because it differs from its baseline.
@@ -286,7 +301,7 @@ residentMealRoutes.get("/meals/entries", async (c) => {
   return c.json({
     success: true,
     data: {
-      meals: context.meals.map(mappedMeal),
+      meals: rangeMeals.map(mappedMeal),
       byDate,
       registrationDate: context.user.created_at,
     },
@@ -321,7 +336,8 @@ residentMealRoutes.patch("/meals/toggle", async (c) => {
             m.cutoff_strategy AS meal_cutoff_strategy,
             m.cutoff_offset_minutes AS meal_cutoff_offset_minutes,
             m.cutoff_time AS meal_cutoff_time,
-            m.start_time AS meal_start_time, m.end_time AS meal_end_time
+            m.start_time AS meal_start_time, m.end_time AS meal_end_time,
+            m.service_schedule AS meal_service_schedule, m.service_date AS meal_service_date
        FROM meal_entries e
        JOIN meal_configurations m ON m.id = e.meal_id AND m.institution_id = e.institution_id
       WHERE e.id = ? AND e.institution_id = ? AND e.user_id = ? AND m.status = 'ACTIVE'
@@ -329,6 +345,9 @@ residentMealRoutes.patch("/meals/toggle", async (c) => {
   ).bind(entryId, principal.institutionId, principal.id).first<ToggleEntryRow>();
   if (!entry) return c.json({ success: false, error: "Meal entry not found" }, 404);
   const meal = mealFromToggleRow(entry);
+  if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== entry.service_date) {
+    return c.json({ success: false, error: "Meal is not available on this service date" }, 404);
+  }
 
   const [user, institution] = await Promise.all([
     c.env.DB.prepare(`SELECT created_at FROM users WHERE id = ? AND institution_id = ? LIMIT 1`)

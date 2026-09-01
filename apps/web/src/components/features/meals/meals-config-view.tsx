@@ -20,7 +20,6 @@ import {
   AlertCircle,
   EyeOff,
   Sparkles,
-  ArrowUpDown,
 } from "lucide-react";
 import { GlassCard } from "@/components/glass/glass-card";
 import { GlassButton } from "@/components/glass/glass-button";
@@ -57,6 +56,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { DigitalClockPicker } from "@/components/ui/digital-clock-picker";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,6 +93,8 @@ type MealConfiguration = {
   cutoffTime: string;
   startTime: string;
   endTime: string;
+  serviceSchedule: "DAILY" | "DATE_SPECIFIC";
+  serviceDate: string | null;
   pricingMode: "FORMULA" | "FIXED";
   fixedPrice: number | null;
   deletionRequestedAt: string | null;
@@ -194,7 +196,11 @@ const mealSchema = z.object({
     (value) => MEAL_TYPES.some((type) => type.value === value),
     "Choose a valid meal type",
   ),
-  displayOrder: z.coerce.number().int().min(0, "Choose a display position"),
+  // Compatibility field only. The UI never exposes manual ordering; this is
+  // automatically derived from service start time and the DB enforces it too.
+  displayOrder: z.coerce.number().int().min(0),
+  serviceSchedule: z.enum(["DAILY", "DATE_SPECIFIC"]),
+  serviceDate: z.string().optional(),
   defaultState: z.enum(["ON", "OFF"]),
   defaultVisibility: z.enum(["VISIBLE", "HIDDEN"]),
   cutoffStrategy: z.string().min(1, "Choose a cutoff strategy").refine(
@@ -212,6 +218,13 @@ const mealSchema = z.object({
   ),
   notes: z.string().optional(),
 }).superRefine((value, ctx) => {
+  if (value.serviceSchedule === "DATE_SPECIFIC" && !/^\d{4}-\d{2}-\d{2}$/u.test(value.serviceDate || "")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["serviceDate"],
+      message: "Choose the one-time service date",
+    });
+  }
   if (value.pricingMode === "FIXED" && !value.fixedPrice) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fixedPrice"], message: "Enter the fixed meal price" });
   }
@@ -228,6 +241,8 @@ const DEFAULT_FORM_VALUES: MealFormValues = {
   color: COLOR_SWATCHES[0],
   mealType: "",
   displayOrder: 0,
+  serviceSchedule: "DAILY",
+  serviceDate: "",
   defaultState: "OFF",
   defaultVisibility: "VISIBLE",
   cutoffStrategy: "",
@@ -243,7 +258,6 @@ const DEFAULT_FORM_VALUES: MealFormValues = {
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
-
 
 function internalNameFromDisplayName(value: string): string {
   return value
@@ -323,14 +337,10 @@ function MealForm({
     handleSubmit,
     control,
     setValue,
-    watch,
     formState: { errors },
   } = useForm<MealFormInput, unknown, MealFormValues>({
     resolver: zodResolver(mealSchema),
-    defaultValues: values ?? {
-      ...DEFAULT_FORM_VALUES,
-      displayOrder: existingMeals.length,
-    },
+    defaultValues: values ?? DEFAULT_FORM_VALUES,
     mode: "onChange",
   });
 
@@ -341,24 +351,23 @@ function MealForm({
   const watchedColor = useWatch({ control, name: "color" });
   const watchedIcon = useWatch({ control, name: "icon" });
   const watchedPricingMode = useWatch({ control, name: "pricingMode" });
+  const watchedServiceSchedule = useWatch({ control, name: "serviceSchedule" });
+  const watchedStartTime = useWatch({ control, name: "startTime" });
 
   React.useEffect(() => {
     if (values) return;
     setValue("name", internalNameFromDisplayName(watchedDisplayName || ""), { shouldValidate: true });
   }, [values, watchedDisplayName, setValue]);
 
-  const orderMeals = React.useMemo(
-    () => existingMeals
-      .filter((meal) => meal.id !== mealId)
-      .sort((a, b) => a.displayOrder - b.displayOrder),
-    [existingMeals, mealId],
-  );
-  const orderLabel = (position: number) => {
-    if (orderMeals.length === 0) return "1 — First meal";
-    if (position === 0) return `1 — Before ${orderMeals[0]?.displayName}`;
-    if (position >= orderMeals.length) return `${position + 1} — After ${orderMeals[orderMeals.length - 1]?.displayName}`;
-    return `${position + 1} — Between ${orderMeals[position - 1]?.displayName} and ${orderMeals[position]?.displayName}`;
-  };
+  React.useEffect(() => {
+    if (!watchedStartTime || !/^\d{2}:\d{2}$/u.test(watchedStartTime)) return;
+    const automaticPosition = existingMeals.filter((meal) =>
+      meal.id !== mealId
+      && !meal.deletionFinalizedAt
+      && meal.startTime <= watchedStartTime
+    ).length;
+    setValue("displayOrder", automaticPosition, { shouldValidate: true });
+  }, [existingMeals, mealId, setValue, watchedStartTime]);
 
   const cutoffPreview = computeCutoffPreview(
     watchedStrategy,
@@ -474,75 +483,96 @@ function MealForm({
         </div>
       </div>
 
-      {/* Type + status */}
-      <div className="grid grid-cols-1 gap-3">
-        <div>
-          <Label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
-            Meal type
-          </Label>
-          <Controller
-            control={control}
-            name="mealType"
-            render={({ field }) => (
-              <Select value={field.value || ""} onValueChange={field.onChange}>
-                <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
-                  <SelectValue placeholder="Choose meal type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {MEAL_TYPES.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      <span className="font-medium">{t.label}</span>
-                      <span className="text-xs text-muted-foreground ml-1">
-                        · {t.hint}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
-        </div>
-
-        <div>
-          <Label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
-            Display order
-          </Label>
-          <Controller
-            control={control}
-            name="displayOrder"
-            render={({ field }) => (
-              <Select value={String(field.value)} onValueChange={(value) => field.onChange(Number(value))}>
-                <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
-                  <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: orderMeals.length + 1 }, (_, position) => (
-                    <SelectItem key={position} value={String(position)}>
-                      {orderLabel(position)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
-          {errors.displayOrder?.message && <p className="mt-1 ml-1 text-xs text-destructive">{errors.displayOrder.message}</p>}
-        </div>
+      {/* Type */}
+      <div>
+        <Label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+          Meal type
+        </Label>
+        <Controller
+          control={control}
+          name="mealType"
+          render={({ field }) => (
+            <Select value={field.value || ""} onValueChange={field.onChange}>
+              <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
+                <SelectValue placeholder="Choose meal type" />
+              </SelectTrigger>
+              <SelectContent>
+                {MEAL_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    <span className="font-medium">{t.label}</span>
+                    <span className="text-xs text-muted-foreground ml-1">
+                      · {t.hint}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+        <p className="mt-1.5 ml-1 text-[11px] text-muted-foreground/70">
+          Meal position is sorted automatically by service start time.
+        </p>
       </div>
 
-      {/* Times — deliberately blank on create */}
-      <div className="grid grid-cols-2 gap-3">
-        <GlassInput
-          label="Service start"
-          type="time"
-          {...register("startTime")}
-          error={errors.startTime?.message}
+      {/* Service schedule */}
+      <div className="glass-soft rounded-2xl p-3 space-y-3">
+        <div>
+          <p className="text-sm font-semibold">Service schedule</p>
+          <p className="text-[11px] text-muted-foreground">
+            Keep regular meals recurring, or make a special meal available on exactly one date.
+          </p>
+        </div>
+        <Controller
+          control={control}
+          name="serviceSchedule"
+          render={({ field }) => (
+            <Select value={field.value} onValueChange={field.onChange}>
+              <SelectTrigger className="w-full h-11 rounded-2xl glass-soft" aria-label="Service schedule">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="DAILY">Daily recurring</SelectItem>
+                <SelectItem value="DATE_SPECIFIC">Specific date · one-time meal</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
         />
-        <GlassInput
-          label="Service end"
-          type="time"
-          {...register("endTime")}
-          error={errors.endTime?.message}
+        {watchedServiceSchedule === "DATE_SPECIFIC" && (
+          <GlassInput
+            label="Service date"
+            type="date"
+            {...register("serviceDate")}
+            error={errors.serviceDate?.message}
+            hint="Residents see and toggle this meal only for this date, including in advance before cutoff."
+          />
+        )}
+      </div>
+
+      {/* Times — deliberately blank on create; custom BoardOps clock picker */}
+      <div className="grid grid-cols-2 gap-3">
+        <Controller
+          control={control}
+          name="startTime"
+          render={({ field }) => (
+            <DigitalClockPicker
+              label="Service start"
+              value={field.value || ""}
+              onChange={field.onChange}
+              error={errors.startTime?.message}
+            />
+          )}
+        />
+        <Controller
+          control={control}
+          name="endTime"
+          render={({ field }) => (
+            <DigitalClockPicker
+              label="Service end"
+              value={field.value || ""}
+              onChange={field.onChange}
+              error={errors.endTime?.message}
+            />
+          )}
         />
       </div>
 
@@ -579,11 +609,17 @@ function MealForm({
               )}
             />
           </div>
-          <GlassInput
-            label="Cutoff time"
-            type="time"
-            {...register("cutoffTime")}
-            error={errors.cutoffTime?.message}
+          <Controller
+            control={control}
+            name="cutoffTime"
+            render={({ field }) => (
+              <DigitalClockPicker
+                label="Cutoff time"
+                value={field.value || ""}
+                onChange={field.onChange}
+                error={errors.cutoffTime?.message}
+              />
+            )}
           />
         </div>
 
@@ -813,12 +849,14 @@ function MealConfigCard({
             </Badge>
           )}
           <Badge variant="outline" className="text-[10px]">
-            Order: {meal.displayOrder + 1}
-          </Badge>
-          <Badge variant="outline" className="text-[10px]">
             {meal.pricingMode === "FIXED" && meal.fixedPrice
               ? `₹${meal.fixedPrice.toLocaleString("en-IN")} fixed`
               : "Formula pricing"}
+          </Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {meal.serviceSchedule === "DATE_SPECIFIC" && meal.serviceDate
+              ? `One-time · ${meal.serviceDate}`
+              : "Daily"}
           </Badge>
         </div>
 
@@ -1128,9 +1166,64 @@ export function MealsConfigView() {
           icon={<Search className="h-4 w-4" />}
         />
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
+        {/* Status pills mirror the compact Users-page sorting interaction. */}
+        <div
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto no-scrollbar pb-1"
+          role="group"
+          aria-label="Meal status filters"
+        >
+          {[
+            { key: "ALL", label: "All" },
+            { key: "ACTIVE", label: "Active" },
+            { key: "INACTIVE", label: "Inactive" },
+            { key: "ARCHIVED", label: "Archived" },
+            { key: "QUEUED", label: "Deletion Queue" },
+          ].map((filter) => {
+            const active = statusFilter === filter.key;
+            const queueCount =
+              filter.key === "QUEUED"
+                ? (data?.filter((meal) => Boolean(meal.deletionRequestedAt)).length ?? 0)
+                : 0;
+
+            return (
+              <motion.button
+                key={filter.key}
+                type="button"
+                whileTap={{ scale: 0.96 }}
+                onClick={() => setStatusFilter(filter.key)}
+                aria-pressed={active}
+                className={cn(
+                  "flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-2.5 text-[11px] font-medium transition-all",
+                  active
+                    ? "bg-primary text-primary-foreground shadow-md shadow-primary/30"
+                    : "glass-soft text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <span>{filter.label}</span>
+                {filter.key === "QUEUED" && queueCount > 0 && (
+                  <span
+                    className={cn(
+                      "min-w-[16px] rounded-full px-1.5 py-0.5 text-center text-[9px] font-bold leading-none",
+                      active
+                        ? "bg-primary-foreground/20 text-primary-foreground"
+                        : "bg-destructive text-white"
+                    )}
+                  >
+                    {queueCount}
+                  </span>
+                )}
+              </motion.button>
+            );
+          })}
+        </div>
+
+        {/* Meal type remains available without taking over the status sorting UI. */}
         <Select value={typeFilter} onValueChange={setTypeFilter}>
-          <SelectTrigger className="h-11 rounded-2xl glass-soft w-full">
+          <SelectTrigger
+            className="h-8 w-[118px] shrink-0 rounded-xl glass-soft border-0 px-2.5 text-[11px]"
+            aria-label="Meal type filter"
+          >
             <SelectValue placeholder="Type" />
           </SelectTrigger>
           <SelectContent>
@@ -1140,18 +1233,6 @@ export function MealsConfigView() {
                 {t.label}
               </SelectItem>
             ))}
-          </SelectContent>
-        </Select>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="h-11 rounded-2xl glass-soft w-full">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All status</SelectItem>
-            <SelectItem value="ACTIVE">Active</SelectItem>
-            <SelectItem value="INACTIVE">Inactive</SelectItem>
-            <SelectItem value="ARCHIVED">Archived</SelectItem>
-            <SelectItem value="QUEUED">Deletion Queue</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -1355,6 +1436,8 @@ export function MealsConfigView() {
                             cutoffOffsetMinutes: editing.cutoffOffsetMinutes,
                             startTime: editing.startTime,
                             endTime: editing.endTime,
+                            serviceSchedule: editing.serviceSchedule,
+                            serviceDate: editing.serviceDate ?? "",
                             pricingMode: editing.pricingMode,
                             fixedPrice: editing.fixedPrice ?? undefined,
                             notes: editing.notes || "",
@@ -1414,6 +1497,8 @@ export function MealsConfigView() {
                           cutoffOffsetMinutes: editing.cutoffOffsetMinutes,
                           startTime: editing.startTime,
                           endTime: editing.endTime,
+                          serviceSchedule: editing.serviceSchedule,
+                          serviceDate: editing.serviceDate ?? "",
                           pricingMode: editing.pricingMode,
                           fixedPrice: editing.fixedPrice ?? undefined,
                           notes: editing.notes || "",

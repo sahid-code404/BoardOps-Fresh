@@ -54,7 +54,7 @@ export const NAV_LABELS: Record<ViewKey, string> = {
   meals: "Meal Configuration",
   "user-meals": "Meals",
   kitchen: "Meal Counts",
-  billing: "Billing & Closing",
+  billing: "Billing",
   payments: "Payments & Wallet",
   expenses: "Expenses",
   funds: "Funds Overview",

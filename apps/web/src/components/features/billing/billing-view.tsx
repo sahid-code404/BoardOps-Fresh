@@ -8,11 +8,9 @@ import {
   Wallet,
   AlertCircle,
   Receipt,
-  Plus,
   Search,
   Ban,
   Eye,
-  FileText,
   Calendar,
   CheckCircle2,
   Clock,
@@ -23,10 +21,11 @@ import {
   Trash2,
   AlertTriangle,
   RotateCcw,
+  Lock,
 } from "lucide-react";
 
 import { api } from "@/lib/api-client";
-import { cn, toLocalDateKey } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/use-auth-store";
 import { useAppStore } from "@/stores/use-app-store";
 import { formatDeletionCountdown } from "@/lib/user-cleanup";
@@ -51,13 +50,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -223,39 +215,6 @@ export function BillingView() {
     return () => clearTimeout(t);
   }, [searchInput]);
   const [statusFilter, setStatusFilter] = useState<BillStatus | "ALL" | "DELETED">("ALL");
-  const [generateOpen, setGenerateOpen] = useState(false);
-  // UX-3: confirmation dialog shown when the admin clicks "Generate" inside the
-  // Generate Bills dialog. Forces an explicit confirm before recalculating
-  // every resident's bill for the selected period.
-  const [confirmGenerateOpen, setConfirmGenerateOpen] = useState(false);
-  // Default to last month — bills can only be generated for past months
-  const nowDate = new Date();
-  const [genMonth, setGenMonth] = useState<number>(
-    nowDate.getMonth() === 0 ? 11 : nowDate.getMonth() - 1
-  );
-  const [genYear, setGenYear] = useState<number>(
-    nowDate.getMonth() === 0 ? nowDate.getFullYear() - 1 : nowDate.getFullYear()
-  );
-  // Default due date = 10th of next month (matches the backend default)
-  const defaultDueDate = (() => {
-    const d = new Date(genYear, genMonth + 1, 10);
-    return toLocalDateKey(d);
-  })();
-  const [genDueDate, setGenDueDate] = useState<string>(defaultDueDate);
-
-  // Readiness checklist — fetched when the Generate dialog opens
-  const { data: readiness, isLoading: readinessLoading } = useQuery({
-    queryKey: ["billing-readiness", { month: genMonth, year: genYear }],
-    queryFn: async () => {
-      const r = await api.get<ApiResponse<{
-        canClose: boolean;
-        items: { key: string; label: string; status: "ready" | "warning" | "error"; detail: string; count?: number }[];
-      }>>(`/billing-cycles/readiness?month=${genMonth}&year=${genYear}`);
-      return r.data;
-    },
-    enabled: generateOpen,
-    placeholderData: (prev) => prev,
-  });
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [voidTarget, setVoidTarget] = useState<Bill | null>(null);
   const now = new Date();
@@ -286,28 +245,6 @@ export function BillingView() {
     },
     enabled: isAdmin,
     placeholderData: (prev) => prev,
-  });
-
-  const generateMutation = useMutation({
-    mutationFn: () =>
-      api.post<ApiResponse<{ generated: number; created: number; updated: number; skipped: number; month: number; year: number }>>(
-        "/bills",
-        { month: genMonth, year: genYear, dueDate: genDueDate || undefined }
-      ),
-    onSuccess: (r) => {
-      const { created, updated, skipped } = r.data;
-      const parts: string[] = [];
-      if (created > 0) parts.push(`${created} new`);
-      if (updated > 0) parts.push(`${updated} updated`);
-      const summary = parts.length > 0 ? parts.join(", ") : "No changes";
-      const msg = skipped > 0
-        ? `${summary} · ${skipped} skipped (void/deleted)`
-        : `${summary} for ${MONTHS[genMonth]} ${genYear}`;
-      toast.success(`Bills generated — ${msg}`);
-      setGenerateOpen(false);
-      qc.invalidateQueries({ queryKey: ["bills"] });
-    },
-    onError: (e: Error) => toast.error(e.message || "Failed to generate bills"),
   });
 
   const voidMutation = useMutation({
@@ -514,18 +451,18 @@ export function BillingView() {
         </div>
       </StaggerItem>
 
-      {/* Compact action bar — centered transparent glass card button */}
+      {/* Billing is read/manage-only. Monthly Closing owns bill generation. */}
       {isAdmin ? (
         <StaggerItem>
           <div className="flex items-center justify-center">
             <GlassButton
               variant="ghost"
-              onClick={() => setGenerateOpen(true)}
+              onClick={() => setView("monthly-closing")}
               size="lg"
               className="shrink-0 glass text-primary hover:text-primary font-semibold"
             >
-              <Plus className="h-5 w-5" />
-              Generate Bills
+              <Lock className="h-5 w-5" />
+              Monthly Closing
             </GlassButton>
           </div>
         </StaggerItem>
@@ -665,14 +602,14 @@ export function BillingView() {
                 <p className="font-medium">No bills found</p>
                 <p className="text-sm text-muted-foreground">
                   {isAdmin
-                    ? "Generate bills for the current period to get started."
+                    ? "Bills are created automatically when a completed month is closed in Monthly Closing."
                     : "You have no bills matching the current filters."}
                 </p>
               </div>
               {isAdmin && (
-                <GlassButton className="mt-2" onClick={() => setGenerateOpen(true)}>
-                  <Wallet className="h-4 w-4" />
-                  Generate Bills
+                <GlassButton className="mt-2" onClick={() => setView("monthly-closing")}>
+                  <Lock className="h-4 w-4" />
+                  Open Monthly Closing
                 </GlassButton>
               )}
               {!isAdmin && (
@@ -707,165 +644,6 @@ export function BillingView() {
           </div>
         )}
       </StaggerItem>
-
-      {/* Generate Bills Dialog — with integrated readiness checklist */}
-      <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
-        <DialogContent className="rounded-3xl max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-primary" />
-              Generate Bills
-            </DialogTitle>
-            <DialogDescription>
-              Generate bills for a past month. All checks must pass before generation.
-            </DialogDescription>
-          </DialogHeader>
-
-          {/* Month/Year picker — past months only */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground ml-1">Month</label>
-              <Select
-                value={String(genMonth)}
-                onValueChange={(v) => setGenMonth(Number(v))}
-              >
-                <SelectTrigger className="w-full h-10 rounded-2xl"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {MONTHS.map((m, i) => {
-                    const currentPeriod = now.getFullYear() * 12 + now.getMonth();
-                    const itemPeriod = genYear * 12 + i;
-                    if (itemPeriod >= currentPeriod) return null; // skip current/future months
-                    return <SelectItem key={m} value={String(i)}>{m}</SelectItem>;
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground ml-1">Year</label>
-              <Select
-                value={String(genYear)}
-                onValueChange={(v) => setGenYear(Number(v))}
-              >
-                <SelectTrigger className="w-full h-10 rounded-2xl"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 5 }).map((_, i) => {
-                    const y = now.getFullYear() - 4 + i; // 4 years ago to current year — no future years
-                    return <SelectItem key={y} value={String(y)}>{y}</SelectItem>;
-                  })}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Readiness checklist */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Readiness Check</p>
-              {readiness && (
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                  readiness.canClose ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"
-                }`}>
-                  {readiness.canClose ? "ALL PASSED ✓" : `${readiness.items.filter(i => i.status !== "ready").length} ISSUES`}
-                </span>
-              )}
-            </div>
-            {readinessLoading ? (
-              <div className="space-y-1.5">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="h-8 rounded-xl bg-muted animate-pulse" />
-                ))}
-              </div>
-            ) : readiness ? (
-              <div className="space-y-1 max-h-48 overflow-y-auto">
-                {readiness.items.map((item) => (
-                  <div
-                    key={item.key}
-                    className={`flex items-start gap-2 p-2 rounded-xl text-xs ${
-                      item.status === "ready" ? "bg-success/5" :
-                      item.status === "warning" ? "bg-warning/5" : "bg-destructive/5"
-                    }`}
-                  >
-                    <span className="shrink-0 mt-0.5">
-                      {item.status === "ready" && <span className="text-success">✓</span>}
-                      {item.status === "warning" && <span className="text-warning">⚠</span>}
-                      {item.status === "error" && <span className="text-destructive">✗</span>}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <span className={`font-medium ${item.status === "ready" ? "text-success" : item.status === "warning" ? "text-warning" : "text-destructive"}`}>
-                        {item.label}
-                      </span>
-                      {item.status !== "ready" && (
-                        <p className="text-[10px] text-muted-foreground mt-0.5">{item.detail}</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">Loading checklist…</p>
-            )}
-          </div>
-
-          {/* Due date picker */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground ml-1">Due Date</label>
-            <GlassInput
-              type="date"
-              value={genDueDate}
-              onChange={(e) => setGenDueDate(e.target.value)}
-              icon={<Calendar className="h-4 w-4" />}
-            />
-            <p className="text-[11px] text-muted-foreground ml-1">
-              Defaults to the 10th of next month.
-            </p>
-          </div>
-
-          <DialogFooter>
-            <GlassButton variant="ghost" onClick={() => setGenerateOpen(false)}>Cancel</GlassButton>
-            <GlassButton
-              onClick={() => setConfirmGenerateOpen(true)}
-              loading={generateMutation.isPending}
-              disabled={!readiness?.canClose}
-            >
-              <Sparkles className="h-4 w-4" />
-              Generate
-            </GlassButton>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* UX-3: final confirmation before generating bills */}
-      <AlertDialog
-        open={confirmGenerateOpen}
-        onOpenChange={(o) => !o && setConfirmGenerateOpen(false)}
-      >
-        <AlertDialogContent className="rounded-3xl">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-warning" />
-              Generate bills for {MONTHS[genMonth]} {genYear}?
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              This will recalculate all resident bills. Existing bills will be updated with new meal charges. Payment history is preserved.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel className="rounded-2xl" disabled={generateMutation.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="rounded-2xl bg-primary text-primary-foreground hover:bg-primary/90"
-              disabled={generateMutation.isPending}
-              onClick={() => {
-                generateMutation.mutate();
-                setConfirmGenerateOpen(false);
-              }}
-            >
-              {generateMutation.isPending ? "Generating…" : "Generate Bills"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Bill detail dialog */}
       <Dialog

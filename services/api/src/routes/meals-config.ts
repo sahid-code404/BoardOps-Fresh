@@ -8,7 +8,9 @@ const DEFAULT_STATES = new Set(["ON", "OFF"]);
 const VISIBILITIES = new Set(["VISIBLE", "HIDDEN"]);
 const CUTOFF_STRATEGIES = new Set(["PREVIOUS_DAY", "SAME_DAY", "CUSTOM_OFFSET"]);
 const PRICING_MODES = new Set(["FORMULA", "FIXED"]);
+const SERVICE_SCHEDULES = new Set(["DAILY", "DATE_SPECIFIC"]);
 const TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/u;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/u;
 const COLOR_RE = /^#[0-9a-f]{6}$/iu;
 
 type MealRow = {
@@ -29,6 +31,8 @@ type MealRow = {
   cutoff_time: string;
   start_time: string;
   end_time: string;
+  service_schedule: "DAILY" | "DATE_SPECIFIC";
+  service_date: string | null;
   pricing_mode: "FORMULA" | "FIXED";
   fixed_price_minor: number | null;
   deletion_requested_at: string | null;
@@ -57,6 +61,8 @@ type MealValues = {
   cutoffTime: string;
   startTime: string;
   endTime: string;
+  serviceSchedule: "DAILY" | "DATE_SPECIFIC";
+  serviceDate: string | null;
   pricingMode: "FORMULA" | "FIXED";
   fixedPriceMinor: number | null;
   notes: string | null;
@@ -117,6 +123,8 @@ function mappedMeal(row: MealRow) {
     cutoffTime: row.cutoff_time,
     startTime: row.start_time,
     endTime: row.end_time,
+    serviceSchedule: row.service_schedule,
+    serviceDate: row.service_date,
     pricingMode: row.pricing_mode,
     fixedPrice: minorToMajor(row.fixed_price_minor),
     deletionRequestedAt: row.deletion_requested_at,
@@ -177,6 +185,12 @@ function validateMealBody(
   const cutoffTime = stringValue(body, "cutoffTime") ?? existing?.cutoff_time;
   const startTime = stringValue(body, "startTime") ?? existing?.start_time;
   const endTime = stringValue(body, "endTime") ?? existing?.end_time;
+  const serviceScheduleRaw = stringValue(body, "serviceSchedule") ?? existing?.service_schedule ?? "DAILY";
+  const serviceSchedule = serviceScheduleRaw as "DAILY" | "DATE_SPECIFIC";
+  const requestedServiceDate = nullableString(body, "serviceDate");
+  const serviceDate = serviceSchedule === "DATE_SPECIFIC"
+    ? (requestedServiceDate === undefined ? existing?.service_date ?? null : requestedServiceDate)
+    : null;
   const pricingRaw = stringValue(body, "pricingMode") ?? existing?.pricing_mode ?? "FORMULA";
   const pricingMode = pricingRaw as "FORMULA" | "FIXED";
   const fixedPriceMinor = pricingMode === "FIXED"
@@ -206,6 +220,16 @@ function validateMealBody(
   if (!startTime || !TIME_RE.test(startTime) || !endTime || !TIME_RE.test(endTime)) {
     return { error: "Service start and end times are required" };
   }
+  if (!SERVICE_SCHEDULES.has(serviceSchedule)) return { error: "Invalid meal service schedule" };
+  if (serviceSchedule === "DATE_SPECIFIC") {
+    if (!serviceDate || !DATE_RE.test(serviceDate)) {
+      return { error: "A valid service date is required for a date-specific meal" };
+    }
+    const parsedDate = new Date(`${serviceDate}T00:00:00.000Z`);
+    if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== serviceDate) {
+      return { error: "A valid service date is required for a date-specific meal" };
+    }
+  }
   if (!PRICING_MODES.has(pricingMode)) return { error: "Invalid meal pricing mode" };
   if (pricingMode === "FIXED" && (fixedPriceMinor === null || fixedPriceMinor <= 0)) {
     return { error: "Fixed price must be a positive amount with at most two decimal places" };
@@ -230,6 +254,8 @@ function validateMealBody(
       cutoffTime,
       startTime,
       endTime,
+      serviceSchedule,
+      serviceDate,
       pricingMode,
       fixedPriceMinor,
       notes: notes === undefined ? existing?.notes ?? null : notes,
@@ -240,7 +266,7 @@ function validateMealBody(
 const MEAL_SELECT = `id, institution_id, name, display_name, description, icon, color,
                      meal_type, status, display_order, default_state, default_visibility,
                      cutoff_strategy, cutoff_offset_minutes, cutoff_time, start_time,
-                     end_time, pricing_mode, fixed_price_minor, deletion_requested_at,
+                     end_time, service_schedule, service_date, pricing_mode, fixed_price_minor, deletion_requested_at,
                      deletion_eligible_month, deletion_eligible_year, deletion_requested_by,
                      deletion_finalized_at, notes, created_at, updated_at`;
 
@@ -474,15 +500,16 @@ mealConfigRoutes.post("/meals/config", async (c) => {
       `INSERT INTO meal_configurations
         (id, institution_id, name, display_name, description, icon, color, meal_type,
          status, display_order, default_state, default_visibility, cutoff_strategy,
-         cutoff_offset_minutes, cutoff_time, start_time, end_time, pricing_mode,
-         fixed_price_minor, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         cutoff_offset_minutes, cutoff_time, start_time, end_time, service_schedule,
+         service_date, pricing_mode, fixed_price_minor, notes, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       id, principal.institutionId, value.name, value.displayName, value.description,
       value.icon, value.color, value.mealType, value.status, value.displayOrder,
       value.defaultState, value.defaultVisibility, value.cutoffStrategy,
       value.cutoffOffsetMinutes, value.cutoffTime, value.startTime, value.endTime,
-      value.pricingMode, value.fixedPriceMinor, value.notes, now, now,
+      value.serviceSchedule, value.serviceDate, value.pricingMode, value.fixedPriceMinor,
+      value.notes, now, now,
     ),
   ]);
 
@@ -553,6 +580,24 @@ mealConfigRoutes.put("/meals/config/:id", async (c) => {
     }, 409);
   }
 
+  const scheduleChanged =
+    value.serviceSchedule !== existing.service_schedule || value.serviceDate !== existing.service_date;
+  if (scheduleChanged) {
+    const usage = await c.env.DB.prepare(
+      `SELECT
+         EXISTS(SELECT 1 FROM meal_entries WHERE institution_id = ? AND meal_id = ? LIMIT 1) AS has_entries,
+         EXISTS(SELECT 1 FROM guest_meals WHERE institution_id = ? AND meal_id = ? LIMIT 1) AS has_guests`,
+    ).bind(
+      principal.institutionId, id, principal.institutionId, id,
+    ).first<{ has_entries: number; has_guests: number }>();
+    if (Number(usage?.has_entries ?? 0) === 1 || Number(usage?.has_guests ?? 0) === 1) {
+      return c.json({
+        success: false,
+        error: "Service schedule cannot be changed after meal activity exists. Create a new meal configuration instead.",
+      }, 409);
+    }
+  }
+
   const now = new Date().toISOString();
   const statements: D1PreparedStatement[] = [];
   if (value.displayOrder > existing.display_order) {
@@ -571,17 +616,15 @@ mealConfigRoutes.put("/meals/config/:id", async (c) => {
   statements.push(c.env.DB.prepare(
     `UPDATE meal_configurations
         SET display_name = ?, description = ?, icon = ?, color = ?, meal_type = ?,
-            status = ?, display_order = ?, default_state = ?, default_visibility = ?,
-            cutoff_strategy = ?, cutoff_offset_minutes = ?, cutoff_time = ?,
-            start_time = ?, end_time = ?, pricing_mode = ?, fixed_price_minor = ?,
-            notes = ?, updated_at = ?
+            status = ?, display_order = ?, default_state = ?, default_visibility = ?,          cutoff_strategy = ?, cutoff_offset_minutes = ?, cutoff_time = ?,
+          start_time = ?, end_time = ?, service_schedule = ?, service_date = ?,
+          pricing_mode = ?, fixed_price_minor = ?, notes = ?, updated_at = ?
       WHERE id = ? AND institution_id = ?`,
   ).bind(
     value.displayName, value.description, value.icon, value.color, value.mealType,
-    value.status, value.displayOrder, value.defaultState, value.defaultVisibility,
-    value.cutoffStrategy, value.cutoffOffsetMinutes, value.cutoffTime,
-    value.startTime, value.endTime, value.pricingMode, value.fixedPriceMinor,
-    value.notes, now, id, principal.institutionId,
+    value.status, value.displayOrder, value.defaultState, value.defaultVisibility,  value.cutoffStrategy, value.cutoffOffsetMinutes, value.cutoffTime,
+  value.startTime, value.endTime, value.serviceSchedule, value.serviceDate,
+  value.pricingMode, value.fixedPriceMinor, value.notes, now, id, principal.institutionId,
   ));
   await c.env.DB.batch(statements);
 

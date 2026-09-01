@@ -165,11 +165,14 @@ export function UserMealsView() {
   const { data: mealsConfigResp } = useQuery({
     queryKey: ["meals-config-active"],
     queryFn: () =>
-      api.get<ApiResponse<{ id: string; name: string; displayName: string; icon: string; status: string }[]>>("/meals/config"),
+      api.get<ApiResponse<{ id: string; name: string; displayName: string; icon: string; status: string; serviceSchedule: "DAILY" | "DATE_SPECIFIC"; serviceDate: string | null }[]>>("/meals/config"),
     enabled: leaveOpen,
     staleTime: 60_000,
   });
-  const activeMealsForLeave = (mealsConfigResp?.data ?? []).filter((m) => m.status === "ACTIVE");
+  const activeMealsForLeave = (mealsConfigResp?.data ?? []).filter((m) =>
+    m.status === "ACTIVE"
+    && (m.serviceSchedule !== "DATE_SPECIFIC" || (!!m.serviceDate && leaveStart <= m.serviceDate && m.serviceDate <= leaveEnd)),
+  );
 
   const applyLeaveMutation = useMutation({
     mutationFn: async (input: {

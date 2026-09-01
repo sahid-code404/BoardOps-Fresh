@@ -20,20 +20,20 @@ test("visual Monthly Closing preserves readiness and immutable-close contract", 
   await expect(page.getByText("Resident accounts ready", { exact: true })).toBeVisible();
   await expect(page.getByText("Resolve errors before closing", { exact: true })).toHaveCount(0);
 
-  const closeButton = page.getByRole("button", { name: /^Close [A-Z][a-z]+ \d{4}$/u });
+  const closeButton = page.getByRole("button", { name: /^Generate Bills & Close [A-Z][a-z]+ \d{4}$/u });
   await expect(closeButton).toBeVisible();
   await closeButton.click();
 
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByRole("heading", { name: /^Close [A-Z][a-z]+ \d{4}$/u })).toBeVisible();
-  await expect(dialog.getByText(/freeze all data into an immutable snapshot/u)).toBeVisible();
-  await expect(dialog.getByText(/execute the formula engine, generate bills, and settle resident fund accounts/u)).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: /^Generate Bills & Close [A-Z][a-z]+ \d{4}$/u })).toBeVisible();
+  await expect(dialog.getByText(/freeze the month into an immutable snapshot/u)).toBeVisible();
+  await expect(dialog.getByText(/generate resident bills, derive settlement totals, and close the accounting period/u)).toBeVisible();
   await expect(dialog.getByText("Expenses", { exact: true })).toBeVisible();
   await expect(dialog.getByText("Residents", { exact: true })).toBeVisible();
   await expect(dialog.getByText(/Due Date \(optional/u)).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Execute Closing", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Generate Bills & Close Month", exact: true })).toBeVisible();
 
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toHaveCount(0);

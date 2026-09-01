@@ -169,7 +169,7 @@ export function AuthScreen() {
         toast.success(`Welcome back, ${res.data.user.name.split(" ")[0]}!`);
       } else {
         const data = registerSchema.parse(form);
-        const res = await api.post<{ success: boolean; data: { userId: string; email: string } }>(
+        const res = await api.post<{ success: boolean; data: { userId: string; email: string; verificationRequired: boolean } }>(
           "/auth/register",
           {
             name: data.name,
@@ -184,11 +184,17 @@ export function AuthScreen() {
             consents: data.consents,
           }
         );
-        setVerifyEmail(res.data.email);
         setPendingEmail(res.data.email);
         setOtp("");
-        setMode("verify");
-        toast.success("Account created — verify your email next.");
+        if (res.data.verificationRequired) {
+          setVerifyEmail(res.data.email);
+          setMode("verify");
+          toast.success("Account created — verify your email next.");
+        } else {
+          setVerifyEmail("");
+          setMode("pending");
+          toast.success("Account created — pending admin approval.");
+        }
       }
     } catch (err: any) {
       if (err instanceof z.ZodError) {
@@ -592,6 +598,11 @@ export function AuthScreen() {
           setOtp("");
           setMode("verify");
         }}
+        onPendingEmailChanged={(email) => {
+          setPendingEmail(email);
+          setVerifyEmail("");
+          setOtp("");
+        }}
       />
     );
   }
@@ -834,6 +845,7 @@ function PendingScreen({
   hasChangesRequested,
   onBackToLogin,
   onVerificationRequired,
+  onPendingEmailChanged,
 }: {
   email: string;
   status?: RegistrationStatus;
@@ -843,6 +855,7 @@ function PendingScreen({
   hasChangesRequested: boolean;
   onBackToLogin: () => void;
   onVerificationRequired: (email: string) => void;
+  onPendingEmailChanged: (email: string) => void;
 }) {
   const [showResubmit, setShowResubmit] = useState(false);
   const qc = useQueryClient();
@@ -984,7 +997,8 @@ function PendingScreen({
                 onVerificationRequired(result.email);
                 return;
               }
-              qc.invalidateQueries({ queryKey: ["registration-status", email] });
+              qc.removeQueries({ queryKey: ["registration-status", email] });
+              onPendingEmailChanged(result.email);
             }}
           />
         )}

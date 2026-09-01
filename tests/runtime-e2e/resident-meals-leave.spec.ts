@@ -87,7 +87,78 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
     expect(dashboardBody.data.permissions).not.toContain("meals.override");
     expect(dashboardBody.data.permissions).not.toContain("leave.decide");
 
-    const scheduleDate = "2026-09-01";
+    const oneTimeDate = "2026-09-15";
+    const createOneTimeMeal = await adminApi.post(`${API}/api/meals/config`, {
+      data: {
+        displayName: "September Special Dinner",
+        description: "One-time resident meal scheduling runtime proof",
+        icon: "🎉",
+        color: "#a855f7",
+        mealType: "SPECIAL",
+        displayOrder: 0,
+        defaultState: "OFF",
+        defaultVisibility: "VISIBLE",
+        cutoffStrategy: "PREVIOUS_DAY",
+        cutoffOffsetMinutes: 0,
+        cutoffTime: "23:59",
+        startTime: "18:00",
+        endTime: "19:00",
+        serviceSchedule: "DATE_SPECIFIC",
+        serviceDate: oneTimeDate,
+        pricingMode: "FIXED",
+        fixedPrice: 150,
+        notes: "runtime one-time meal",
+      },
+    });
+    expect(createOneTimeMeal.status()).toBe(201);
+    const createOneTimeBody = await createOneTimeMeal.json() as ApiEnvelope<{ id: string }>;
+
+    const beforeOneTime = await residentApi.get(`${API}/api/meals/entries?date=2026-09-14`);
+    expect(beforeOneTime.ok()).toBeTruthy();
+    const beforeOneTimeBody = await beforeOneTime.json() as ApiEnvelope<ResidentSchedule>;
+    expect(beforeOneTimeBody.data.meals.map((meal) => meal.displayName)).not.toContain("September Special Dinner");
+    expect((beforeOneTimeBody.data.byDate["2026-09-14"] ?? []).map((entry) => entry.mealDisplayName)).not.toContain("September Special Dinner");
+
+    const onOneTime = await residentApi.get(`${API}/api/meals/entries?date=${oneTimeDate}`);
+    expect(onOneTime.ok()).toBeTruthy();
+    const onOneTimeBody = await onOneTime.json() as ApiEnvelope<ResidentSchedule>;
+    expect(onOneTimeBody.data.meals.map((meal) => meal.displayName)).toContain("September Special Dinner");
+    const specialEntry = (onOneTimeBody.data.byDate[oneTimeDate] ?? []).find((entry) => entry.mealDisplayName === "September Special Dinner");
+    expect(specialEntry).toBeTruthy();
+    expect(specialEntry?.locked).toBe(false);
+
+    const futureToggle = await residentApi.patch(`${API}/api/meals/toggle`, {
+      data: { entryId: specialEntry!.id, status: "ON" },
+    });
+    expect(futureToggle.ok()).toBeTruthy();
+    await expect(futureToggle.json()).resolves.toMatchObject({
+      success: true,
+      data: { id: specialEntry!.id, serviceDate: oneTimeDate, status: "ON" },
+    });
+
+    const specialCounts = await adminApi.get(`${API}/api/kitchen?date=${oneTimeDate}`);
+    expect(specialCounts.ok()).toBeTruthy();
+    const specialCountsBody = await specialCounts.json() as ApiEnvelope<{ counts: Array<{ name: string }> }>;
+    expect(specialCountsBody.data.counts.map((meal) => meal.name)).toContain("September Special Dinner");
+
+    const afterOneTime = await residentApi.get(`${API}/api/meals/entries?date=2026-09-16`);
+    expect(afterOneTime.ok()).toBeTruthy();
+    const afterOneTimeBody = await afterOneTime.json() as ApiEnvelope<ResidentSchedule>;
+    expect(afterOneTimeBody.data.meals.map((meal) => meal.displayName)).not.toContain("September Special Dinner");
+    expect((afterOneTimeBody.data.byDate["2026-09-16"] ?? []).map((entry) => entry.mealDisplayName)).not.toContain("September Special Dinner");
+    const afterCounts = await adminApi.get(`${API}/api/kitchen?date=2026-09-16`);
+    expect(afterCounts.ok()).toBeTruthy();
+    const afterCountsBody = await afterCounts.json() as ApiEnvelope<{ counts: Array<{ name: string }> }>;
+    expect(afterCountsBody.data.counts.map((meal) => meal.name)).not.toContain("September Special Dinner");
+
+    const archiveOneTime = await adminApi.put(`${API}/api/meals/config/${createOneTimeBody.data.id}`, {
+      data: { status: "ARCHIVED" },
+    });
+    expect(archiveOneTime.ok()).toBeTruthy();
+
+    // Use the day after the registration fixture so this proof never depends on
+    // which same-day meal cutoffs have already passed when CI starts.
+    const scheduleDate = "2026-09-02";
     const scheduleResponse = await residentApi.get(`${API}/api/meals/entries?date=${scheduleDate}`);
     expect(scheduleResponse.ok()).toBeTruthy();
     const scheduleBody = await scheduleResponse.json() as ApiEnvelope<ResidentSchedule>;
@@ -96,13 +167,9 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
       expect.arrayContaining(["Breakfast", "Lunch", "Dinner"]),
     );
     const scheduleEntries = scheduleBody.data.byDate[scheduleDate] ?? [];
-    // The configuration list can include meals whose cutoff for this date has
-    // already passed. Those meals are correctly omitted from the editable
-    // by-date schedule, so assert the still-editable core meals instead of
-    // requiring a one-to-one count with all active configurations.
-    expect(scheduleEntries.length).toBeGreaterThanOrEqual(2);
+    expect(scheduleEntries.length).toBeGreaterThanOrEqual(3);
     expect(scheduleEntries.map((entry) => entry.mealDisplayName)).toEqual(
-      expect.arrayContaining(["Lunch", "Dinner"]),
+      expect.arrayContaining(["Breakfast", "Lunch", "Dinner"]),
     );
     expect(scheduleEntries.every((entry) => entry.preRegistration === false)).toBe(true);
 

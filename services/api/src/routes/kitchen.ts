@@ -22,6 +22,12 @@ type MealRow = {
   cutoff_strategy: string;
   cutoff_offset_minutes: number;
   cutoff_time: string;
+  status: string;
+  service_schedule: "DAILY" | "DATE_SPECIFIC";
+  service_date: string | null;
+  deletion_requested_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 type MealEntryRow = {
@@ -65,6 +71,34 @@ async function institutionTimezone(c: Context<AppEnv>, institutionId: string): P
     .bind(institutionId)
     .first<{ timezone: string }>();
   return row?.timezone || "UTC";
+}
+
+function dateInTimeZone(timestamp: string, timeZone: string): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = Object.fromEntries(
+    formatter.formatToParts(new Date(timestamp)).map((part) => [part.type, part.value]),
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function mealVisibleOnDate(meal: MealRow, serviceDate: string, timeZone: string): boolean {
+  if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== serviceDate) return false;
+  const startsOn = dateInTimeZone(meal.created_at, timeZone);
+  if (serviceDate < startsOn) return false;
+
+  const endedAt = meal.deletion_requested_at
+    ?? (meal.status === "ACTIVE" ? null : meal.updated_at);
+  if (!endedAt) return true;
+
+  // Lifecycle changes are inclusive for the day they happen. A meal archived
+  // or queued for deletion on Aug 10 is still historical evidence for Aug 10,
+  // but it must disappear from Aug 11 onward.
+  return serviceDate <= dateInTimeZone(endedAt, timeZone);
 }
 
 function confirmedOn(entry: MealEntryRow, isPastDate: boolean, now = new Date()): boolean {
@@ -124,9 +158,10 @@ kitchenRoutes.get("/kitchen", async (c) => {
   const [mealsResult, residentsResult, entriesResult, guestsResult, monthEntriesResult, monthGuestsResult] = await Promise.all([
     c.env.DB.prepare(
       `SELECT id, display_name, icon, color, start_time, end_time, default_state,
-              cutoff_strategy, cutoff_offset_minutes, cutoff_time
+              cutoff_strategy, cutoff_offset_minutes, cutoff_time, status,
+              service_schedule, service_date, deletion_requested_at, created_at, updated_at
          FROM meal_configurations
-        WHERE institution_id = ? AND status = 'ACTIVE'
+        WHERE institution_id = ?
         ORDER BY display_order ASC, created_at ASC`,
     ).bind(principal.institutionId).all<MealRow>(),
     c.env.DB.prepare(
@@ -164,7 +199,9 @@ kitchenRoutes.get("/kitchen", async (c) => {
     ).bind(principal.institutionId, month.start, month.end).all<GuestRow>(),
   ]);
 
-  const meals = mealsResult.results;
+  const allMeals = mealsResult.results;
+  const meals = allMeals.filter((meal) => mealVisibleOnDate(meal, serviceDate, timeZone));
+  const mealById = new Map(allMeals.map((meal) => [meal.id, meal]));
   const residents = residentsResult.results;
   const entries = entriesResult.results;
   const guests = guestsResult.results;
@@ -193,9 +230,24 @@ kitchenRoutes.get("/kitchen", async (c) => {
     };
   });
 
-  const monthOn = monthEntries.filter((entry) => confirmedOn(entry, entry.service_date < today, now));
-  const monthOff = monthEntries.filter((entry) => confirmedOff(entry, entry.service_date < today, now));
-  const monthGuestCount = monthGuests.reduce((sum, guest) => sum + Number(guest.guest_count || 0), 0);
+  const monthOn = monthEntries.filter((entry) => {
+    const meal = mealById.get(entry.meal_id);
+    return !!meal
+      && mealVisibleOnDate(meal, entry.service_date, timeZone)
+      && confirmedOn(entry, entry.service_date < today, now);
+  });
+  const monthOff = monthEntries.filter((entry) => {
+    const meal = mealById.get(entry.meal_id);
+    return !!meal
+      && mealVisibleOnDate(meal, entry.service_date, timeZone)
+      && confirmedOff(entry, entry.service_date < today, now);
+  });
+  const monthGuestCount = monthGuests
+    .filter((guest) => {
+      const meal = mealById.get(guest.meal_id);
+      return !!meal && mealVisibleOnDate(meal, guest.service_date, timeZone);
+    })
+    .reduce((sum, guest) => sum + Number(guest.guest_count || 0), 0);
 
   const userMealStatus = residents.map((resident) => {
     const residentEntries = entries.filter((entry) => entry.user_id === resident.id);
@@ -253,26 +305,24 @@ kitchenRoutes.get("/kitchen", async (c) => {
         off: monthOff.length,
       },
       userMealStatus,
-      guestMealEntries: guests.map((guest) => ({
-        id: guest.id,
-        mealId: guest.meal_id,
-        guestCount: guest.guest_count,
-        notes: guest.notes,
-        guestName: guest.guest_name,
-      })),
+      guestMealEntries: guests
+        .filter((guest) => {
+          const meal = mealById.get(guest.meal_id);
+          return !!meal && mealVisibleOnDate(meal, guest.service_date, timeZone);
+        })
+        .map((guest) => ({
+          id: guest.id,
+          mealId: guest.meal_id,
+          guestCount: guest.guest_count,
+          notes: guest.notes,
+          guestName: guest.guest_name,
+        })),
     },
   });
 });
 
 function dateInRegistration(createdAt: string, timeZone: string): string {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const parts = Object.fromEntries(formatter.formatToParts(new Date(createdAt)).map((part) => [part.type, part.value]));
-  return `${parts.year}-${parts.month}-${parts.day}`;
+  return dateInTimeZone(createdAt, timeZone);
 }
 
 kitchenRoutes.post("/kitchen", async (c) => {
@@ -295,11 +345,36 @@ kitchenRoutes.post("/kitchen", async (c) => {
   if (guestCount < 1 || guestCount > 100) return c.json({ success: false, error: "guestCount must be between 1 and 100" }, 400);
   if ((notes?.length ?? 0) > 500) return c.json({ success: false, error: "Guest meal notes are too long" }, 400);
 
-  const meal = await c.env.DB.prepare(
-    `SELECT id, display_name FROM meal_configurations
-      WHERE id = ? AND institution_id = ? AND status = 'ACTIVE' LIMIT 1`,
-  ).bind(mealId, principal.institutionId).first<{ id: string; display_name: string }>();
-  if (!meal) return c.json({ success: false, error: "Meal not found or inactive" }, 404);
+  // Preserve the accounting lock as the first domain guard. A closed/closing
+  // historical date must continue to fail with the canonical 409 even if the
+  // selected meal was not operationally available on that old date.
+  const period = await c.env.DB.prepare(
+    `SELECT status
+       FROM accounting_periods
+      WHERE institution_id = ? AND starts_on <= ? AND ends_on >= ?
+      ORDER BY starts_on DESC
+      LIMIT 1`,
+  ).bind(principal.institutionId, serviceDate, serviceDate).first<{ status: string }>();
+  if (period?.status === "CLOSING" || period?.status === "CLOSED") {
+    return c.json(
+      { success: false, error: "Guest meals cannot be changed in a closing or closed accounting period" },
+      409,
+    );
+  }
+
+  const [meal, timeZone] = await Promise.all([
+    c.env.DB.prepare(
+      `SELECT id, display_name, icon, color, start_time, end_time, default_state,
+              cutoff_strategy, cutoff_offset_minutes, cutoff_time, status,
+              service_schedule, service_date, deletion_requested_at, created_at, updated_at
+         FROM meal_configurations
+        WHERE id = ? AND institution_id = ? LIMIT 1`,
+    ).bind(mealId, principal.institutionId).first<MealRow>(),
+    institutionTimezone(c, principal.institutionId),
+  ]);
+  if (!meal || !mealVisibleOnDate(meal, serviceDate, timeZone)) {
+    return c.json({ success: false, error: "Meal is not available on this service date" }, 404);
+  }
 
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
