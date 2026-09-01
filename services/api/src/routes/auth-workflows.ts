@@ -434,7 +434,7 @@ authWorkflowRoutes.post("/register", async (c) => {
       `INSERT INTO auth_challenges
         (id, institution_id, user_id, email, purpose, secret_hash, attempts, max_attempts,
          request_ip, expires_at, consumed_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'EMAIL_VERIFY', ?, 0, 5, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, 'EMAIL_VERIFY', ?, 0, 5, ?, ?, NULL, ?, ?)`,
     ).bind(
       emailChallengeId,
       institution.id,
@@ -443,7 +443,6 @@ authWorkflowRoutes.post("/register", async (c) => {
       otpHash,
       clientIp(c),
       new Date(now.getTime() + OTP_TTL_MS).toISOString(),
-      EMAIL_VERIFICATION_ENABLED ? null : nowIso,
       nowIso,
       nowIso,
     ),
@@ -526,11 +525,16 @@ authWorkflowRoutes.post("/verify-email", async (c) => {
 
   const user = await findUserByEmail(c, email);
   if (!user) return c.json({ success: false, error: "Invalid or expired code" }, 400);
-  if (user.email_verified === 1) {
+  if (user.email_verified === 1 && EMAIL_VERIFICATION_ENABLED) {
     return c.json({ success: true, data: { userId: user.id, email: user.email, emailVerified: true } });
   }
 
   const challenge = await latestChallenge(c, user.id, "EMAIL_VERIFY");
+  // Verification is temporarily optional, but older clients can still
+  // complete the legacy challenge if they explicitly present it.
+  if (user.email_verified === 1 && (!challenge || challenge.consumed_at)) {
+    return c.json({ success: true, data: { userId: user.id, email: user.email, emailVerified: true } });
+  }
   if (!(await verifyOneTimeChallenge(c, challenge, otp))) {
     return c.json({ success: false, error: "Invalid or expired code" }, 400);
   }
