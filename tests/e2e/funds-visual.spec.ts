@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 test("visual Funds renders the canonical composite contract and interactions", async ({ page }) => {
+  // Keep this visual fixture anchored to the canonical August 2026 dataset.
+  // Without a fixed clock the Funds page defaults to the runner's current
+  // month, so the test becomes date-dependent as soon as the calendar rolls.
+  await page.clock.setFixedTime(new Date("2026-08-15T12:00:00.000Z"));
   await page.goto("/funds");
 
   await expect(page.getByText("Total Deposit", { exact: true })).toBeVisible();
