@@ -1,0 +1,69 @@
+name: Temporary stabilize resident meal runtime dates
+
+on:
+  push:
+    branches:
+      - fix/meal-status-filter-pills
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/meal-status-filter-pills
+          fetch-depth: 0
+      - name: Make resident runtime dates relative
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tests/runtime-e2e/resident-meals-leave.spec.ts')
+          s = p.read_text()
+
+          def rep(old, new, count=1):
+              global s
+              found = s.count(old)
+              if found != count:
+                  raise SystemExit(f'expected {count} occurrences, found {found}: {old[:160]}')
+              s = s.replace(old, new)
+
+          rep(
+              'const REGISTRATION_IP = "198.51.100.25";\n',
+              '''const REGISTRATION_IP = "198.51.100.25";\n\nfunction utcDatePlusDays(days: number): string {\n  const value = new Date();\n  value.setUTCHours(12, 0, 0, 0);\n  value.setUTCDate(value.getUTCDate() + days);\n  return value.toISOString().slice(0, 10);\n}\n''',
+          )
+          rep('  test.setTimeout(75_000);', '  test.setTimeout(90_000);')
+          rep(
+              '    const oneTimeDate = "2026-09-20";',
+              '''    const oneTimeDate = utcDatePlusDays(20);\n    const beforeOneTimeDate = utcDatePlusDays(19);\n    const afterOneTimeDate = utcDatePlusDays(21);''',
+          )
+          rep('September Special Dinner', 'Runtime One-Time Special', 8)
+          rep('`${API}/api/meals/entries?date=2026-09-19`', '`${API}/api/meals/entries?date=${beforeOneTimeDate}`')
+          rep('beforeOneTimeBody.data.byDate["2026-09-19"]', 'beforeOneTimeBody.data.byDate[beforeOneTimeDate]')
+          rep('`${API}/api/meals/entries?date=2026-09-21`', '`${API}/api/meals/entries?date=${afterOneTimeDate}`')
+          rep('afterOneTimeBody.data.byDate["2026-09-21"]', 'afterOneTimeBody.data.byDate[afterOneTimeDate]')
+          rep('`${API}/api/kitchen?date=2026-09-21`', '`${API}/api/kitchen?date=${afterOneTimeDate}`')
+          rep('    const scheduleDate = "2026-09-01";', '    const scheduleDate = utcDatePlusDays(2);')
+          rep(
+              '''    const leaveStart = "2026-09-04";\n    const leaveEnd = "2026-09-05";''',
+              '''    const leaveStart = utcDatePlusDays(5);\n    const leaveEnd = utcDatePlusDays(6);\n    const overlapEnd = utcDatePlusDays(7);''',
+          )
+          rep(
+              '''        startDate: "2026-09-05",\n        endDate: "2026-09-06",''',
+              '''        startDate: leaveEnd,\n        endDate: overlapEnd,''',
+          )
+          p.write_text(s)
+          PY
+          git diff --check
+      - name: Commit stabilized test
+        shell: bash
+        run: |
+          git config user.name "boardops-ci"
+          git config user.email "boardops-ci@users.noreply.github.com"
+          git add tests/runtime-e2e/resident-meals-leave.spec.ts
+          git commit -m "test: make resident meal dates time-stable"
+          git push origin HEAD:fix/meal-status-filter-pills
