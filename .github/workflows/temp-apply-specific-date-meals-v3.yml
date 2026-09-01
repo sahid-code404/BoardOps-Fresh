@@ -1,0 +1,91 @@
+name: Temporary apply date-specific meal scheduling v3
+
+on:
+  push:
+    branches:
+      - fix/meal-status-filter-pills
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/meal-status-filter-pills
+          fetch-depth: 0
+
+      - name: Run v2 patch with whitespace-tolerant replacement
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          import textwrap
+
+          workflow = Path('.github/workflows/temp-apply-specific-date-meals-v2.yml').read_text()
+          marker = "          python - <<'PY'\n"
+          start = workflow.index(marker) + len(marker)
+          end = workflow.index("\n          PY\n", start)
+          script = textwrap.dedent(workflow[start:end])
+
+          old = '''def rep(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              found = text.count(old)
+              if found != count:
+                  raise SystemExit(f"{path}: expected {count} occurrences, found {found}\\n--- needle ---\\n{old[:700]}")
+              p.write_text(text.replace(old, new))'''
+          new = '''def rep(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              found = text.count(old)
+              if found == count:
+                  p.write_text(text.replace(old, new))
+                  return
+              # Fallback for formatting-only differences: preserve tokens but allow
+              # arbitrary whitespace between them. This is deliberately used only
+              # when the exact snippet is absent and still requires the expected count.
+              parts = re.split(r"(\\s+)", old)
+              pattern = "".join(r"\\s+" if part.isspace() else re.escape(part) for part in parts if part)
+              matches = list(re.finditer(pattern, text, flags=re.MULTILINE))
+              if len(matches) != count:
+                  raise SystemExit(f"{path}: expected {count} normalized occurrences, found {len(matches)}\\n--- needle ---\\n{old[:700]}")
+              p.write_text(re.sub(pattern, lambda _m: new, text, count=count, flags=re.MULTILINE))'''
+
+          if old not in script:
+              raise SystemExit('Unable to locate v2 rep helper')
+          script = script.replace(old, new, 1)
+          exec(compile(script, '<date-specific-meal-patch>', 'exec'), {'Path': Path, 're': re})
+          PY
+
+      - name: Verify source patch
+        shell: bash
+        run: |
+          git diff --check
+          test -f migrations/0030_meal_service_schedule.sql
+          grep -q 'DATE_SPECIFIC' services/api/src/routes/resident-meals.ts
+          grep -q 'DATE_SPECIFIC' services/api/src/routes/kitchen.ts
+          grep -q 'Specific date · one-time meal' apps/web/src/components/features/meals/meals-config-view.tsx
+
+      - name: Commit feature
+        shell: bash
+        run: |
+          git config user.name "boardops-ci"
+          git config user.email "boardops-ci@users.noreply.github.com"
+          git add migrations/0030_meal_service_schedule.sql \
+            services/api/src/routes/meals-config.ts \
+            services/api/src/routes/resident-meals.ts \
+            services/api/src/routes/kitchen.ts \
+            services/api/src/routes/dashboard.ts \
+            services/api/src/routes/leave.ts \
+            services/api/src/routes/meal-overrides.ts \
+            apps/web/src/components/features/meals/meals-config-view.tsx \
+            apps/web/src/components/features/meals/user-meals-view.tsx \
+            tests/runtime-e2e/meals-config.spec.ts \
+            tests/runtime-e2e/resident-meals-leave.spec.ts
+          git commit -m "feat: add date-specific meal scheduling"
+          git push origin HEAD:fix/meal-status-filter-pills
