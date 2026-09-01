@@ -10,7 +10,7 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
-  webServer: {
+  webServer: process.env.CI ? undefined : {
     command: "node scripts/assert-runtime-e2e-ports-free.mjs && pnpm db:reset:local && pnpm dev",
     url: "http://127.0.0.1:5173",
     reuseExistingServer: false,
