@@ -20,7 +20,6 @@ import {
   AlertCircle,
   EyeOff,
   Sparkles,
-  ArrowUpDown,
 } from "lucide-react";
 import { GlassCard } from "@/components/glass/glass-card";
 import { GlassButton } from "@/components/glass/glass-button";
@@ -57,6 +56,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { DigitalClockPicker } from "@/components/ui/digital-clock-picker";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -194,7 +194,9 @@ const mealSchema = z.object({
     (value) => MEAL_TYPES.some((type) => type.value === value),
     "Choose a valid meal type",
   ),
-  displayOrder: z.coerce.number().int().min(0, "Choose a display position"),
+  // Compatibility field only. The UI never exposes manual ordering; this is
+  // automatically derived from service start time and the DB enforces it too.
+  displayOrder: z.coerce.number().int().min(0),
   defaultState: z.enum(["ON", "OFF"]),
   defaultVisibility: z.enum(["VISIBLE", "HIDDEN"]),
   cutoffStrategy: z.string().min(1, "Choose a cutoff strategy").refine(
@@ -243,7 +245,6 @@ const DEFAULT_FORM_VALUES: MealFormValues = {
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
-
 
 function internalNameFromDisplayName(value: string): string {
   return value
@@ -323,14 +324,10 @@ function MealForm({
     handleSubmit,
     control,
     setValue,
-    watch,
     formState: { errors },
   } = useForm<MealFormInput, unknown, MealFormValues>({
     resolver: zodResolver(mealSchema),
-    defaultValues: values ?? {
-      ...DEFAULT_FORM_VALUES,
-      displayOrder: existingMeals.length,
-    },
+    defaultValues: values ?? DEFAULT_FORM_VALUES,
     mode: "onChange",
   });
 
@@ -341,24 +338,22 @@ function MealForm({
   const watchedColor = useWatch({ control, name: "color" });
   const watchedIcon = useWatch({ control, name: "icon" });
   const watchedPricingMode = useWatch({ control, name: "pricingMode" });
+  const watchedStartTime = useWatch({ control, name: "startTime" });
 
   React.useEffect(() => {
     if (values) return;
     setValue("name", internalNameFromDisplayName(watchedDisplayName || ""), { shouldValidate: true });
   }, [values, watchedDisplayName, setValue]);
 
-  const orderMeals = React.useMemo(
-    () => existingMeals
-      .filter((meal) => meal.id !== mealId)
-      .sort((a, b) => a.displayOrder - b.displayOrder),
-    [existingMeals, mealId],
-  );
-  const orderLabel = (position: number) => {
-    if (orderMeals.length === 0) return "1 — First meal";
-    if (position === 0) return `1 — Before ${orderMeals[0]?.displayName}`;
-    if (position >= orderMeals.length) return `${position + 1} — After ${orderMeals[orderMeals.length - 1]?.displayName}`;
-    return `${position + 1} — Between ${orderMeals[position - 1]?.displayName} and ${orderMeals[position]?.displayName}`;
-  };
+  React.useEffect(() => {
+    if (!watchedStartTime || !/^\d{2}:\d{2}$/u.test(watchedStartTime)) return;
+    const automaticPosition = existingMeals.filter((meal) =>
+      meal.id !== mealId
+      && !meal.deletionFinalizedAt
+      && meal.startTime <= watchedStartTime
+    ).length;
+    setValue("displayOrder", automaticPosition, { shouldValidate: true });
+  }, [existingMeals, mealId, setValue, watchedStartTime]);
 
   const cutoffPreview = computeCutoffPreview(
     watchedStrategy,
@@ -474,75 +469,62 @@ function MealForm({
         </div>
       </div>
 
-      {/* Type + status */}
-      <div className="grid grid-cols-1 gap-3">
-        <div>
-          <Label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
-            Meal type
-          </Label>
-          <Controller
-            control={control}
-            name="mealType"
-            render={({ field }) => (
-              <Select value={field.value || ""} onValueChange={field.onChange}>
-                <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
-                  <SelectValue placeholder="Choose meal type" />
-                </SelectTrigger>
-                <SelectContent>
-                  {MEAL_TYPES.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>
-                      <span className="font-medium">{t.label}</span>
-                      <span className="text-xs text-muted-foreground ml-1">
-                        · {t.hint}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
-        </div>
-
-        <div>
-          <Label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
-            Display order
-          </Label>
-          <Controller
-            control={control}
-            name="displayOrder"
-            render={({ field }) => (
-              <Select value={String(field.value)} onValueChange={(value) => field.onChange(Number(value))}>
-                <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
-                  <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: orderMeals.length + 1 }, (_, position) => (
-                    <SelectItem key={position} value={String(position)}>
-                      {orderLabel(position)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
-          {errors.displayOrder?.message && <p className="mt-1 ml-1 text-xs text-destructive">{errors.displayOrder.message}</p>}
-        </div>
+      {/* Type */}
+      <div>
+        <Label className="mb-1.5 ml-1 block text-xs font-medium text-muted-foreground">
+          Meal type
+        </Label>
+        <Controller
+          control={control}
+          name="mealType"
+          render={({ field }) => (
+            <Select value={field.value || ""} onValueChange={field.onChange}>
+              <SelectTrigger className="w-full h-11 rounded-2xl glass-soft">
+                <SelectValue placeholder="Choose meal type" />
+              </SelectTrigger>
+              <SelectContent>
+                {MEAL_TYPES.map((t) => (
+                  <SelectItem key={t.value} value={t.value}>
+                    <span className="font-medium">{t.label}</span>
+                    <span className="text-xs text-muted-foreground ml-1">
+                      · {t.hint}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        />
+        <p className="mt-1.5 ml-1 text-[11px] text-muted-foreground/70">
+          Meal position is sorted automatically by service start time.
+        </p>
       </div>
 
-      {/* Times — deliberately blank on create */}
+      {/* Times — deliberately blank on create; custom BoardOps clock picker */}
       <div className="grid grid-cols-2 gap-3">
-        <GlassInput
-          label="Service start"
-          type="time"
-          {...register("startTime")}
-          error={errors.startTime?.message}
+        <Controller
+          control={control}
+          name="startTime"
+          render={({ field }) => (
+            <DigitalClockPicker
+              label="Service start"
+              value={field.value || ""}
+              onChange={field.onChange}
+              error={errors.startTime?.message}
+            />
+          )}
         />
-        <GlassInput
-          label="Service end"
-          type="time"
-          {...register("endTime")}
-          error={errors.endTime?.message}
+        <Controller
+          control={control}
+          name="endTime"
+          render={({ field }) => (
+            <DigitalClockPicker
+              label="Service end"
+              value={field.value || ""}
+              onChange={field.onChange}
+              error={errors.endTime?.message}
+            />
+          )}
         />
       </div>
 
@@ -579,11 +561,17 @@ function MealForm({
               )}
             />
           </div>
-          <GlassInput
-            label="Cutoff time"
-            type="time"
-            {...register("cutoffTime")}
-            error={errors.cutoffTime?.message}
+          <Controller
+            control={control}
+            name="cutoffTime"
+            render={({ field }) => (
+              <DigitalClockPicker
+                label="Cutoff time"
+                value={field.value || ""}
+                onChange={field.onChange}
+                error={errors.cutoffTime?.message}
+              />
+            )}
           />
         </div>
 
@@ -812,9 +800,6 @@ function MealConfigCard({
               <Shield className="h-2.5 w-2.5" /> Active
             </Badge>
           )}
-          <Badge variant="outline" className="text-[10px]">
-            Order: {meal.displayOrder + 1}
-          </Badge>
           <Badge variant="outline" className="text-[10px]">
             {meal.pricingMode === "FIXED" && meal.fixedPrice
               ? `₹${meal.fixedPrice.toLocaleString("en-IN")} fixed`
