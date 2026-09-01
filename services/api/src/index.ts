@@ -120,18 +120,10 @@ app.get("/api/ready", async (c) => {
       throw new Error("RBAC baseline is incomplete");
     }
 
-    return c.json({
-      status: "ready",
-      service: "boardops-api",
-      schema: "experimental-fixed-pricing",
-    });
+    return c.json({ status: "ready", service: "boardops-api", schema: "phase05-rbac" });
   } catch {
     return c.json(
-      {
-        status: "not_ready",
-        service: "boardops-api",
-        schema: "experimental-fixed-pricing",
-      },
+      { status: "not_ready", service: "boardops-api", schema: "phase05-rbac" },
       503,
     );
   }
@@ -163,10 +155,7 @@ app.route("/api", fundRoutes);
 app.onError((error, c) => {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("meal booking disabled by active holiday")) {
-    return c.json(
-      { success: false, error: "Meal booking is disabled for this holiday" },
-      409,
-    );
+    return c.json({ success: false, error: "Meal booking is disabled for this holiday" }, 409);
   }
   if (message.includes("guest meal source period is closing or closed")) {
     return c.json(
