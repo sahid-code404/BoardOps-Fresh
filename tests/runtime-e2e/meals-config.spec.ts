@@ -49,6 +49,10 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
   await page.getByRole("button", { name: /Create Meal/i }).click();
   await expect(page.getByText("Display order", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Meal position is sorted automatically by service start time.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Service schedule", exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "Service schedule", exact: true }).click();
+  await page.getByRole("option", { name: /Specific date/ }).click();
+  await expect(page.getByLabel("Service date", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Service start", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Service start", exact: true }).click();
   await expect(page.getByRole("button", { name: "Done", exact: true })).toBeVisible();

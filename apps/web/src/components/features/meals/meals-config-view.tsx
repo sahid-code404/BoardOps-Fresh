@@ -93,6 +93,8 @@ type MealConfiguration = {
   cutoffTime: string;
   startTime: string;
   endTime: string;
+  serviceSchedule: "DAILY" | "DATE_SPECIFIC";
+  serviceDate: string | null;
   pricingMode: "FORMULA" | "FIXED";
   fixedPrice: number | null;
   deletionRequestedAt: string | null;
@@ -197,6 +199,8 @@ const mealSchema = z.object({
   // Compatibility field only. The UI never exposes manual ordering; this is
   // automatically derived from service start time and the DB enforces it too.
   displayOrder: z.coerce.number().int().min(0),
+  serviceSchedule: z.enum(["DAILY", "DATE_SPECIFIC"]),
+  serviceDate: z.string().optional(),
   defaultState: z.enum(["ON", "OFF"]),
   defaultVisibility: z.enum(["VISIBLE", "HIDDEN"]),
   cutoffStrategy: z.string().min(1, "Choose a cutoff strategy").refine(
@@ -214,6 +218,13 @@ const mealSchema = z.object({
   ),
   notes: z.string().optional(),
 }).superRefine((value, ctx) => {
+  if (value.serviceSchedule === "DATE_SPECIFIC" && !/^\d{4}-\d{2}-\d{2}$/u.test(value.serviceDate || "")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["serviceDate"],
+      message: "Choose the one-time service date",
+    });
+  }
   if (value.pricingMode === "FIXED" && !value.fixedPrice) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["fixedPrice"], message: "Enter the fixed meal price" });
   }
@@ -230,6 +241,8 @@ const DEFAULT_FORM_VALUES: MealFormValues = {
   color: COLOR_SWATCHES[0],
   mealType: "",
   displayOrder: 0,
+  serviceSchedule: "DAILY",
+  serviceDate: "",
   defaultState: "OFF",
   defaultVisibility: "VISIBLE",
   cutoffStrategy: "",
@@ -338,6 +351,7 @@ function MealForm({
   const watchedColor = useWatch({ control, name: "color" });
   const watchedIcon = useWatch({ control, name: "icon" });
   const watchedPricingMode = useWatch({ control, name: "pricingMode" });
+  const watchedServiceSchedule = useWatch({ control, name: "serviceSchedule" });
   const watchedStartTime = useWatch({ control, name: "startTime" });
 
   React.useEffect(() => {
@@ -498,6 +512,40 @@ function MealForm({
         <p className="mt-1.5 ml-1 text-[11px] text-muted-foreground/70">
           Meal position is sorted automatically by service start time.
         </p>
+      </div>
+
+      {/* Service schedule */}
+      <div className="glass-soft rounded-2xl p-3 space-y-3">
+        <div>
+          <p className="text-sm font-semibold">Service schedule</p>
+          <p className="text-[11px] text-muted-foreground">
+            Keep regular meals recurring, or make a special meal available on exactly one date.
+          </p>
+        </div>
+        <Controller
+          control={control}
+          name="serviceSchedule"
+          render={({ field }) => (
+            <Select value={field.value} onValueChange={field.onChange}>
+              <SelectTrigger className="w-full h-11 rounded-2xl glass-soft" aria-label="Service schedule">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="DAILY">Daily recurring</SelectItem>
+                <SelectItem value="DATE_SPECIFIC">Specific date · one-time meal</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+        />
+        {watchedServiceSchedule === "DATE_SPECIFIC" && (
+          <GlassInput
+            label="Service date"
+            type="date"
+            {...register("serviceDate")}
+            error={errors.serviceDate?.message}
+            hint="Residents see and toggle this meal only for this date, including in advance before cutoff."
+          />
+        )}
       </div>
 
       {/* Times — deliberately blank on create; custom BoardOps clock picker */}
@@ -804,6 +852,11 @@ function MealConfigCard({
             {meal.pricingMode === "FIXED" && meal.fixedPrice
               ? `₹${meal.fixedPrice.toLocaleString("en-IN")} fixed`
               : "Formula pricing"}
+          </Badge>
+          <Badge variant="outline" className="text-[10px]">
+            {meal.serviceSchedule === "DATE_SPECIFIC" && meal.serviceDate
+              ? `One-time · ${meal.serviceDate}`
+              : "Daily"}
           </Badge>
         </div>
 
@@ -1383,6 +1436,8 @@ export function MealsConfigView() {
                             cutoffOffsetMinutes: editing.cutoffOffsetMinutes,
                             startTime: editing.startTime,
                             endTime: editing.endTime,
+                            serviceSchedule: editing.serviceSchedule,
+                            serviceDate: editing.serviceDate ?? "",
                             pricingMode: editing.pricingMode,
                             fixedPrice: editing.fixedPrice ?? undefined,
                             notes: editing.notes || "",
@@ -1442,6 +1497,8 @@ export function MealsConfigView() {
                           cutoffOffsetMinutes: editing.cutoffOffsetMinutes,
                           startTime: editing.startTime,
                           endTime: editing.endTime,
+                          serviceSchedule: editing.serviceSchedule,
+                          serviceDate: editing.serviceDate ?? "",
                           pricingMode: editing.pricingMode,
                           fixedPrice: editing.fixedPrice ?? undefined,
                           notes: editing.notes || "",

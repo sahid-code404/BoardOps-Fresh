@@ -10,6 +10,8 @@ type MealRow = {
   cutoff_strategy: string;
   cutoff_offset_minutes: number;
   cutoff_time: string;
+  service_schedule: "DAILY" | "DATE_SPECIFIC";
+  service_date: string | null;
 };
 
 type EntryRow = {
@@ -51,7 +53,8 @@ mealOverrideRoutes.post("/meals/override", async (c) => {
 
   const [meal, targetUser, institution] = await Promise.all([
     c.env.DB.prepare(
-      `SELECT id, display_name, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time
+      `SELECT id, display_name, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time,
+              service_schedule, service_date
          FROM meal_configurations
         WHERE id = ? AND institution_id = ? AND status = 'ACTIVE' LIMIT 1`,
     ).bind(mealId, principal.institutionId).first<MealRow>(),
@@ -64,6 +67,9 @@ mealOverrideRoutes.post("/meals/override", async (c) => {
       .first<{ timezone: string }>(),
   ]);
   if (!meal) return c.json({ success: false, error: "Meal not found or inactive" }, 404);
+  if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== serviceDate) {
+    return c.json({ success: false, error: "Meal is not available on this service date" }, 404);
+  }
   if (!targetUser) return c.json({ success: false, error: "User not found or not active" }, 404);
 
   const timeZone = institution?.timezone || "UTC";

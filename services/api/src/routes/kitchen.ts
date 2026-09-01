@@ -23,6 +23,8 @@ type MealRow = {
   cutoff_offset_minutes: number;
   cutoff_time: string;
   status: string;
+  service_schedule: "DAILY" | "DATE_SPECIFIC";
+  service_date: string | null;
   deletion_requested_at: string | null;
   created_at: string;
   updated_at: string;
@@ -85,6 +87,7 @@ function dateInTimeZone(timestamp: string, timeZone: string): string {
 }
 
 function mealVisibleOnDate(meal: MealRow, serviceDate: string, timeZone: string): boolean {
+  if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== serviceDate) return false;
   const startsOn = dateInTimeZone(meal.created_at, timeZone);
   if (serviceDate < startsOn) return false;
 
@@ -156,7 +159,7 @@ kitchenRoutes.get("/kitchen", async (c) => {
     c.env.DB.prepare(
       `SELECT id, display_name, icon, color, start_time, end_time, default_state,
               cutoff_strategy, cutoff_offset_minutes, cutoff_time, status,
-              deletion_requested_at, created_at, updated_at
+              service_schedule, service_date, deletion_requested_at, created_at, updated_at
          FROM meal_configurations
         WHERE institution_id = ?
         ORDER BY display_order ASC, created_at ASC`,
@@ -363,7 +366,7 @@ kitchenRoutes.post("/kitchen", async (c) => {
     c.env.DB.prepare(
       `SELECT id, display_name, icon, color, start_time, end_time, default_state,
               cutoff_strategy, cutoff_offset_minutes, cutoff_time, status,
-              deletion_requested_at, created_at, updated_at
+              service_schedule, service_date, deletion_requested_at, created_at, updated_at
          FROM meal_configurations
         WHERE id = ? AND institution_id = ? LIMIT 1`,
     ).bind(mealId, principal.institutionId).first<MealRow>(),

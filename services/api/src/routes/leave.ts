@@ -29,6 +29,8 @@ type MealRow = {
   cutoff_strategy: string;
   cutoff_offset_minutes: number;
   cutoff_time: string;
+  service_schedule: "DAILY" | "DATE_SPECIFIC";
+  service_date: string | null;
 };
 
 export const leaveRoutes = new Hono<AppEnv>();
@@ -244,11 +246,13 @@ leaveRoutes.patch("/leave/:id", async (c) => {
     }
 
     const mealSql = existing.meal_type === "SPECIFIC" && selectedMealIds.length > 0
-      ? `SELECT id, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time
-           FROM meal_configurations
+      ? `SELECT id, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time,
+              service_schedule, service_date
+       FROM meal_configurations
           WHERE institution_id = ? AND status = 'ACTIVE' AND id IN (${selectedMealIds.map(() => "?").join(", ")})`
-      : `SELECT id, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time
-           FROM meal_configurations
+      : `SELECT id, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time,
+              service_schedule, service_date
+       FROM meal_configurations
           WHERE institution_id = ? AND status = 'ACTIVE'`;
     const meals = await c.env.DB.prepare(mealSql)
       .bind(principal.institutionId, ...selectedMealIds)
@@ -259,6 +263,7 @@ leaveRoutes.patch("/leave/:id", async (c) => {
 
     for (const meal of meals.results) {
       for (const serviceDate of dates) {
+        if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== serviceDate) continue;
         const editableUntil = computeEditableUntilIso(meal, serviceDate, timeZone);
         const entryId = crypto.randomUUID();
         statements.push(
