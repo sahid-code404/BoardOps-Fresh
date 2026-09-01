@@ -16,7 +16,51 @@ function productionEnv(): AppEnv["Bindings"] {
   };
 }
 
-function jsonPost(path: string, body: Record<string, unknown>) {
+type PreparedCall = { sql: string; args: unknown[] };
+
+function registrationProductionEnv(): {
+  env: AppEnv["Bindings"];
+  calls: PreparedCall[];
+} {
+  const calls: PreparedCall[] = [];
+  const DB = {
+    prepare(sql: string) {
+      let args: unknown[] = [];
+      const statement = {
+        bind(...values: unknown[]) {
+          args = values;
+          calls.push({ sql, args });
+          return statement;
+        },
+        async first() {
+          if (sql.includes("FROM institutions")) {
+            return { id: "inst_test", name: "BoardOps Institute" };
+          }
+          return null;
+        },
+      };
+      return statement;
+    },
+    async batch() {
+      return [];
+    },
+  } as unknown as D1Database;
+
+  return {
+    env: {
+      DB,
+      FILES: {} as R2Bucket,
+      ENVIRONMENT: "production",
+    },
+    calls,
+  };
+}
+
+function jsonPostWithEnv(
+  path: string,
+  body: Record<string, unknown>,
+  env: AppEnv["Bindings"],
+) {
   return authWorkflowRoutes.request(
     `http://boardops.local${path}`,
     {
@@ -24,13 +68,18 @@ function jsonPost(path: string, body: Record<string, unknown>) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
     },
-    productionEnv(),
+    env,
   );
 }
 
+function jsonPost(path: string, body: Record<string, unknown>) {
+  return jsonPostWithEnv(path, body, productionEnv());
+}
+
 describe("Phase 04 auth delivery boundary", () => {
-  it("fails registration before creating any account or challenge when delivery is unavailable", async () => {
-    const response = await jsonPost("/register", {
+  it("temporarily allows registration without email delivery and auto-marks the account verified", async () => {
+    const { env, calls } = registrationProductionEnv();
+    const response = await jsonPostWithEnv("/register", {
       name: "Production Applicant",
       institutionName: "BoardOps Institute",
       institutionUserId: "PROD-001",
@@ -41,13 +90,20 @@ describe("Phase 04 auth delivery boundary", () => {
       room: "P-101",
       gender: "OTHER",
       consents: { rules: true, privacy: true, terms: true },
+    }, env);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      data: {
+        email: "production.applicant@example.test",
+        verificationRequired: false,
+      },
     });
 
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({
-      success: false,
-      error: "Email verification delivery is not configured",
-    });
+    const userInsert = calls.find((call) => call.sql.includes("INSERT INTO users"));
+    expect(userInsert).toBeTruthy();
+    expect(userInsert?.args[7]).toBe(1);
   });
 
   it("keeps verification resend non-enumerating and mutation-free when delivery is unavailable", async () => {
