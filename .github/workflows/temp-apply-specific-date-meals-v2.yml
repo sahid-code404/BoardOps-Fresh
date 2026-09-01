@@ -1,0 +1,242 @@
+name: Temporary apply date-specific meal scheduling v2
+
+on:
+  push:
+    branches:
+      - fix/meal-status-filter-pills
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/meal-status-filter-pills
+          fetch-depth: 0
+
+      - name: Apply source changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def rep(path, old, new, count=1):
+              p = Path(path)
+              text = p.read_text()
+              found = text.count(old)
+              if found != count:
+                  raise SystemExit(f"{path}: expected {count} occurrences, found {found}\n--- needle ---\n{old[:700]}")
+              p.write_text(text.replace(old, new))
+
+          # Schema: existing meals remain DAILY; a DATE_SPECIFIC meal must carry one valid YYYY-MM-DD date.
+          Path("migrations/0030_meal_service_schedule.sql").write_text('''-- Meal service scheduling — recurring daily or one specific service date.\nPRAGMA foreign_keys = ON;\n\nALTER TABLE meal_configurations\n  ADD COLUMN service_schedule TEXT NOT NULL DEFAULT 'DAILY'\n    CHECK (service_schedule IN ('DAILY', 'DATE_SPECIFIC'));\n\nALTER TABLE meal_configurations\n  ADD COLUMN service_date TEXT;\n\nCREATE INDEX meal_configurations_institution_service_schedule_idx\n  ON meal_configurations(institution_id, service_schedule, service_date, status);\n\nCREATE TRIGGER meal_configurations_service_schedule_insert_guard\nBEFORE INSERT ON meal_configurations\nWHEN\n  (NEW.service_schedule = 'DAILY' AND NEW.service_date IS NOT NULL)\n  OR\n  (NEW.service_schedule = 'DATE_SPECIFIC' AND (\n    NEW.service_date IS NULL\n    OR length(NEW.service_date) <> 10\n    OR date(NEW.service_date) IS NULL\n    OR strftime('%Y-%m-%d', NEW.service_date) <> NEW.service_date\n  ))\nBEGIN\n  SELECT RAISE(ABORT, 'Invalid meal service schedule/date');\nEND;\n\nCREATE TRIGGER meal_configurations_service_schedule_update_guard\nBEFORE UPDATE OF service_schedule, service_date ON meal_configurations\nWHEN\n  (NEW.service_schedule = 'DAILY' AND NEW.service_date IS NOT NULL)\n  OR\n  (NEW.service_schedule = 'DATE_SPECIFIC' AND (\n    NEW.service_date IS NULL\n    OR length(NEW.service_date) <> 10\n    OR date(NEW.service_date) IS NULL\n    OR strftime('%Y-%m-%d', NEW.service_date) <> NEW.service_date\n  ))\nBEGIN\n  SELECT RAISE(ABORT, 'Invalid meal service schedule/date');\nEND;\n''')
+
+          # ---------------- Meal Configuration API ----------------
+          f = "services/api/src/routes/meals-config.ts"
+          rep(f,
+          '''const PRICING_MODES = new Set(["FORMULA", "FIXED"]);\nconst TIME_RE = /^(?:[01]\\d|2[0-3]):[0-5]\\d$/u;\nconst COLOR_RE = /^#[0-9a-f]{6}$/iu;''',
+          '''const PRICING_MODES = new Set(["FORMULA", "FIXED"]);\nconst SERVICE_SCHEDULES = new Set(["DAILY", "DATE_SPECIFIC"]);\nconst TIME_RE = /^(?:[01]\\d|2[0-3]):[0-5]\\d$/u;\nconst DATE_RE = /^\\d{4}-\\d{2}-\\d{2}$/u;\nconst COLOR_RE = /^#[0-9a-f]{6}$/iu;''')
+          rep(f,
+          '''  start_time: string;\n  end_time: string;\n  pricing_mode: "FORMULA" | "FIXED";''',
+          '''  start_time: string;\n  end_time: string;\n  service_schedule: "DAILY" | "DATE_SPECIFIC";\n  service_date: string | null;\n  pricing_mode: "FORMULA" | "FIXED";''')
+          rep(f,
+          '''  startTime: string;\n  endTime: string;\n  pricingMode: "FORMULA" | "FIXED";''',
+          '''  startTime: string;\n  endTime: string;\n  serviceSchedule: "DAILY" | "DATE_SPECIFIC";\n  serviceDate: string | null;\n  pricingMode: "FORMULA" | "FIXED";''')
+          rep(f,
+          '''    startTime: row.start_time,\n    endTime: row.end_time,\n    pricingMode: row.pricing_mode,''',
+          '''    startTime: row.start_time,\n    endTime: row.end_time,\n    serviceSchedule: row.service_schedule,\n    serviceDate: row.service_date,\n    pricingMode: row.pricing_mode,''')
+          rep(f,
+          '''  const startTime = stringValue(body, "startTime") ?? existing?.start_time;\n  const endTime = stringValue(body, "endTime") ?? existing?.end_time;\n  const pricingRaw = stringValue(body, "pricingMode") ?? existing?.pricing_mode ?? "FORMULA";''',
+          '''  const startTime = stringValue(body, "startTime") ?? existing?.start_time;\n  const endTime = stringValue(body, "endTime") ?? existing?.end_time;\n  const serviceScheduleRaw = stringValue(body, "serviceSchedule") ?? existing?.service_schedule ?? "DAILY";\n  const serviceSchedule = serviceScheduleRaw as "DAILY" | "DATE_SPECIFIC";\n  const requestedServiceDate = nullableString(body, "serviceDate");\n  const serviceDate = serviceSchedule === "DATE_SPECIFIC"\n    ? (requestedServiceDate === undefined ? existing?.service_date ?? null : requestedServiceDate)\n    : null;\n  const pricingRaw = stringValue(body, "pricingMode") ?? existing?.pricing_mode ?? "FORMULA";''')
+          rep(f,
+          '''  if (!startTime || !TIME_RE.test(startTime) || !endTime || !TIME_RE.test(endTime)) {\n    return { error: "Service start and end times are required" };\n  }\n  if (!PRICING_MODES.has(pricingMode)) return { error: "Invalid meal pricing mode" };''',
+          '''  if (!startTime || !TIME_RE.test(startTime) || !endTime || !TIME_RE.test(endTime)) {\n    return { error: "Service start and end times are required" };\n  }\n  if (!SERVICE_SCHEDULES.has(serviceSchedule)) return { error: "Invalid meal service schedule" };\n  if (serviceSchedule === "DATE_SPECIFIC") {\n    if (!serviceDate || !DATE_RE.test(serviceDate)) {\n      return { error: "A valid service date is required for a date-specific meal" };\n    }\n    const parsedDate = new Date(`${serviceDate}T00:00:00.000Z`);\n    if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== serviceDate) {\n      return { error: "A valid service date is required for a date-specific meal" };\n    }\n  }\n  if (!PRICING_MODES.has(pricingMode)) return { error: "Invalid meal pricing mode" };''')
+          rep(f,
+          '''      startTime,\n      endTime,\n      pricingMode,''',
+          '''      startTime,\n      endTime,\n      serviceSchedule,\n      serviceDate,\n      pricingMode,''')
+          rep(f,
+          '''                     cutoff_strategy, cutoff_offset_minutes, cutoff_time, start_time,\n                     end_time, pricing_mode, fixed_price_minor, deletion_requested_at,''',
+          '''                     cutoff_strategy, cutoff_offset_minutes, cutoff_time, start_time,\n                     end_time, service_schedule, service_date, pricing_mode, fixed_price_minor, deletion_requested_at,''')
+          rep(f,
+          '''         cutoff_offset_minutes, cutoff_time, start_time, end_time, pricing_mode,\n         fixed_price_minor, notes, created_at, updated_at)\n       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+          '''         cutoff_offset_minutes, cutoff_time, start_time, end_time, service_schedule,\n         service_date, pricing_mode, fixed_price_minor, notes, created_at, updated_at)\n       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''')
+          rep(f,
+          '''      value.cutoffOffsetMinutes, value.cutoffTime, value.startTime, value.endTime,\n      value.pricingMode, value.fixedPriceMinor, value.notes, now, now,''',
+          '''      value.cutoffOffsetMinutes, value.cutoffTime, value.startTime, value.endTime,\n      value.serviceSchedule, value.serviceDate, value.pricingMode, value.fixedPriceMinor,\n      value.notes, now, now,''')
+          rep(f,
+          '''  if (await duplicateMeal(c, principal.institutionId, existing.name, value.displayName, existing.id)) {\n    return c.json({\n      success: false,\n      error: "A meal with this display name or internal name already exists. Choose a different display name.",\n    }, 409);\n  }\n\n  const now = new Date().toISOString();''',
+          '''  if (await duplicateMeal(c, principal.institutionId, existing.name, value.displayName, existing.id)) {\n    return c.json({\n      success: false,\n      error: "A meal with this display name or internal name already exists. Choose a different display name.",\n    }, 409);\n  }\n\n  const scheduleChanged =\n    value.serviceSchedule !== existing.service_schedule || value.serviceDate !== existing.service_date;\n  if (scheduleChanged) {\n    const usage = await c.env.DB.prepare(\n      `SELECT\n         EXISTS(SELECT 1 FROM meal_entries WHERE institution_id = ? AND meal_id = ? LIMIT 1) AS has_entries,\n         EXISTS(SELECT 1 FROM guest_meals WHERE institution_id = ? AND meal_id = ? LIMIT 1) AS has_guests`,\n    ).bind(\n      principal.institutionId, id, principal.institutionId, id,\n    ).first<{ has_entries: number; has_guests: number }>();\n    if (Number(usage?.has_entries ?? 0) === 1 || Number(usage?.has_guests ?? 0) === 1) {\n      return c.json({\n        success: false,\n        error: "Service schedule cannot be changed after meal activity exists. Create a new meal configuration instead.",\n      }, 409);\n    }\n  }\n\n  const now = new Date().toISOString();''')
+          rep(f,
+          '''          cutoff_strategy = ?, cutoff_offset_minutes = ?, cutoff_time = ?,\n          start_time = ?, end_time = ?, pricing_mode = ?, fixed_price_minor = ?,\n          notes = ?, updated_at = ?''',
+          '''          cutoff_strategy = ?, cutoff_offset_minutes = ?, cutoff_time = ?,\n          start_time = ?, end_time = ?, service_schedule = ?, service_date = ?,\n          pricing_mode = ?, fixed_price_minor = ?, notes = ?, updated_at = ?''')
+          rep(f,
+          '''  value.cutoffStrategy, value.cutoffOffsetMinutes, value.cutoffTime,\n  value.startTime, value.endTime, value.pricingMode, value.fixedPriceMinor,\n  value.notes, now, id, principal.institutionId,''',
+          '''  value.cutoffStrategy, value.cutoffOffsetMinutes, value.cutoffTime,\n  value.startTime, value.endTime, value.serviceSchedule, value.serviceDate,\n  value.pricingMode, value.fixedPriceMinor, value.notes, now, id, principal.institutionId,''')
+
+          # ---------------- Resident schedules / future self-toggle ----------------
+          f = "services/api/src/routes/resident-meals.ts"
+          rep(f,
+          '''  start_time: string;\n  end_time: string;\n};''',
+          '''  start_time: string;\n  end_time: string;\n  service_schedule: "DAILY" | "DATE_SPECIFIC";\n  service_date: string | null;\n};''', 1)
+          rep(f,
+          '''  meal_start_time: string;\n  meal_end_time: string;\n};''',
+          '''  meal_start_time: string;\n  meal_end_time: string;\n  meal_service_schedule: "DAILY" | "DATE_SPECIFIC";\n  meal_service_date: string | null;\n};''')
+          rep(f,
+          '''    cutoffTime: row.cutoff_time,\n  };''',
+          '''    cutoffTime: row.cutoff_time,\n    serviceSchedule: row.service_schedule,\n    serviceDate: row.service_date,\n  };''')
+          rep(f,
+          '''    start_time: row.meal_start_time,\n    end_time: row.meal_end_time,\n  };''',
+          '''    start_time: row.meal_start_time,\n    end_time: row.meal_end_time,\n    service_schedule: row.meal_service_schedule,\n    service_date: row.meal_service_date,\n  };''')
+          rep(f,
+          '''      `SELECT id, name, display_name, icon, color, meal_type, default_state,\n              cutoff_strategy, cutoff_offset_minutes, cutoff_time, start_time, end_time\n         FROM meal_configurations''',
+          '''      `SELECT id, name, display_name, icon, color, meal_type, default_state,\n              cutoff_strategy, cutoff_offset_minutes, cutoff_time, start_time, end_time,\n              service_schedule, service_date\n         FROM meal_configurations''')
+          rep(f,
+          '''  const [existing, holidays, lockedPeriods] = await Promise.all([''',
+          '''  const rangeMeals = context.meals.filter((meal) =>\n    range.dates.some((date) => meal.service_schedule !== "DATE_SPECIFIC" || meal.service_date === date),\n  );\n\n  const [existing, holidays, lockedPeriods] = await Promise.all([''')
+          rep(f,
+          '''    for (const meal of context.meals) {\n      if (existingKey.has(`${serviceDate}\\u0000${meal.id}`)) continue;''',
+          '''    for (const meal of rangeMeals) {\n      if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== serviceDate) continue;\n      if (existingKey.has(`${serviceDate}\\u0000${meal.id}`)) continue;''')
+          rep(f,
+          '''    if (!meal) continue;\n    const preRegistration = isBeforeEnrollment(entry.service_date, context.user.created_at, meal, context.timeZone);''',
+          '''    if (!meal) continue;\n    if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== entry.service_date) continue;\n    const preRegistration = isBeforeEnrollment(entry.service_date, context.user.created_at, meal, context.timeZone);''')
+          rep(f, '''      meals: context.meals.map(mappedMeal),''', '''      meals: rangeMeals.map(mappedMeal),''')
+          rep(f,
+          '''            m.cutoff_time AS meal_cutoff_time,\n            m.start_time AS meal_start_time, m.end_time AS meal_end_time\n       FROM meal_entries e''',
+          '''            m.cutoff_time AS meal_cutoff_time,\n            m.start_time AS meal_start_time, m.end_time AS meal_end_time,\n            m.service_schedule AS meal_service_schedule, m.service_date AS meal_service_date\n       FROM meal_entries e''')
+          rep(f,
+          '''  if (!entry) return c.json({ success: false, error: "Meal entry not found" }, 404);\n  const meal = mealFromToggleRow(entry);\n\n  const [user, institution] = await Promise.all([''',
+          '''  if (!entry) return c.json({ success: false, error: "Meal entry not found" }, 404);\n  const meal = mealFromToggleRow(entry);\n  if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== entry.service_date) {\n    return c.json({ success: false, error: "Meal is not available on this service date" }, 404);\n  }\n\n  const [user, institution] = await Promise.all([''')
+
+          # ---------------- Meal Counts / kitchen ----------------
+          f = "services/api/src/routes/kitchen.ts"
+          rep(f,
+          '''  status: string;\n  deletion_requested_at: string | null;''',
+          '''  status: string;\n  service_schedule: "DAILY" | "DATE_SPECIFIC";\n  service_date: string | null;\n  deletion_requested_at: string | null;''')
+          rep(f,
+          '''function mealVisibleOnDate(meal: MealRow, serviceDate: string, timeZone: string): boolean {\n  const startsOn = dateInTimeZone(meal.created_at, timeZone);''',
+          '''function mealVisibleOnDate(meal: MealRow, serviceDate: string, timeZone: string): boolean {\n  if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== serviceDate) return false;\n  const startsOn = dateInTimeZone(meal.created_at, timeZone);''')
+          rep(f,
+          '''              cutoff_strategy, cutoff_offset_minutes, cutoff_time, status,\n              deletion_requested_at, created_at, updated_at''',
+          '''              cutoff_strategy, cutoff_offset_minutes, cutoff_time, status,\n              service_schedule, service_date, deletion_requested_at, created_at, updated_at''', 2)
+
+          # ---------------- Dashboard current-day list ----------------
+          f = "services/api/src/routes/dashboard.ts"
+          rep(f,
+          '''  cutoff_offset_minutes: number;\n  cutoff_time: string;\n};''',
+          '''  cutoff_offset_minutes: number;\n  cutoff_time: string;\n  service_schedule: "DAILY" | "DATE_SPECIFIC";\n  service_date: string | null;\n};''', 1)
+          rep(f,
+          '''      `SELECT id, name, display_name, icon, color, start_time, end_time, default_state,\n              cutoff_strategy, cutoff_offset_minutes, cutoff_time\n         FROM meal_configurations''',
+          '''      `SELECT id, name, display_name, icon, color, start_time, end_time, default_state,\n              cutoff_strategy, cutoff_offset_minutes, cutoff_time, service_schedule, service_date\n         FROM meal_configurations''')
+          rep(f,
+          '''  const todayMeals = mealsResult.results.map((meal) => {''',
+          '''  const todayMeals = mealsResult.results\n    .filter((meal) => meal.service_schedule !== "DATE_SPECIFIC" || meal.service_date === today)\n    .map((meal) => {''')
+
+          # ---------------- Leave application/approval ----------------
+          f = "services/api/src/routes/leave.ts"
+          rep(f,
+          '''  cutoff_offset_minutes: number;\n  cutoff_time: string;\n};''',
+          '''  cutoff_offset_minutes: number;\n  cutoff_time: string;\n  service_schedule: "DAILY" | "DATE_SPECIFIC";\n  service_date: string | null;\n};''', 1)
+          rep(f,
+          '''SELECT id, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time\n       FROM meal_configurations''',
+          '''SELECT id, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time,\n              service_schedule, service_date\n       FROM meal_configurations''', 2)
+          rep(f,
+          '''    for (const meal of meals.results) {\n      for (const serviceDate of dates) {\n        const editableUntil = computeEditableUntilIso(meal, serviceDate, timeZone);''',
+          '''    for (const meal of meals.results) {\n      for (const serviceDate of dates) {\n        if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== serviceDate) continue;\n        const editableUntil = computeEditableUntilIso(meal, serviceDate, timeZone);''')
+
+          # ---------------- Admin meal overrides ----------------
+          f = "services/api/src/routes/meal-overrides.ts"
+          rep(f,
+          '''  cutoff_offset_minutes: number;\n  cutoff_time: string;\n};''',
+          '''  cutoff_offset_minutes: number;\n  cutoff_time: string;\n  service_schedule: "DAILY" | "DATE_SPECIFIC";\n  service_date: string | null;\n};''', 1)
+          rep(f,
+          '''      `SELECT id, display_name, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time\n         FROM meal_configurations''',
+          '''      `SELECT id, display_name, default_state, cutoff_strategy, cutoff_offset_minutes, cutoff_time,\n              service_schedule, service_date\n         FROM meal_configurations''')
+          rep(f,
+          '''  if (!meal) return c.json({ success: false, error: "Meal not found or inactive" }, 404);\n  if (!targetUser) return c.json({ success: false, error: "User not found or not active" }, 404);''',
+          '''  if (!meal) return c.json({ success: false, error: "Meal not found or inactive" }, 404);\n  if (meal.service_schedule === "DATE_SPECIFIC" && meal.service_date !== serviceDate) {\n    return c.json({ success: false, error: "Meal is not available on this service date" }, 404);\n  }\n  if (!targetUser) return c.json({ success: false, error: "User not found or not active" }, 404);''')
+
+          # ---------------- Admin configuration UI ----------------
+          f = "apps/web/src/components/features/meals/meals-config-view.tsx"
+          rep(f,
+          '''  startTime: string;\n  endTime: string;\n  pricingMode: "FORMULA" | "FIXED";''',
+          '''  startTime: string;\n  endTime: string;\n  serviceSchedule: "DAILY" | "DATE_SPECIFIC";\n  serviceDate: string | null;\n  pricingMode: "FORMULA" | "FIXED";''', 1)
+          rep(f,
+          '''  displayOrder: z.coerce.number().int().min(0),\n  defaultState: z.enum(["ON", "OFF"]),''',
+          '''  displayOrder: z.coerce.number().int().min(0),\n  serviceSchedule: z.enum(["DAILY", "DATE_SPECIFIC"]),\n  serviceDate: z.string().optional(),\n  defaultState: z.enum(["ON", "OFF"]),''')
+          rep(f,
+          '''}).superRefine((value, ctx) => {\n  if (value.pricingMode === "FIXED" && !value.fixedPrice) {''',
+          '''}).superRefine((value, ctx) => {\n  if (value.serviceSchedule === "DATE_SPECIFIC" && !/^\\d{4}-\\d{2}-\\d{2}$/u.test(value.serviceDate || "")) {\n    ctx.addIssue({\n      code: z.ZodIssueCode.custom,\n      path: ["serviceDate"],\n      message: "Choose the one-time service date",\n    });\n  }\n  if (value.pricingMode === "FIXED" && !value.fixedPrice) {''')
+          rep(f,
+          '''  displayOrder: 0,\n  defaultState: "OFF",''',
+          '''  displayOrder: 0,\n  serviceSchedule: "DAILY",\n  serviceDate: "",\n  defaultState: "OFF",''')
+          rep(f,
+          '''  const watchedPricingMode = useWatch({ control, name: "pricingMode" });\n  const watchedStartTime = useWatch({ control, name: "startTime" });''',
+          '''  const watchedPricingMode = useWatch({ control, name: "pricingMode" });\n  const watchedServiceSchedule = useWatch({ control, name: "serviceSchedule" });\n  const watchedStartTime = useWatch({ control, name: "startTime" });''')
+          rep(f,
+          '''      {/* Times — deliberately blank on create; custom BoardOps clock picker */}''',
+          '''      {/* Service schedule */}\n      <div className="glass-soft rounded-2xl p-3 space-y-3">\n        <div>\n          <p className="text-sm font-semibold">Service schedule</p>\n          <p className="text-[11px] text-muted-foreground">\n            Keep regular meals recurring, or make a special meal available on exactly one date.\n          </p>\n        </div>\n        <Controller\n          control={control}\n          name="serviceSchedule"\n          render={({ field }) => (\n            <Select value={field.value} onValueChange={field.onChange}>\n              <SelectTrigger className="w-full h-11 rounded-2xl glass-soft" aria-label="Service schedule">\n                <SelectValue />\n              </SelectTrigger>\n              <SelectContent>\n                <SelectItem value="DAILY">Daily recurring</SelectItem>\n                <SelectItem value="DATE_SPECIFIC">Specific date · one-time meal</SelectItem>\n              </SelectContent>\n            </Select>\n          )}\n        />\n        {watchedServiceSchedule === "DATE_SPECIFIC" && (\n          <GlassInput\n            label="Service date"\n            type="date"\n            {...register("serviceDate")}\n            error={errors.serviceDate?.message}\n            hint="Residents see and toggle this meal only for this date, including in advance before cutoff."\n          />\n        )}\n      </div>\n\n      {/* Times — deliberately blank on create; custom BoardOps clock picker */}''')
+          rep(f,
+          '''          <Badge variant="outline" className="text-[10px]">\n            {meal.pricingMode === "FIXED" && meal.fixedPrice\n              ? `₹${meal.fixedPrice.toLocaleString("en-IN")} fixed`\n              : "Formula pricing"}\n          </Badge>''',
+          '''          <Badge variant="outline" className="text-[10px]">\n            {meal.pricingMode === "FIXED" && meal.fixedPrice\n              ? `₹${meal.fixedPrice.toLocaleString("en-IN")} fixed`\n              : "Formula pricing"}\n          </Badge>\n          <Badge variant="outline" className="text-[10px]">\n            {meal.serviceSchedule === "DATE_SPECIFIC" && meal.serviceDate\n              ? `One-time · ${meal.serviceDate}`\n              : "Daily"}\n          </Badge>''')
+          rep(f,
+          '''                            startTime: editing.startTime,\n                            endTime: editing.endTime,\n                            pricingMode: editing.pricingMode,''',
+          '''                            startTime: editing.startTime,\n                            endTime: editing.endTime,\n                            serviceSchedule: editing.serviceSchedule,\n                            serviceDate: editing.serviceDate ?? "",\n                            pricingMode: editing.pricingMode,''')
+          rep(f,
+          '''                          startTime: editing.startTime,\n                          endTime: editing.endTime,\n                          pricingMode: editing.pricingMode,''',
+          '''                          startTime: editing.startTime,\n                          endTime: editing.endTime,\n                          serviceSchedule: editing.serviceSchedule,\n                          serviceDate: editing.serviceDate ?? "",\n                          pricingMode: editing.pricingMode,''')
+
+          # ---------------- Resident leave selector: don't show a one-time meal for an unrelated leave range ----------------
+          f = "apps/web/src/components/features/meals/user-meals-view.tsx"
+          rep(f,
+          '''      api.get<ApiResponse<{ id: string; name: string; displayName: string; icon: string; status: string }[]>>("/meals/config"),''',
+          '''      api.get<ApiResponse<{ id: string; name: string; displayName: string; icon: string; status: string; serviceSchedule: "DAILY" | "DATE_SPECIFIC"; serviceDate: string | null }[]>>("/meals/config"),''')
+          rep(f,
+          '''  const activeMealsForLeave = (mealsConfigResp?.data ?? []).filter((m) => m.status === "ACTIVE");''',
+          '''  const activeMealsForLeave = (mealsConfigResp?.data ?? []).filter((m) =>\n    m.status === "ACTIVE"\n    && (m.serviceSchedule !== "DATE_SPECIFIC" || (!!m.serviceDate && leaveStart <= m.serviceDate && m.serviceDate <= leaveEnd)),\n  );''')
+
+          # ---------------- Runtime configuration UI proof ----------------
+          f = "tests/runtime-e2e/meals-config.spec.ts"
+          rep(f,
+          '''  await expect(page.getByText("Meal position is sorted automatically by service start time.", { exact: true })).toBeVisible();\n  await expect(page.getByRole("button", { name: "Service start", exact: true })).toBeVisible();''',
+          '''  await expect(page.getByText("Meal position is sorted automatically by service start time.", { exact: true })).toBeVisible();\n  await expect(page.getByRole("combobox", { name: "Service schedule", exact: true })).toBeVisible();\n  await page.getByRole("combobox", { name: "Service schedule", exact: true }).click();\n  await page.getByRole("option", { name: /Specific date/ }).click();\n  await expect(page.getByLabel("Service date", { exact: true })).toBeVisible();\n  await expect(page.getByRole("button", { name: "Service start", exact: true })).toBeVisible();''')
+
+          # ---------------- Real-D1 resident one-time date proof ----------------
+          f = "tests/runtime-e2e/resident-meals-leave.spec.ts"
+          rep(f,
+          '''    expect(dashboardBody.data.permissions).not.toContain("meals.override");\n    expect(dashboardBody.data.permissions).not.toContain("leave.decide");\n\n    const scheduleDate = "2026-09-01";''',
+          '''    expect(dashboardBody.data.permissions).not.toContain("meals.override");\n    expect(dashboardBody.data.permissions).not.toContain("leave.decide");\n\n    const oneTimeDate = "2026-09-20";\n    const createOneTimeMeal = await adminApi.post(`${API}/api/meals/config`, {\n      data: {\n        displayName: "September Special Dinner",\n        description: "One-time resident meal scheduling runtime proof",\n        icon: "🎉",\n        color: "#a855f7",\n        mealType: "SPECIAL",\n        displayOrder: 0,\n        defaultState: "OFF",\n        defaultVisibility: "VISIBLE",\n        cutoffStrategy: "PREVIOUS_DAY",\n        cutoffOffsetMinutes: 0,\n        cutoffTime: "23:59",\n        startTime: "18:00",\n        endTime: "19:00",\n        serviceSchedule: "DATE_SPECIFIC",\n        serviceDate: oneTimeDate,\n        pricingMode: "FIXED",\n        fixedPrice: 150,\n        notes: "runtime one-time meal",\n      },\n    });\n    expect(createOneTimeMeal.status()).toBe(201);\n    const createOneTimeBody = await createOneTimeMeal.json() as ApiEnvelope<{ id: string }>;\n\n    const beforeOneTime = await residentApi.get(`${API}/api/meals/entries?date=2026-09-19`);\n    expect(beforeOneTime.ok()).toBeTruthy();\n    const beforeOneTimeBody = await beforeOneTime.json() as ApiEnvelope<ResidentSchedule>;\n    expect(beforeOneTimeBody.data.meals.map((meal) => meal.displayName)).not.toContain("September Special Dinner");\n    expect((beforeOneTimeBody.data.byDate["2026-09-19"] ?? []).map((entry) => entry.mealDisplayName)).not.toContain("September Special Dinner");\n\n    const onOneTime = await residentApi.get(`${API}/api/meals/entries?date=${oneTimeDate}`);\n    expect(onOneTime.ok()).toBeTruthy();\n    const onOneTimeBody = await onOneTime.json() as ApiEnvelope<ResidentSchedule>;\n    expect(onOneTimeBody.data.meals.map((meal) => meal.displayName)).toContain("September Special Dinner");\n    const specialEntry = (onOneTimeBody.data.byDate[oneTimeDate] ?? []).find((entry) => entry.mealDisplayName === "September Special Dinner");\n    expect(specialEntry).toBeTruthy();\n    expect(specialEntry?.locked).toBe(false);\n\n    const futureToggle = await residentApi.patch(`${API}/api/meals/toggle`, {\n      data: { entryId: specialEntry!.id, status: "ON" },\n    });\n    expect(futureToggle.ok()).toBeTruthy();\n    await expect(futureToggle.json()).resolves.toMatchObject({\n      success: true,\n      data: { id: specialEntry!.id, serviceDate: oneTimeDate, status: "ON" },\n    });\n\n    const specialCounts = await adminApi.get(`${API}/api/kitchen?date=${oneTimeDate}`);\n    expect(specialCounts.ok()).toBeTruthy();\n    const specialCountsBody = await specialCounts.json() as ApiEnvelope<{ counts: Array<{ name: string }> }>;\n    expect(specialCountsBody.data.counts.map((meal) => meal.name)).toContain("September Special Dinner");\n\n    const afterOneTime = await residentApi.get(`${API}/api/meals/entries?date=2026-09-21`);\n    expect(afterOneTime.ok()).toBeTruthy();\n    const afterOneTimeBody = await afterOneTime.json() as ApiEnvelope<ResidentSchedule>;\n    expect(afterOneTimeBody.data.meals.map((meal) => meal.displayName)).not.toContain("September Special Dinner");\n    expect((afterOneTimeBody.data.byDate["2026-09-21"] ?? []).map((entry) => entry.mealDisplayName)).not.toContain("September Special Dinner");\n    const afterCounts = await adminApi.get(`${API}/api/kitchen?date=2026-09-21`);\n    expect(afterCounts.ok()).toBeTruthy();\n    const afterCountsBody = await afterCounts.json() as ApiEnvelope<{ counts: Array<{ name: string }> }>;\n    expect(afterCountsBody.data.counts.map((meal) => meal.name)).not.toContain("September Special Dinner");\n\n    const archiveOneTime = await adminApi.put(`${API}/api/meals/config/${createOneTimeBody.data.id}`, {\n      data: { status: "ARCHIVED" },\n    });\n    expect(archiveOneTime.ok()).toBeTruthy();\n\n    const scheduleDate = "2026-09-01";''')
+
+          print("date-specific meal source patch complete")
+          PY
+
+      - name: Verify changed source before commit
+        shell: bash
+        run: |
+          git diff --check
+          test -f migrations/0030_meal_service_schedule.sql
+          grep -q 'DATE_SPECIFIC' services/api/src/routes/resident-meals.ts
+          grep -q 'DATE_SPECIFIC' services/api/src/routes/kitchen.ts
+          grep -q 'Specific date · one-time meal' apps/web/src/components/features/meals/meals-config-view.tsx
+
+      - name: Commit feature
+        shell: bash
+        run: |
+          git config user.name "boardops-ci"
+          git config user.email "boardops-ci@users.noreply.github.com"
+          git add migrations/0030_meal_service_schedule.sql \
+            services/api/src/routes/meals-config.ts \
+            services/api/src/routes/resident-meals.ts \
+            services/api/src/routes/kitchen.ts \
+            services/api/src/routes/dashboard.ts \
+            services/api/src/routes/leave.ts \
+            services/api/src/routes/meal-overrides.ts \
+            apps/web/src/components/features/meals/meals-config-view.tsx \
+            apps/web/src/components/features/meals/user-meals-view.tsx \
+            tests/runtime-e2e/meals-config.spec.ts \
+            tests/runtime-e2e/resident-meals-leave.spec.ts
+          git commit -m "feat: add date-specific meal scheduling"
+          git push origin HEAD:fix/meal-status-filter-pills
