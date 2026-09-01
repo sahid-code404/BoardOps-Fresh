@@ -3,7 +3,6 @@ import { authenticatedPrincipal, hasPermission, PERMISSIONS } from "../auth/auth
 import {
   addDays,
   computeEditableUntilIso,
-  isBeforeEnrollment,
   isLockedAt,
   isOverridden,
   monthBounds,
@@ -26,21 +25,16 @@ type MealRow = {
   cutoff_time: string;
   service_schedule: "DAILY" | "DATE_SPECIFIC";
   service_date: string | null;
+  fixed_price_minor: number | null;
 };
 
 type MealEntryRow = {
-  user_id: string;
   meal_id: string;
   service_date: string;
   status: string;
   original_state: string;
   editable_until: string;
   locked: number;
-};
-
-type ResidentRow = {
-  id: string;
-  created_at: string;
 };
 
 type ActivityRow = {
@@ -59,11 +53,6 @@ type ExpenseRow = {
 type GuestCountRow = {
   meal_name: string;
   guest_count: number;
-};
-
-type RateRow = {
-  key: string;
-  value_text: string;
 };
 
 export const dashboardRoutes = new Hono<AppEnv>();
@@ -91,21 +80,6 @@ function confirmedOff(entry: MealEntryRow, isPastDate: boolean, now: Date): bool
   return locked && !isOverridden(entry.status, entry.original_state);
 }
 
-function exactMajorToMinor(valueExact: string): number | null {
-  const match = /^([+-])?(\d+)(?:\.(\d+))?$/u.exec(valueExact.trim());
-  if (!match || !match[2]) return null;
-  const negative = match[1] === "-";
-  const whole = BigInt(match[2]);
-  const fraction = (match[3] ?? "").padEnd(3, "0");
-  const cents = BigInt(fraction.slice(0, 2) || "0");
-  const roundDigit = Number(fraction.charAt(2) || "0");
-  let minor = whole * 100n + cents;
-  if (roundDigit >= 5) minor += 1n;
-  if (negative) minor = -minor;
-  if (minor > BigInt(Number.MAX_SAFE_INTEGER) || minor < BigInt(Number.MIN_SAFE_INTEGER)) return null;
-  return Number(minor);
-}
-
 function minorToMajor(value: number): number {
   return Number(value || 0) / 100;
 }
@@ -126,17 +100,13 @@ dashboardRoutes.get("/dashboard", async (c) => {
   const [
     summary,
     mealsResult,
-    residentsResult,
     viewerEntriesResult,
     trendEntriesResult,
     monthEntriesResult,
     guestCountsResult,
-    rateRowsResult,
     expenseRowsResult,
     pendingBillRow,
     unreadRow,
-    disabledHoliday,
-    lockedPeriod,
     activityRows,
   ] = await Promise.all([
     c.env.DB.prepare(
@@ -148,24 +118,19 @@ dashboardRoutes.get("/dashboard", async (c) => {
     ).bind(viewer.institutionId).first<{ active_count: number | null; pending_count: number | null }>(),
     c.env.DB.prepare(
       `SELECT id, name, display_name, icon, color, start_time, end_time, default_state,
-              cutoff_strategy, cutoff_offset_minutes, cutoff_time, service_schedule, service_date
+              cutoff_strategy, cutoff_offset_minutes, cutoff_time, service_schedule, service_date,
+              fixed_price_minor
          FROM meal_configurations
         WHERE institution_id = ? AND status = 'ACTIVE'
         ORDER BY display_order ASC, created_at ASC`,
     ).bind(viewer.institutionId).all<MealRow>(),
     c.env.DB.prepare(
-      `SELECT id, created_at
-         FROM users
-        WHERE institution_id = ? AND role = 'USER' AND status = 'ACTIVE' AND deleted_at IS NULL
-        ORDER BY id ASC`,
-    ).bind(viewer.institutionId).all<ResidentRow>(),
-    c.env.DB.prepare(
-      `SELECT user_id, meal_id, service_date, status, original_state, editable_until, locked
+      `SELECT meal_id, service_date, status, original_state, editable_until, locked
          FROM meal_entries
         WHERE institution_id = ? AND user_id = ? AND service_date = ?`,
     ).bind(viewer.institutionId, viewer.id, today).all<MealEntryRow>(),
     c.env.DB.prepare(
-      `SELECT e.user_id, e.meal_id, e.service_date, e.status, e.original_state, e.editable_until, e.locked
+      `SELECT e.meal_id, e.service_date, e.status, e.original_state, e.editable_until, e.locked
          FROM meal_entries e
          JOIN users u ON u.id = e.user_id
         WHERE e.institution_id = ?
@@ -175,7 +140,7 @@ dashboardRoutes.get("/dashboard", async (c) => {
           AND u.deleted_at IS NULL`,
     ).bind(viewer.institutionId, trendStart, today).all<MealEntryRow>(),
     c.env.DB.prepare(
-      `SELECT e.user_id, e.meal_id, e.service_date, e.status, e.original_state, e.editable_until, e.locked
+      `SELECT e.meal_id, e.service_date, e.status, e.original_state, e.editable_until, e.locked
          FROM meal_entries e
          JOIN users u ON u.id = e.user_id
         WHERE e.institution_id = ?
@@ -192,11 +157,6 @@ dashboardRoutes.get("/dashboard", async (c) => {
         WHERE g.institution_id = ? AND g.service_date BETWEEN ? AND ?
         GROUP BY m.name`,
     ).bind(viewer.institutionId, month.start, month.end).all<GuestCountRow>(),
-    c.env.DB.prepare(
-      `SELECT key, value_text
-         FROM variables
-        WHERE institution_id = ? AND status = 'ACTIVE' AND key LIKE 'meal.rate.%'`,
-    ).bind(viewer.institutionId).all<RateRow>(),
     c.env.DB.prepare(
       `SELECT category, amount_minor
          FROM expenses
@@ -223,21 +183,6 @@ dashboardRoutes.get("/dashboard", async (c) => {
          FROM notifications
         WHERE institution_id = ? AND user_id = ? AND read_at IS NULL`,
     ).bind(viewer.institutionId, viewer.id).first<{ unread_count: number | null }>(),
-    c.env.DB.prepare(
-      `SELECT id
-         FROM holidays
-        WHERE institution_id = ? AND status = 'ACTIVE' AND meals_disabled = 1
-          AND ? BETWEEN start_date AND end_date
-        LIMIT 1`,
-    ).bind(viewer.institutionId, today).first<{ id: string }>(),
-    c.env.DB.prepare(
-      `SELECT status
-         FROM accounting_periods
-        WHERE institution_id = ? AND starts_on <= ? AND ends_on >= ?
-          AND status IN ('CLOSING', 'CLOSED')
-        ORDER BY starts_on DESC
-        LIMIT 1`,
-    ).bind(viewer.institutionId, today, today).first<{ status: string }>(),
     canReadAudit
       ? c.env.DB.prepare(
           `SELECT a.id, a.action, a.created_at, u.name AS actor_name, u.email AS actor_email
@@ -251,64 +196,31 @@ dashboardRoutes.get("/dashboard", async (c) => {
   ]);
 
   const viewerEntries = new Map(viewerEntriesResult.results.map((entry) => [entry.meal_id, entry]));
-  const visibleTodayMeals = mealsResult.results
-    .filter((meal) => meal.service_schedule !== "DATE_SPECIFIC" || meal.service_date === today);
-  const todayMeals = visibleTodayMeals.map((meal) => {
-    const entry = viewerEntries.get(meal.id);
-    const editableUntil = entry?.editable_until ?? computeEditableUntilIso(meal, today, timeZone);
-    const status = entry?.status ?? meal.default_state;
-    return {
-      id: meal.id,
-      name: meal.name,
-      displayName: meal.display_name,
-      icon: meal.icon,
-      color: meal.color,
-      startTime: meal.start_time,
-      endTime: meal.end_time,
-      status,
-      locked: entry?.locked === 1 || status === "LOCKED" || isLockedAt(editableUntil, now),
-      editableUntil,
-    };
-  });
+  const todayMeals = mealsResult.results
+    .filter((meal) => meal.service_schedule !== "DATE_SPECIFIC" || meal.service_date === today)
+    .map((meal) => {
+      const entry = viewerEntries.get(meal.id);
+      const editableUntil = entry?.editable_until ?? computeEditableUntilIso(meal, today, timeZone);
+      const status = entry?.status ?? meal.default_state;
+      return {
+        id: meal.id,
+        name: meal.name,
+        displayName: meal.display_name,
+        icon: meal.icon,
+        color: meal.color,
+        startTime: meal.start_time,
+        endTime: meal.end_time,
+        status,
+        locked: entry?.locked === 1 || status === "LOCKED" || isLockedAt(editableUntil, now),
+        editableUntil,
+      };
+    });
 
-  const persistedTodayEntries = trendEntriesResult.results.filter((entry) => entry.service_date === today);
-  const inferredTodayEntries: MealEntryRow[] = [];
+  const todayEntries = trendEntriesResult.results.filter((entry) => entry.service_date === today);
+  const todayOnCount = todayEntries.filter((entry) => confirmedOn(entry, false, now)).length;
+  const todayOffCount = todayEntries.filter((entry) => confirmedOff(entry, false, now)).length;
 
-  // `/meals/entries` lazily materializes default rows. Dashboard KPIs must not
-  // depend on a resident visiting that screen first, and must stay identical to
-  // the canonical Kitchen counts for the same date. Infer missing today's rows
-  // in memory under the same enrollment/holiday/accounting-period guards.
-  if (!disabledHoliday && !lockedPeriod) {
-    const existingKeys = new Set(
-      persistedTodayEntries.map((entry) => `${entry.user_id}\u0000${entry.meal_id}`),
-    );
-    for (const resident of residentsResult.results) {
-      for (const meal of visibleTodayMeals) {
-        const key = `${resident.id}\u0000${meal.id}`;
-        if (existingKeys.has(key)) continue;
-        if (isBeforeEnrollment(today, resident.created_at, meal, timeZone)) continue;
-
-        const editableUntil = computeEditableUntilIso(meal, today, timeZone);
-        inferredTodayEntries.push({
-          user_id: resident.id,
-          meal_id: meal.id,
-          service_date: today,
-          status: meal.default_state,
-          original_state: meal.default_state,
-          editable_until: editableUntil,
-          locked: isLockedAt(editableUntil, now) ? 1 : 0,
-        });
-        existingKeys.add(key);
-      }
-    }
-  }
-
-  const effectiveTodayEntries = [...persistedTodayEntries, ...inferredTodayEntries];
-  const todayOnCount = effectiveTodayEntries.filter((entry) => confirmedOn(entry, false, now)).length;
-  const todayOffCount = effectiveTodayEntries.filter((entry) => confirmedOff(entry, false, now)).length;
-
-  const effectiveMonthEntries = [...monthEntriesResult.results, ...inferredTodayEntries];
-  const totalResidentMeals = effectiveMonthEntries.filter((entry) =>
+  const totalResidentMeals = monthEntriesResult.results.filter((entry) =>
     confirmedOn(entry, entry.service_date < today, now),
   ).length;
 
@@ -325,10 +237,10 @@ dashboardRoutes.get("/dashboard", async (c) => {
   }
 
   const rateByMealName = new Map(
-    rateRowsResult.results.map((row) => [row.key.slice("meal.rate.".length), exactMajorToMinor(row.value_text) ?? 0]),
+    mealsResult.results.map((meal) => [meal.name.toLowerCase(), Number(meal.fixed_price_minor ?? 0)]),
   );
   const guestRevenueMinor = guestCountsResult.results.reduce((sum, guest) => {
-    const rateMinor = rateByMealName.get(guest.meal_name) ?? 0;
+    const rateMinor = rateByMealName.get(guest.meal_name.toLowerCase()) ?? 0;
     return sum + rateMinor * Number(guest.guest_count || 0);
   }, 0);
   const currentMealCharge = totalResidentMeals > 0
@@ -337,9 +249,7 @@ dashboardRoutes.get("/dashboard", async (c) => {
 
   const trendDates = Array.from({ length: 7 }, (_, index) => addDays(trendStart, index));
   const trend = trendDates.map((date) => {
-    const entries = date === today
-      ? effectiveTodayEntries
-      : trendEntriesResult.results.filter((entry) => entry.service_date === date);
+    const entries = trendEntriesResult.results.filter((entry) => entry.service_date === date);
     const isPastDate = date < today;
     return {
       date,
