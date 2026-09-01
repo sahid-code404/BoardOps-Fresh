@@ -18,6 +18,20 @@ jobs:
           ref: fix/meal-status-filter-pills
           fetch-depth: 0
 
+      - name: Normalize frontend patch indentation
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path("scripts/temp_disable_registration_email_verification.py")
+          s = p.read_text()
+          start = s.index('path = "apps/web/src/components/features/auth/auth-screen.tsx"')
+          end = s.index('path = ".github/workflows/ci.yml"', start)
+          chunk = s[start:end]
+          chunk = chunk.replace("'''      ", "'''        ").replace("\n      ", "\n        ")
+          p.write_text(s[:start] + chunk + s[end:])
+          PY
+
       - name: Apply temporary registration email bypass
         run: python scripts/temp_disable_registration_email_verification.py
 
