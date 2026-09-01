@@ -18,37 +18,74 @@ jobs:
           ref: fix/meal-status-filter-pills
           fetch-depth: 0
 
-      - name: Prepare source-only patch script
+      - name: Preserve optional legacy verification flow
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-          p = Path("scripts/temp_disable_registration_email_verification.py")
+          p = Path("services/api/src/routes/auth-workflows.ts")
           s = p.read_text()
-          frontend = s.index('path = "apps/web/src/components/features/auth/auth-screen.tsx"')
-          ci = s.index('path = ".github/workflows/ci.yml"', frontend)
-          chunk = s[frontend:ci]
-          chunk = chunk.replace("'''      ", "'''        ").replace("\n      ", "\n        ")
-          s = s[:frontend] + chunk + 'print("Temporary registration email verification source bypass applied")\n'
-          p.write_text(s)
+
+          old = '''       VALUES (?, ?, ?, ?, 'EMAIL_VERIFY', ?, 0, 5, ?, ?, ?, ?, ?)`,
+          ).bind(
+            emailChallengeId,
+            institution.id,
+            userId,
+            email,
+            otpHash,
+            clientIp(c),
+            new Date(now.getTime() + OTP_TTL_MS).toISOString(),
+            EMAIL_VERIFICATION_ENABLED ? null : nowIso,
+            nowIso,
+            nowIso,
+          ),'''
+          new = '''       VALUES (?, ?, ?, ?, 'EMAIL_VERIFY', ?, 0, 5, ?, ?, NULL, ?, ?)`,
+          ).bind(
+            emailChallengeId,
+            institution.id,
+            userId,
+            email,
+            otpHash,
+            clientIp(c),
+            new Date(now.getTime() + OTP_TTL_MS).toISOString(),
+            nowIso,
+            nowIso,
+          ),'''
+          if s.count(old) != 1:
+              raise SystemExit(f"registration challenge block match count={s.count(old)}")
+          s = s.replace(old, new, 1)
+
+          old = '''  if (user.email_verified === 1) {
+            return c.json({ success: true, data: { userId: user.id, email: user.email, emailVerified: true } });
+          }
+
+          const challenge = await latestChallenge(c, user.id, "EMAIL_VERIFY");
+          if (!(await verifyOneTimeChallenge(c, challenge, otp))) {'''
+          new = '''  if (user.email_verified === 1 && EMAIL_VERIFICATION_ENABLED) {
+            return c.json({ success: true, data: { userId: user.id, email: user.email, emailVerified: true } });
+          }
+
+          const challenge = await latestChallenge(c, user.id, "EMAIL_VERIFY");
+          // While verification is temporarily optional, old clients may still submit
+          // the legacy challenge. Once that challenge is consumed, keep this endpoint
+          // idempotent for the already auto-verified account.
+          if (user.email_verified === 1 && (!challenge || challenge.consumed_at)) {
+            return c.json({ success: true, data: { userId: user.id, email: user.email, emailVerified: true } });
+          }
+          if (!(await verifyOneTimeChallenge(c, challenge, otp))) {'''
+          if s.count(old) != 1:
+              raise SystemExit(f"verify-email compatibility block match count={s.count(old)}")
+          p.write_text(s.replace(old, new, 1))
           PY
+          git diff --check services/api/src/routes/auth-workflows.ts
+          grep -q 'user.email_verified === 1 && EMAIL_VERIFICATION_ENABLED' services/api/src/routes/auth-workflows.ts
+          grep -q 'challenge.consumed_at' services/api/src/routes/auth-workflows.ts
 
-      - name: Apply temporary registration email bypass
-        run: python scripts/temp_disable_registration_email_verification.py
-
-      - name: Verify source patch
-        shell: bash
-        run: |
-          git diff --check services/api/src/routes/auth-workflows.ts apps/web/src/components/features/auth/auth-screen.tsx
-          grep -q 'const EMAIL_VERIFICATION_ENABLED = false;' services/api/src/routes/auth-workflows.ts
-          grep -q 'verificationRequired: EMAIL_VERIFICATION_ENABLED' services/api/src/routes/auth-workflows.ts
-          grep -q 'Account created — pending admin approval.' apps/web/src/components/features/auth/auth-screen.tsx
-
-      - name: Commit application source only
+      - name: Commit compatibility source only
         shell: bash
         run: |
           git config user.name "boardops-ci"
           git config user.email "boardops-ci@users.noreply.github.com"
-          git add services/api/src/routes/auth-workflows.ts apps/web/src/components/features/auth/auth-screen.tsx
-          git commit -m "feat: temporarily skip registration email verification"
+          git add services/api/src/routes/auth-workflows.ts
+          git commit -m "fix: keep optional verification backward compatible"
           git push origin HEAD:fix/meal-status-filter-pills
