@@ -1,7 +1,6 @@
 "use client";
 
 import { VISUAL_FIXTURES_ENABLED, visualFixtureApiFetch } from "@/lib/visual-fixtures";
-import { visualFormulaEngineFixtureResponse } from "@/lib/visual-formula-engine-fixture";
 import { visualFundsFixtureResponse } from "@/lib/visual-funds-fixture";
 import { visualProcurementFixtureResponse } from "@/lib/visual-procurement-fixture";
 import { visualReportsFixtureResponse } from "@/lib/visual-reports-fixture";
@@ -25,15 +24,10 @@ type FetchOpts = RequestInit & {
 
 export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T> {
   if (VISUAL_FIXTURES_ENABLED) {
-    // Composite response contracts are routed before the generic fixture switch
-    // so visual mode cannot hide frontend/backend drift behind an empty fallback
-    // or a simpler resource shape.
     const user360 = visualUser360FixtureResponse<T>(path);
     if (user360 !== undefined) return user360;
     const funds = visualFundsFixtureResponse<T>(path, opts);
     if (funds !== undefined) return funds;
-    const formulas = visualFormulaEngineFixtureResponse<T>(path, opts);
-    if (formulas !== undefined) return formulas;
     const procurement = visualProcurementFixtureResponse<T>(path, opts);
     if (procurement !== undefined) return procurement;
     const reports = visualReportsFixtureResponse<T>(path);
@@ -51,22 +45,9 @@ export async function apiFetch<T>(path: string, opts: FetchOpts = {}): Promise<T
 
   const requestHeaders = new Headers(headers);
   if (!requestHeaders.has("Accept")) requestHeaders.set("Accept", "application/json");
-
-  // JSON helpers below serialize their payloads to strings. Multipart/FormData
-  // requests must not receive a manual Content-Type header because the browser
-  // owns the multipart boundary. Keeping that distinction here lets uploads use
-  // the same credential/error path as every other authenticated API request.
   if (typeof rest.body === "string" && !requestHeaders.has("Content-Type")) {
     requestHeaders.set("Content-Type", "application/json");
   }
-
-  // Browser authentication is cookie-only. The non-secret `cookie-session`
-  // value persisted by the auth store is a UI/session-presence hint, not a
-  // credential. Legacy localStorage bearer values are deliberately never
-  // forwarded by the Vite client; a stale browser without a valid HttpOnly
-  // cookie fails closed through `/auth/me` and must sign in again once.
-  // Also strip a caller-provided Authorization header so old ported code cannot
-  // accidentally re-introduce browser bearer authentication through this API.
   requestHeaders.delete("Authorization");
 
   const res = await fetch(url.toString(), {
@@ -96,14 +77,6 @@ function accountingWriteOpts(path: string, method: "POST" | "PUT", opts?: FetchO
 }
 
 function deleteRequest<T>(path: string, opts?: FetchOpts): Promise<T> {
-  // The imported golden Billing screen contains one legacy ambiguity: its Void
-  // action calls DELETE /bills/:id with no request options, while its real
-  // soft-delete action calls the same endpoint with a JSON body. The source
-  // backend only implemented deletion, so the old Void button actually deleted
-  // bills. Keep the golden component untouched while routing that one body-less
-  // legacy call to the new explicit financial void endpoint. New code should
-  // call POST /bills/:id/void directly; this shim can disappear when the golden
-  // Billing component is rewritten rather than patched.
   if (
     !VISUAL_FIXTURES_ENABLED &&
     opts === undefined &&
@@ -115,10 +88,6 @@ function deleteRequest<T>(path: string, opts?: FetchOpts): Promise<T> {
 }
 
 function putRequest<T>(path: string, data?: unknown, opts?: FetchOpts): Promise<T> {
-  // The frozen Personalization screen writes the legacy dedicated PUT /theme
-  // endpoint. Fresh already has one canonical, audited, permission-controlled
-  // settings upsert boundary, so adapt that legacy call to the public UI JSON
-  // setting instead of creating a second settings mutation path.
   if (!VISUAL_FIXTURES_ENABLED && path === "/theme") {
     return apiFetch<T>("/settings", {
       ...opts,
