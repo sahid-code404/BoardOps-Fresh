@@ -10,6 +10,12 @@ export default defineConfig({
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
+  webServer: {
+    command: "node scripts/assert-runtime-e2e-ports-free.mjs && pnpm db:reset:local && pnpm dev",
+    url: "http://127.0.0.1:5173",
+    reuseExistingServer: false,
+    timeout: 180_000,
+  },
   projects: [
     { name: "chromium-runtime", use: { ...devices["Desktop Chrome"] } },
   ],
