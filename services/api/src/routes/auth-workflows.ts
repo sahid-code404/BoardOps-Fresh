@@ -10,6 +10,9 @@ const ISSUE_WINDOW_MS = 60 * 60 * 1000;
 const ISSUE_LIMIT_PER_IP = 8;
 const LOCAL_OTP = "424242";
 const REGISTRATION_COOKIE = "boardops_registration";
+// Temporary product switch: new registrations skip email OTP while false.
+// Set this to true when production email verification is ready to return.
+const EMAIL_VERIFICATION_ENABLED = false;
 
 type ChallengePurpose =
   | "EMAIL_VERIFY"
@@ -364,10 +367,10 @@ authWorkflowRoutes.post("/register", async (c) => {
   if (password !== confirmPassword) return c.json({ success: false, error: "Passwords do not match" }, 400);
   const pwdError = passwordError(password);
   if (pwdError) return c.json({ success: false, error: pwdError }, 422);
-  if (!authEmailDeliveryAvailable(c)) {
+  if (EMAIL_VERIFICATION_ENABLED && !authEmailDeliveryAvailable(c)) {
     return c.json({ success: false, error: "Email verification delivery is not configured" }, 503);
   }
-  if (!(await checkIssueRateLimit(c, "EMAIL_VERIFY"))) {
+  if (EMAIL_VERIFICATION_ENABLED && !(await checkIssueRateLimit(c, "EMAIL_VERIFY"))) {
     return c.json({ success: false, error: "Too many registration attempts. Please try again later." }, 429);
   }
 
@@ -416,9 +419,12 @@ authWorkflowRoutes.post("/register", async (c) => {
         (id, institution_id, name, email, phone, password_hash, role, status,
          institution_user_id, email_verified, room, gender, emergency_contact,
          theme, language, timezone, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'USER', 'PENDING', ?, 0, ?, ?, NULL,
+       VALUES (?, ?, ?, ?, ?, ?, 'USER', 'PENDING', ?, ?, ?, ?, NULL,
                'system', 'en', 'Asia/Kolkata', ?, ?)`,
-    ).bind(userId, institution.id, name, email, phone, passwordHash, institutionUserId, room, gender, nowIso, nowIso),
+    ).bind(
+      userId, institution.id, name, email, phone, passwordHash, institutionUserId,
+      EMAIL_VERIFICATION_ENABLED ? 0 : 1, room, gender, nowIso, nowIso,
+    ),
     c.env.DB.prepare(
       `INSERT INTO registration_requests
         (id, institution_id, user_id, cycle, status, fields_json, request_ip, created_at, updated_at)
@@ -428,7 +434,7 @@ authWorkflowRoutes.post("/register", async (c) => {
       `INSERT INTO auth_challenges
         (id, institution_id, user_id, email, purpose, secret_hash, attempts, max_attempts,
          request_ip, expires_at, consumed_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'EMAIL_VERIFY', ?, 0, 5, ?, ?, NULL, ?, ?)`,
+       VALUES (?, ?, ?, ?, 'EMAIL_VERIFY', ?, 0, 5, ?, ?, ?, ?, ?)`,
     ).bind(
       emailChallengeId,
       institution.id,
@@ -437,6 +443,7 @@ authWorkflowRoutes.post("/register", async (c) => {
       otpHash,
       clientIp(c),
       new Date(now.getTime() + OTP_TTL_MS).toISOString(),
+      EMAIL_VERIFICATION_ENABLED ? null : nowIso,
       nowIso,
       nowIso,
     ),
@@ -472,12 +479,15 @@ authWorkflowRoutes.post("/register", async (c) => {
     ),
   ]);
 
-  if (!logLocalDelivery(c, "EMAIL_VERIFY", email, otp)) {
+  if (EMAIL_VERIFICATION_ENABLED && !logLocalDelivery(c, "EMAIL_VERIFY", email, otp)) {
     return c.json({ success: false, error: "Email verification delivery is not configured" }, 503);
   }
 
   setRegistrationCookie(c, accessToken);
-  return c.json({ success: true, data: { userId, email } });
+  return c.json({
+    success: true,
+    data: { userId, email, verificationRequired: EMAIL_VERIFICATION_ENABLED },
+  });
 });
 
 authWorkflowRoutes.post("/send-verification", async (c) => {
@@ -659,7 +669,7 @@ authWorkflowRoutes.post("/resubmit", async (c) => {
   if (institutionIdTaken) return c.json({ success: false, error: "This Institution User ID is already taken" }, 409);
 
   const emailChanged = nextEmail !== user.email;
-  if (emailChanged && !authEmailDeliveryAvailable(c)) {
+  if (emailChanged && EMAIL_VERIFICATION_ENABLED && !authEmailDeliveryAvailable(c)) {
     return c.json({ success: false, error: "Email verification delivery is not configured" }, 503);
   }
   const nextCycle = latest.cycle + 1;
@@ -680,10 +690,13 @@ authWorkflowRoutes.post("/resubmit", async (c) => {
     c.env.DB.prepare(
       `UPDATE users
        SET name = ?, email = ?, phone = ?, institution_user_id = ?, room = ?, gender = ?,
-           email_verified = CASE WHEN ? THEN 0 ELSE email_verified END,
+           email_verified = CASE WHEN ? THEN ? ELSE email_verified END,
            status = 'PENDING', updated_at = ?
        WHERE id = ?`,
-    ).bind(nextName, nextEmail, nextPhone, nextInstitutionUserId, nextRoom, nextGender, emailChanged ? 1 : 0, nowIso, user.id),
+    ).bind(
+      nextName, nextEmail, nextPhone, nextInstitutionUserId, nextRoom, nextGender,
+      emailChanged ? 1 : 0, EMAIL_VERIFICATION_ENABLED ? 0 : 1, nowIso, user.id,
+    ),
     c.env.DB.prepare(
       `UPDATE registration_requests SET status = 'RESUBMITTED', updated_at = ? WHERE id = ?`,
     ).bind(nowIso, latest.id),
@@ -708,7 +721,7 @@ authWorkflowRoutes.post("/resubmit", async (c) => {
     ),
   ]);
 
-  if (emailChanged) {
+  if (emailChanged && EMAIL_VERIFICATION_ENABLED) {
     const updatedUser = { ...user, email: nextEmail };
     const otp = randomOtp(c);
     await insertChallenge(c, updatedUser, "EMAIL_VERIFY", otp, OTP_TTL_MS);
@@ -719,7 +732,13 @@ authWorkflowRoutes.post("/resubmit", async (c) => {
 
   return c.json({
     success: true,
-    data: { userId: user.id, status: "PENDING", cycle: nextCycle, email: nextEmail, verificationRequired: emailChanged },
+    data: {
+      userId: user.id,
+      status: "PENDING",
+      cycle: nextCycle,
+      email: nextEmail,
+      verificationRequired: emailChanged && EMAIL_VERIFICATION_ENABLED,
+    },
   });
 });
 
