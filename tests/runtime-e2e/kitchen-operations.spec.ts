@@ -36,6 +36,21 @@ test("Counts uses real D1 meal entries, guests, overrides and leave decisions", 
     },
   });
 
+  // Regression: Counts must infer the resident's effective default state even
+  // when no meal_entries rows were materialized by opening /user-meals first.
+  // Aug 29 is after Riya's enrollment, in an OPEN accounting period, and has no
+  // seeded meal-entry rows, so the three past default-ON meals are confirmed.
+  const inferredDefaultsProbe = await page.evaluate(async () => {
+    const response = await fetch("/api/kitchen?date=2026-08-29", { credentials: "include" });
+    const body = await response.json().catch(() => null);
+    return { status: response.status, body };
+  });
+  expect(inferredDefaultsProbe.status).toBe(200);
+  for (const mealId of ["meal_breakfast_local", "meal_lunch_local", "meal_dinner_local"]) {
+    const meal = inferredDefaultsProbe.body?.data?.counts?.find((item: { id: string }) => item.id === mealId);
+    expect(meal).toMatchObject({ on: 1, off: 0, guests: 0, total: 1 });
+  }
+
   await page.goto("/kitchen");
   await expect(page).toHaveURL(/\/kitchen(?:\?|$)/, { timeout: 5_000 });
   await expect(page.getByText("Breakfast", { exact: true }).first()).toBeVisible({ timeout: 8_000 });
