@@ -17,6 +17,16 @@ async function expectPermissionDenied(response: import("@playwright/test").APIRe
   });
 }
 
+async function navigateFromLatestClosableToMay2026(page: import("@playwright/test").Page) {
+  const now = new Date();
+  const latestClosableKey = now.getFullYear() * 12 + now.getMonth() - 1;
+  const may2026Key = 2026 * 12 + 4;
+  const steps = Math.max(0, latestClosableKey - may2026Key);
+  for (let step = 0; step < steps; step += 1) {
+    await page.getByRole("button", { name: "Previous month", exact: true }).click();
+  }
+}
+
 test("Monthly Closing fails closed without a compatible canonical formula, then publishes May exactly once", async ({ page }) => {
   test.setTimeout(70_000);
 
@@ -35,12 +45,7 @@ test("Monthly Closing fails closed without a compatible canonical formula, then 
   await expect(page.getByRole("heading", { name: "Monthly Closing", exact: true })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText("Readiness Checklist", { exact: true })).toBeVisible({ timeout: 8_000 });
 
-  const closingNow = new Date();
-  const latestClosableKey = closingNow.getFullYear() * 12 + closingNow.getMonth() - 1;
-  const may2026Key = 2026 * 12 + 4;
-  for (let step = 0; step < Math.max(0, latestClosableKey - may2026Key); step += 1) {
-    await page.getByRole("button", { name: "Previous month", exact: true }).click();
-  }
+  await navigateFromLatestClosableToMay2026(page);
   await expect(page.getByRole("button", { name: /Generate Bills & Close May 2026/u })).toBeVisible({ timeout: 8_000 });
 
   const result = await page.evaluate(async ({ formulaId }) => {
@@ -250,8 +255,7 @@ test("Monthly Closing fails closed without a compatible canonical formula, then 
   // Re-render the real UI after the API close to prove the golden surface can
   // consume the durable cycle/history contract rather than only testing JSON.
   await page.goto("/monthly-closing");
-  await page.getByRole("button", { name: "Previous month", exact: true }).click();
-  await page.getByRole("button", { name: "Previous month", exact: true }).click();
+  await navigateFromLatestClosableToMay2026(page);
   await expect(page.getByText("Status:", { exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("Closed", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("This cycle is closed", { exact: true })).toBeVisible();
