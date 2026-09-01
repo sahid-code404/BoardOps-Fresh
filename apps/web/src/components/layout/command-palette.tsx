@@ -14,7 +14,6 @@ import {
   CreditCard,
   PiggyBank,
   CalendarCheck,
-  Sigma,
   ScrollText,
   type LucideIcon,
 } from "lucide-react";
@@ -50,11 +49,10 @@ const ITEMS: PaletteItem[] = [
   { view: "payments", label: "Payments & Wallet", icon: CreditCard, keywords: ["payment", "wallet", "pay", "deposit"], roles: ["ADMIN", "USER"], group: "Finance" },
   { view: "expenses", label: "Expenses & Procurement", icon: Receipt, keywords: ["expense", "procurement", "spend", "purchase", "shopping", "vendor", "product", "catalog", "ingredient", "unit"], roles: ["ADMIN"], group: "Finance" },
   { view: "funds", label: "Funds Overview", icon: PiggyBank, keywords: ["fund", "balance", "deposit", "deficit"], roles: ["ADMIN"], group: "Finance" },
-  { view: "monthly-closing", label: "Monthly Closing", icon: CalendarCheck, keywords: ["closing", "settle", "snapshot", "freeze", "lock", "finalize"], roles: ["ADMIN"], group: "Finance" },
-  { view: "formula-engine", label: "Formula Engine", icon: Sigma, keywords: ["formula", "variable", "expression", "calculation", "rate", "config", "billing formula"], roles: ["ADMIN"], group: "Admin" },
+  { view: "monthly-closing", label: "Monthly Closing", icon: CalendarCheck, keywords: ["closing", "settle", "snapshot", "freeze", "lock", "finalize", "fixed pricing"], roles: ["ADMIN"], group: "Finance" },
   { view: "users", label: "User Management", icon: Users, keywords: ["user", "member", "account", "resident", "approve"], roles: ["ADMIN"], group: "Admin" },
   { view: "notifications", label: "Notifications & Announcements", icon: Bell, keywords: ["notification", "alert", "bell", "announcement", "broadcast", "notice", "pinned", "message"], roles: ["ADMIN", "USER"], group: "Admin" },
-  { view: "settings", label: "Settings & Policies", icon: Settings, keywords: ["setting", "config", "policy", "policies", "rules", "behavior", "grace", "cutoff", "threshold", "theme", "color", "accent", "appearance", "holiday", "calendar", "festival"], roles: ["ADMIN"], group: "Admin" },
+  { view: "settings", label: "Settings & Policies", icon: Settings, keywords: ["setting", "config", "policy", "policies", "rules", "behavior", "grace", "cutoff", "threshold", "theme", "color", "accent", "appearance", "holiday", "calendar", "festival", "rent", "cleaning"], roles: ["ADMIN"], group: "Admin" },
   { view: "system", label: "System (Audit & Tasks)", icon: ScrollText, keywords: ["audit", "log", "history", "trace", "changes", "timeline", "task", "background", "job", "queue", "async", "cleanup", "session"], roles: ["ADMIN"], group: "Admin" },
   { view: "profile", label: "My Profile", icon: User, keywords: ["profile", "me", "account"], roles: ["ADMIN", "USER"], group: "Account" },
 ];
