@@ -6,9 +6,6 @@ import { VIEW_COMPONENT_LOADERS } from "@/lib/view-loaders";
 import { ShimmerSkeleton } from "@/components/glass/shimmer-skeleton";
 import { DashboardView } from "@/components/features/dashboard/dashboard-view";
 
-// Dashboard is the critical post-login surface and is bundled eagerly so first
-// useful paint never waits for a route chunk. Larger secondary features remain
-// split and are warmed during idle time after the shell is visible.
 const MealsConfigView = lazy(VIEW_COMPONENT_LOADERS.meals);
 const UserMealsView = lazy(VIEW_COMPONENT_LOADERS["user-meals"]);
 const KitchenView = lazy(VIEW_COMPONENT_LOADERS.kitchen);
@@ -17,7 +14,6 @@ const PaymentsView = lazy(VIEW_COMPONENT_LOADERS.payments);
 const ExpensesHubView = lazy(VIEW_COMPONENT_LOADERS.expenses);
 const FundsView = lazy(VIEW_COMPONENT_LOADERS.funds);
 const MonthlyClosingView = lazy(VIEW_COMPONENT_LOADERS["monthly-closing"]);
-const FormulaEngineView = lazy(VIEW_COMPONENT_LOADERS["formula-engine"]);
 const ReportsView = lazy(VIEW_COMPONENT_LOADERS.reports);
 const UsersView = lazy(VIEW_COMPONENT_LOADERS.users);
 const NotificationsHubView = lazy(VIEW_COMPONENT_LOADERS.notifications);
@@ -42,11 +38,6 @@ function ViewSkeleton() {
   );
 }
 
-/**
- * Capability authorization happens once in BoardOpsApp before this router is
- * mounted. Keep this component presentation-only so a stale role-string gate
- * cannot disagree with the canonical permission-aware shell boundary.
- */
 export function LazyViewRouter({ view }: { view: ViewKey }) {
   const content = useMemo(() => {
     switch (view) {
@@ -59,7 +50,6 @@ export function LazyViewRouter({ view }: { view: ViewKey }) {
       case "expenses": return <ExpensesHubView />;
       case "funds": return <FundsView />;
       case "monthly-closing": return <MonthlyClosingView />;
-      case "formula-engine": return <FormulaEngineView />;
       case "reports": return <ReportsView />;
       case "users": return <UsersView />;
       case "notifications": return <NotificationsHubView />;

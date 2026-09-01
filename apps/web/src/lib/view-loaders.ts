@@ -40,9 +40,6 @@ export const VIEW_COMPONENT_LOADERS: Record<ViewKey, ViewLoader> = {
   "monthly-closing": cached(() =>
     import("@/components/features/billing/monthly-closing-view").then((m) => ({ default: m.MonthlyClosingView })),
   ),
-  "formula-engine": cached(() =>
-    import("@/components/features/variables/formula-engine-view").then((m) => ({ default: m.FormulaEngineView })),
-  ),
   reports: cached(() =>
     import("@/components/features/reports/reports-view").then((m) => ({ default: m.ReportsView })),
   ),
@@ -80,21 +77,11 @@ const USER_PRIORITY_VIEWS: ViewKey[] = [
 ];
 
 export function preloadView(view: ViewKey): Promise<ViewModule> {
-  // Defensive runtime boundary. TypeScript knows ViewKey is valid, but values
-  // originating from persisted/server data can arrive here after an unsafe
-  // cast in older ported code. Return a normal rejection instead of throwing a
-  // `loader is not a function` TypeError that can tear down navigation.
   const loader = (VIEW_COMPONENT_LOADERS as Partial<Record<string, ViewLoader>>)[view as string];
   if (!loader) return Promise.reject(new Error(`Unknown BoardOps view: ${String(view)}`));
   return loader();
 }
 
-/**
- * Warm the routes a signed-in user is most likely to open next. This starts
- * after the shell paints, so it does not block Dashboard first paint, but it
- * avoids the multi-hundred-millisecond first-click delay caused by compiling a
- * large feature chunk only after the user has already clicked navigation.
- */
 export async function preloadPriorityViews(isAdmin: boolean): Promise<void> {
   const views = isAdmin ? ADMIN_PRIORITY_VIEWS : USER_PRIORITY_VIEWS;
   await Promise.allSettled(views.map((view) => VIEW_COMPONENT_LOADERS[view]()));

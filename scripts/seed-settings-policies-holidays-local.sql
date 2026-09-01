@@ -34,6 +34,16 @@ INSERT INTO settings (
     'setting_admin_note_local', 'inst_boardops_local', 'security.administratorNote', 'Local configuration checkpoint',
     'SECURITY', 'TEXT', 'Private administrator-only configuration note.', 0,
     'usr_admin_local', 'usr_admin_local', '2026-08-01T00:00:00.000Z', '2026-08-30T00:00:00.000Z'
+  ),
+  (
+    'setting_billing_room_rent_local', 'inst_boardops_local', 'billing.roomRent', '4500',
+    'BILLING', 'NUMBER', 'Monthly room rent used directly by Monthly Closing.', 0,
+    'usr_admin_local', 'usr_admin_local', '2026-08-01T00:00:00.000Z', '2026-08-30T00:00:00.000Z'
+  ),
+  (
+    'setting_billing_cleaning_local', 'inst_boardops_local', 'billing.cleaningCharges', '150',
+    'BILLING', 'NUMBER', 'Monthly cleaning charge used directly by Monthly Closing.', 0,
+    'usr_admin_local', 'usr_admin_local', '2026-08-01T00:00:00.000Z', '2026-08-30T00:00:00.000Z'
   )
 ON CONFLICT(institution_id, key) DO UPDATE SET
   value = excluded.value,
@@ -44,9 +54,8 @@ ON CONFLICT(institution_id, key) DO UPDATE SET
   updated_by = excluded.updated_by,
   updated_at = excluded.updated_at;
 
--- These rows preserve the golden Policies surface as registered, typed policy
--- values. Their persistence is authoritative; owning domains remain responsible
--- for consuming a policy only when that source behavior is explicitly ported.
+-- Policies remain the home for behavioral configuration. User 360 reads its
+-- optional low-balance overrides from this domain instead of Variables.
 INSERT INTO policies (
   id, institution_id, key, category, value, type, description, updated_by, created_at, updated_at
 ) VALUES

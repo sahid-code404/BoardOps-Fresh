@@ -95,29 +95,30 @@ ON CONFLICT(id) DO UPDATE SET
   timezone = excluded.timezone,
   updated_at = excluded.updated_at;
 
--- Real local meal configuration used by the Admin Console and resident/kitchen
--- meal operations. These rows are deterministic and institution-scoped.
+-- Meals now own their prices directly. There is no Variable/Formula lookup in
+-- this experimental branch.
 INSERT INTO meal_configurations (
   id, institution_id, name, display_name, description, icon, color, meal_type,
   status, display_order, default_state, default_visibility, cutoff_strategy,
-  cutoff_offset_minutes, cutoff_time, start_time, end_time, notes, created_at, updated_at
+  cutoff_offset_minutes, cutoff_time, start_time, end_time,
+  pricing_mode, fixed_price_minor, notes, created_at, updated_at
 ) VALUES
   (
     'meal_breakfast_local', 'inst_boardops_local', 'breakfast', 'Breakfast',
     'Daily morning meal', '🍳', '#f59e0b', 'REGULAR', 'ACTIVE', 1, 'ON', 'VISIBLE',
-    'PREVIOUS_DAY', 0, '22:00', '07:30', '09:30', NULL,
+    'PREVIOUS_DAY', 0, '22:00', '07:30', '09:30', 'FIXED', 4000, NULL,
     '2026-08-01T00:00:00.000Z', '2026-08-29T00:00:00.000Z'
   ),
   (
     'meal_lunch_local', 'inst_boardops_local', 'lunch', 'Lunch',
     'Daily afternoon meal', '🍛', '#10b981', 'REGULAR', 'ACTIVE', 2, 'ON', 'VISIBLE',
-    'SAME_DAY', 0, '09:30', '12:30', '14:30', NULL,
+    'SAME_DAY', 0, '09:30', '12:30', '14:30', 'FIXED', 6000, NULL,
     '2026-08-01T00:00:00.000Z', '2026-08-29T00:00:00.000Z'
   ),
   (
     'meal_dinner_local', 'inst_boardops_local', 'dinner', 'Dinner',
     'Daily evening meal', '🍲', '#8b5cf6', 'REGULAR', 'ACTIVE', 3, 'ON', 'VISIBLE',
-    'SAME_DAY', 0, '16:00', '19:30', '21:30', NULL,
+    'SAME_DAY', 0, '16:00', '19:30', '21:30', 'FIXED', 7000, NULL,
     '2026-08-01T00:00:00.000Z', '2026-08-29T00:00:00.000Z'
   )
 ON CONFLICT(id) DO UPDATE SET
@@ -137,6 +138,8 @@ ON CONFLICT(id) DO UPDATE SET
   cutoff_time = excluded.cutoff_time,
   start_time = excluded.start_time,
   end_time = excluded.end_time,
+  pricing_mode = excluded.pricing_mode,
+  fixed_price_minor = excluded.fixed_price_minor,
   notes = excluded.notes,
   updated_at = excluded.updated_at;
 
