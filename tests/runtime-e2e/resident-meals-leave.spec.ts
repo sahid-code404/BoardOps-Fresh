@@ -156,7 +156,9 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
     });
     expect(archiveOneTime.ok()).toBeTruthy();
 
-    const scheduleDate = "2026-09-01";
+    // Use the day after the registration fixture so this proof never depends on
+    // which same-day meal cutoffs have already passed when CI starts.
+    const scheduleDate = "2026-09-02";
     const scheduleResponse = await residentApi.get(`${API}/api/meals/entries?date=${scheduleDate}`);
     expect(scheduleResponse.ok()).toBeTruthy();
     const scheduleBody = await scheduleResponse.json() as ApiEnvelope<ResidentSchedule>;
@@ -165,13 +167,9 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
       expect.arrayContaining(["Breakfast", "Lunch", "Dinner"]),
     );
     const scheduleEntries = scheduleBody.data.byDate[scheduleDate] ?? [];
-    // The configuration list can include meals whose cutoff for this date has
-    // already passed. Those meals are correctly omitted from the editable
-    // by-date schedule, so assert the still-editable core meals instead of
-    // requiring a one-to-one count with all active configurations.
-    expect(scheduleEntries.length).toBeGreaterThanOrEqual(2);
+    expect(scheduleEntries.length).toBeGreaterThanOrEqual(3);
     expect(scheduleEntries.map((entry) => entry.mealDisplayName)).toEqual(
-      expect.arrayContaining(["Lunch", "Dinner"]),
+      expect.arrayContaining(["Breakfast", "Lunch", "Dinner"]),
     );
     expect(scheduleEntries.every((entry) => entry.preRegistration === false)).toBe(true);
 
