@@ -44,6 +44,17 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
   await expect(page.getByRole("button", { name: /Create Meal/i })).toBeVisible();
   await expect(page.getByText("RBAC policy missing for endpoint", { exact: true })).toHaveCount(0);
 
+  // Manual display ordering is no longer part of the form. Time fields use the
+  // custom BoardOps clock picker and the service start drives the meal position.
+  await page.getByRole("button", { name: /Create Meal/i }).click();
+  await expect(page.getByText("Display order", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Meal position is sorted automatically by service start time.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Service start", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Service start", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+
   const result = await page.evaluate(async () => {
     const getJson = async (path: string, init?: RequestInit) => {
       const response = await fetch(path, {
@@ -66,7 +77,9 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
         color: "#06b6d4",
         mealType: "SPECIAL",
         status: "ARCHIVED",
-        displayOrder: 3,
+        // Deliberately wrong manual position. The DB must ignore this after the
+        // write and derive the real position from startTime=16:00.
+        displayOrder: 0,
         defaultState: "OFF",
         defaultVisibility: "VISIBLE",
         cutoffStrategy: "SAME_DAY",
@@ -149,6 +162,7 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
       pricingMode: "FIXED",
       fixedPrice: 120,
       defaultState: "OFF",
+      displayOrder: 2,
     },
   });
   expect(result.duplicate?.status).toBe(409);
@@ -174,8 +188,8 @@ test("Meal Configuration is backed by D1 and preserves durable meal history", as
   expect(result.deleted?.body?.data?.meal?.deletionRequestedAt).toEqual(expect.any(String));
   expect(result.after?.status).toBe(200);
   expect(result.after?.body?.data).toHaveLength(4);
-  // displayOrder is a relative insertion position. Inserting at position 3
-  // shifts Dinner behind the new meal instead of creating a duplicate order.
+  // 16:00 is after Lunch and before Dinner, irrespective of the deliberately
+  // incorrect displayOrder supplied to the create endpoint.
   expect(result.after?.body?.data.map((meal: { name: string }) => meal.name)).toEqual([
     "breakfast",
     "lunch",
