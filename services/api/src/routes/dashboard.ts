@@ -3,6 +3,7 @@ import { authenticatedPrincipal, hasPermission, PERMISSIONS } from "../auth/auth
 import {
   addDays,
   computeEditableUntilIso,
+  isBeforeEnrollment,
   isLockedAt,
   isOverridden,
   monthBounds,
@@ -28,12 +29,18 @@ type MealRow = {
 };
 
 type MealEntryRow = {
+  user_id: string;
   meal_id: string;
   service_date: string;
   status: string;
   original_state: string;
   editable_until: string;
   locked: number;
+};
+
+type ResidentRow = {
+  id: string;
+  created_at: string;
 };
 
 type ActivityRow = {
@@ -119,6 +126,7 @@ dashboardRoutes.get("/dashboard", async (c) => {
   const [
     summary,
     mealsResult,
+    residentsResult,
     viewerEntriesResult,
     trendEntriesResult,
     monthEntriesResult,
@@ -127,6 +135,8 @@ dashboardRoutes.get("/dashboard", async (c) => {
     expenseRowsResult,
     pendingBillRow,
     unreadRow,
+    disabledHoliday,
+    lockedPeriod,
     activityRows,
   ] = await Promise.all([
     c.env.DB.prepare(
@@ -144,12 +154,18 @@ dashboardRoutes.get("/dashboard", async (c) => {
         ORDER BY display_order ASC, created_at ASC`,
     ).bind(viewer.institutionId).all<MealRow>(),
     c.env.DB.prepare(
-      `SELECT meal_id, service_date, status, original_state, editable_until, locked
+      `SELECT id, created_at
+         FROM users
+        WHERE institution_id = ? AND role = 'USER' AND status = 'ACTIVE' AND deleted_at IS NULL
+        ORDER BY id ASC`,
+    ).bind(viewer.institutionId).all<ResidentRow>(),
+    c.env.DB.prepare(
+      `SELECT user_id, meal_id, service_date, status, original_state, editable_until, locked
          FROM meal_entries
         WHERE institution_id = ? AND user_id = ? AND service_date = ?`,
     ).bind(viewer.institutionId, viewer.id, today).all<MealEntryRow>(),
     c.env.DB.prepare(
-      `SELECT e.meal_id, e.service_date, e.status, e.original_state, e.editable_until, e.locked
+      `SELECT e.user_id, e.meal_id, e.service_date, e.status, e.original_state, e.editable_until, e.locked
          FROM meal_entries e
          JOIN users u ON u.id = e.user_id
         WHERE e.institution_id = ?
@@ -159,7 +175,7 @@ dashboardRoutes.get("/dashboard", async (c) => {
           AND u.deleted_at IS NULL`,
     ).bind(viewer.institutionId, trendStart, today).all<MealEntryRow>(),
     c.env.DB.prepare(
-      `SELECT e.meal_id, e.service_date, e.status, e.original_state, e.editable_until, e.locked
+      `SELECT e.user_id, e.meal_id, e.service_date, e.status, e.original_state, e.editable_until, e.locked
          FROM meal_entries e
          JOIN users u ON u.id = e.user_id
         WHERE e.institution_id = ?
@@ -207,6 +223,21 @@ dashboardRoutes.get("/dashboard", async (c) => {
          FROM notifications
         WHERE institution_id = ? AND user_id = ? AND read_at IS NULL`,
     ).bind(viewer.institutionId, viewer.id).first<{ unread_count: number | null }>(),
+    c.env.DB.prepare(
+      `SELECT id
+         FROM holidays
+        WHERE institution_id = ? AND status = 'ACTIVE' AND meals_disabled = 1
+          AND ? BETWEEN start_date AND end_date
+        LIMIT 1`,
+    ).bind(viewer.institutionId, today).first<{ id: string }>(),
+    c.env.DB.prepare(
+      `SELECT status
+         FROM accounting_periods
+        WHERE institution_id = ? AND starts_on <= ? AND ends_on >= ?
+          AND status IN ('CLOSING', 'CLOSED')
+        ORDER BY starts_on DESC
+        LIMIT 1`,
+    ).bind(viewer.institutionId, today, today).first<{ status: string }>(),
     canReadAudit
       ? c.env.DB.prepare(
           `SELECT a.id, a.action, a.created_at, u.name AS actor_name, u.email AS actor_email
@@ -220,9 +251,9 @@ dashboardRoutes.get("/dashboard", async (c) => {
   ]);
 
   const viewerEntries = new Map(viewerEntriesResult.results.map((entry) => [entry.meal_id, entry]));
-  const todayMeals = mealsResult.results
-    .filter((meal) => meal.service_schedule !== "DATE_SPECIFIC" || meal.service_date === today)
-    .map((meal) => {
+  const visibleTodayMeals = mealsResult.results
+    .filter((meal) => meal.service_schedule !== "DATE_SPECIFIC" || meal.service_date === today);
+  const todayMeals = visibleTodayMeals.map((meal) => {
     const entry = viewerEntries.get(meal.id);
     const editableUntil = entry?.editable_until ?? computeEditableUntilIso(meal, today, timeZone);
     const status = entry?.status ?? meal.default_state;
@@ -240,11 +271,44 @@ dashboardRoutes.get("/dashboard", async (c) => {
     };
   });
 
-  const todayEntries = trendEntriesResult.results.filter((entry) => entry.service_date === today);
-  const todayOnCount = todayEntries.filter((entry) => confirmedOn(entry, false, now)).length;
-  const todayOffCount = todayEntries.filter((entry) => confirmedOff(entry, false, now)).length;
+  const persistedTodayEntries = trendEntriesResult.results.filter((entry) => entry.service_date === today);
+  const inferredTodayEntries: MealEntryRow[] = [];
 
-  const totalResidentMeals = monthEntriesResult.results.filter((entry) =>
+  // `/meals/entries` lazily materializes default rows. Dashboard KPIs must not
+  // depend on a resident visiting that screen first, and must stay identical to
+  // the canonical Kitchen counts for the same date. Infer missing today's rows
+  // in memory under the same enrollment/holiday/accounting-period guards.
+  if (!disabledHoliday && !lockedPeriod) {
+    const existingKeys = new Set(
+      persistedTodayEntries.map((entry) => `${entry.user_id}\u0000${entry.meal_id}`),
+    );
+    for (const resident of residentsResult.results) {
+      for (const meal of visibleTodayMeals) {
+        const key = `${resident.id}\u0000${meal.id}`;
+        if (existingKeys.has(key)) continue;
+        if (isBeforeEnrollment(today, resident.created_at, meal, timeZone)) continue;
+
+        const editableUntil = computeEditableUntilIso(meal, today, timeZone);
+        inferredTodayEntries.push({
+          user_id: resident.id,
+          meal_id: meal.id,
+          service_date: today,
+          status: meal.default_state,
+          original_state: meal.default_state,
+          editable_until: editableUntil,
+          locked: isLockedAt(editableUntil, now) ? 1 : 0,
+        });
+        existingKeys.add(key);
+      }
+    }
+  }
+
+  const effectiveTodayEntries = [...persistedTodayEntries, ...inferredTodayEntries];
+  const todayOnCount = effectiveTodayEntries.filter((entry) => confirmedOn(entry, false, now)).length;
+  const todayOffCount = effectiveTodayEntries.filter((entry) => confirmedOff(entry, false, now)).length;
+
+  const effectiveMonthEntries = [...monthEntriesResult.results, ...inferredTodayEntries];
+  const totalResidentMeals = effectiveMonthEntries.filter((entry) =>
     confirmedOn(entry, entry.service_date < today, now),
   ).length;
 
@@ -273,7 +337,9 @@ dashboardRoutes.get("/dashboard", async (c) => {
 
   const trendDates = Array.from({ length: 7 }, (_, index) => addDays(trendStart, index));
   const trend = trendDates.map((date) => {
-    const entries = trendEntriesResult.results.filter((entry) => entry.service_date === date);
+    const entries = date === today
+      ? effectiveTodayEntries
+      : trendEntriesResult.results.filter((entry) => entry.service_date === date);
     const isPastDate = date < today;
     return {
       date,

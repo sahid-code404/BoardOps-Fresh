@@ -155,7 +155,16 @@ kitchenRoutes.get("/kitchen", async (c) => {
   const isPastDate = serviceDate < today;
   const month = monthBounds(serviceDate);
 
-  const [mealsResult, residentsResult, entriesResult, guestsResult, monthEntriesResult, monthGuestsResult] = await Promise.all([
+  const [
+    mealsResult,
+    residentsResult,
+    entriesResult,
+    guestsResult,
+    monthEntriesResult,
+    monthGuestsResult,
+    disabledHoliday,
+    lockedPeriod,
+  ] = await Promise.all([
     c.env.DB.prepare(
       `SELECT id, display_name, icon, color, start_time, end_time, default_state,
               cutoff_strategy, cutoff_offset_minutes, cutoff_time, status,
@@ -197,16 +206,70 @@ kitchenRoutes.get("/kitchen", async (c) => {
          FROM guest_meals
         WHERE institution_id = ? AND service_date BETWEEN ? AND ?`,
     ).bind(principal.institutionId, month.start, month.end).all<GuestRow>(),
+    c.env.DB.prepare(
+      `SELECT id
+         FROM holidays
+        WHERE institution_id = ? AND status = 'ACTIVE' AND meals_disabled = 1
+          AND ? BETWEEN start_date AND end_date
+        LIMIT 1`,
+    ).bind(principal.institutionId, serviceDate).first<{ id: string }>(),
+    c.env.DB.prepare(
+      `SELECT status
+         FROM accounting_periods
+        WHERE institution_id = ? AND starts_on <= ? AND ends_on >= ?
+          AND status IN ('CLOSING', 'CLOSED')
+        ORDER BY starts_on DESC
+        LIMIT 1`,
+    ).bind(principal.institutionId, serviceDate, serviceDate).first<{ status: string }>(),
   ]);
 
   const allMeals = mealsResult.results;
   const meals = allMeals.filter((meal) => mealVisibleOnDate(meal, serviceDate, timeZone));
   const mealById = new Map(allMeals.map((meal) => [meal.id, meal]));
   const residents = residentsResult.results;
-  const entries = entriesResult.results;
+  const persistedEntries = entriesResult.results;
+  const inferredEntries: MealEntryRow[] = [];
+  const entries = [...persistedEntries];
   const guests = guestsResult.results;
-  const monthEntries = monthEntriesResult.results;
   const monthGuests = monthGuestsResult.results;
+
+  // Resident GET /meals/entries lazily materializes default rows. Counts must
+  // not depend on whether a resident happened to open the Meals screen first.
+  // Infer the same current-date baseline in memory, without mutating D1, while
+  // preserving the resident route's holiday/accounting-period enrollment guards.
+  if (!disabledHoliday && !lockedPeriod) {
+    const existingKeys = new Set(
+      persistedEntries.map((entry) => `${entry.user_id}\u0000${entry.meal_id}`),
+    );
+
+    for (const resident of residents) {
+      for (const meal of meals) {
+        const key = `${resident.id}\u0000${meal.id}`;
+        if (existingKeys.has(key)) continue;
+        if (isBeforeEnrollment(serviceDate, resident.created_at, meal, timeZone)) continue;
+
+        const editableUntil = computeEditableUntilIso(meal, serviceDate, timeZone);
+        const inferredEntry: MealEntryRow = {
+          id: `inferred:${resident.id}:${meal.id}:${serviceDate}`,
+          user_id: resident.id,
+          meal_id: meal.id,
+          service_date: serviceDate,
+          status: meal.default_state,
+          original_state: meal.default_state,
+          editable_until: editableUntil,
+          locked: isLockedAt(editableUntil, now) ? 1 : 0,
+        };
+        entries.push(inferredEntry);
+        inferredEntries.push(inferredEntry);
+        existingKeys.add(key);
+      }
+    }
+  }
+
+  // Include inferred rows for the selected day in this month's confirmed total.
+  // Future unlocked defaults still do not count because confirmedOn/confirmedOff
+  // apply the same cutoff semantics as persisted entries.
+  const monthEntries = [...monthEntriesResult.results, ...inferredEntries];
 
   const counts = meals.map((meal) => {
     const mealEntries = entries.filter((entry) => entry.meal_id === meal.id);
