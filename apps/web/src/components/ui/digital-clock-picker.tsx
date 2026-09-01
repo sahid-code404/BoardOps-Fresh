@@ -32,6 +32,7 @@ function to24(hour12: number, period: "AM" | "PM"): number {
 }
 
 function formatDisplay(value: string): string {
+  if (!value || !/^\d{1,2}:\d{2}$/.test(value)) return "Choose time";
   const { hour24, minute } = parse24(value);
   const { hour12, period } = to12(hour24);
   return `${hour12}:${String(minute).padStart(2, "0")} ${period}`;
@@ -95,7 +96,14 @@ export function DigitalClockPicker({
           >
             <span className="flex items-center gap-2">
               <Clock className="size-4 text-muted-foreground transition-colors group-hover:text-primary" />
-              <span className="font-medium tabular-nums">{formatDisplay(value)}</span>
+              <span
+                className={cn(
+                  "tabular-nums",
+                  value ? "font-medium text-foreground" : "text-muted-foreground/70",
+                )}
+              >
+                {formatDisplay(value)}
+              </span>
             </span>
           </button>
         </PopoverTrigger>
