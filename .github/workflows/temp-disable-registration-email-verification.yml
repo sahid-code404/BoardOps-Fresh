@@ -18,18 +18,19 @@ jobs:
           ref: fix/meal-status-filter-pills
           fetch-depth: 0
 
-      - name: Normalize frontend patch indentation
+      - name: Prepare source-only patch script
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
           p = Path("scripts/temp_disable_registration_email_verification.py")
           s = p.read_text()
-          start = s.index('path = "apps/web/src/components/features/auth/auth-screen.tsx"')
-          end = s.index('path = ".github/workflows/ci.yml"', start)
-          chunk = s[start:end]
+          frontend = s.index('path = "apps/web/src/components/features/auth/auth-screen.tsx"')
+          ci = s.index('path = ".github/workflows/ci.yml"', frontend)
+          chunk = s[frontend:ci]
           chunk = chunk.replace("'''      ", "'''        ").replace("\n      ", "\n        ")
-          p.write_text(s[:start] + chunk + s[end:])
+          s = s[:frontend] + chunk + 'print("Temporary registration email verification source bypass applied")\n'
+          p.write_text(s)
           PY
 
       - name: Apply temporary registration email bypass
@@ -38,17 +39,16 @@ jobs:
       - name: Verify source patch
         shell: bash
         run: |
-          git diff --check
+          git diff --check services/api/src/routes/auth-workflows.ts apps/web/src/components/features/auth/auth-screen.tsx
           grep -q 'const EMAIL_VERIFICATION_ENABLED = false;' services/api/src/routes/auth-workflows.ts
           grep -q 'verificationRequired: EMAIL_VERIFICATION_ENABLED' services/api/src/routes/auth-workflows.ts
           grep -q 'Account created — pending admin approval.' apps/web/src/components/features/auth/auth-screen.tsx
-          grep -q 'verificationRequired!==false' .github/workflows/ci.yml
 
-      - name: Commit temporary verification bypass
+      - name: Commit application source only
         shell: bash
         run: |
           git config user.name "boardops-ci"
           git config user.email "boardops-ci@users.noreply.github.com"
-          git add -A
+          git add services/api/src/routes/auth-workflows.ts apps/web/src/components/features/auth/auth-screen.tsx
           git commit -m "feat: temporarily skip registration email verification"
           git push origin HEAD:fix/meal-status-filter-pills
