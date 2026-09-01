@@ -26,10 +26,10 @@ async function registerAndVerify(page: Page) {
   for (let index = 0; index < 3; index += 1) await consents.nth(index).check();
 
   await page.getByRole("button", { name: /Create account/u }).click();
-  await expect(page.getByText("Verify your email", { exact: true })).toBeVisible();
-  await page.locator('[data-slot="input-otp"]').fill("424242");
-  await page.getByRole("button", { name: "Verify Email", exact: true }).click();
   await expect(page.getByText("Registration received", { exact: true })).toBeVisible();
+  await expect(page.getByText("Email verified", { exact: true })).toBeVisible();
+  await expect(page.getByText("Verify your email", { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-slot="input-otp"]')).toHaveCount(0);
 }
 
 test("Residents / Users preserves verification, lifecycle notifications and the seven-day deletion queue", async ({ page, browser }) => {

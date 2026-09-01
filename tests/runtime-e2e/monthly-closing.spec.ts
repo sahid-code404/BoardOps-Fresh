@@ -35,10 +35,12 @@ test("Monthly Closing fails closed without a compatible canonical formula, then 
   await expect(page.getByRole("heading", { name: "Monthly Closing", exact: true })).toBeVisible({ timeout: 5_000 });
   await expect(page.getByText("Readiness Checklist", { exact: true })).toBeVisible({ timeout: 8_000 });
 
-  // The screen defaults to July 2026 on the deterministic test date. Navigate
-  // through the real month controls to the isolated May closing fixture.
-  await page.getByRole("button", { name: "Previous month", exact: true }).click();
-  await page.getByRole("button", { name: "Previous month", exact: true }).click();
+  const closingNow = new Date();
+  const latestClosableKey = closingNow.getFullYear() * 12 + closingNow.getMonth() - 1;
+  const may2026Key = 2026 * 12 + 4;
+  for (let step = 0; step < Math.max(0, latestClosableKey - may2026Key); step += 1) {
+    await page.getByRole("button", { name: "Previous month", exact: true }).click();
+  }
   await expect(page.getByRole("button", { name: /Generate Bills & Close May 2026/u })).toBeVisible({ timeout: 8_000 });
 
   const result = await page.evaluate(async ({ formulaId }) => {

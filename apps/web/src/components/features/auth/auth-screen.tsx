@@ -598,6 +598,11 @@ export function AuthScreen() {
           setOtp("");
           setMode("verify");
         }}
+        onPendingEmailChanged={(email) => {
+          setPendingEmail(email);
+          setVerifyEmail("");
+          setOtp("");
+        }}
       />
     );
   }
@@ -840,6 +845,7 @@ function PendingScreen({
   hasChangesRequested,
   onBackToLogin,
   onVerificationRequired,
+  onPendingEmailChanged,
 }: {
   email: string;
   status?: RegistrationStatus;
@@ -849,6 +855,7 @@ function PendingScreen({
   hasChangesRequested: boolean;
   onBackToLogin: () => void;
   onVerificationRequired: (email: string) => void;
+  onPendingEmailChanged: (email: string) => void;
 }) {
   const [showResubmit, setShowResubmit] = useState(false);
   const qc = useQueryClient();
@@ -990,7 +997,8 @@ function PendingScreen({
                 onVerificationRequired(result.email);
                 return;
               }
-              qc.invalidateQueries({ queryKey: ["registration-status", email] });
+              qc.removeQueries({ queryKey: ["registration-status", email] });
+              onPendingEmailChanged(result.email);
             }}
           />
         )}

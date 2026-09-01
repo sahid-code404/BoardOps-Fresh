@@ -14,7 +14,12 @@ test("Billing is read/manage-only and bill generation is owned by Monthly Closin
   await expect(page).toHaveURL(/\/billing(?:\?|$)/, { timeout: 5_000 });
   await expect(page.getByRole("button", { name: "Monthly Closing", exact: true })).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("Generate Bills", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Previous month", exact: true }).click();
+  const billingNow = new Date();
+  const billingCurrentKey = billingNow.getFullYear() * 12 + billingNow.getMonth();
+  const july2026Key = 2026 * 12 + 6;
+  for (let step = 0; step < Math.max(0, billingCurrentKey - july2026Key); step += 1) {
+    await page.getByRole("button", { name: "Previous month", exact: true }).click();
+  }
   await expect(page.getByText("Arjun Rao", { exact: true }).first()).toBeVisible({ timeout: 8_000 });
   await expect(page.getByText("RBAC policy missing for endpoint", { exact: true })).toHaveCount(0);
 

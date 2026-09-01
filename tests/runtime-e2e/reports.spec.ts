@@ -166,6 +166,12 @@ test("Reports derive canonical D1 analytics, exports, and admin-only access", as
     await sidebar.getByRole("button", { name: "Reports", exact: true }).click();
     await expect(page).toHaveURL(/\/reports(?:\?|$)/, { timeout: 5_000 });
     await expect(page.getByRole("heading", { name: "Reports & Analytics", exact: true })).toBeVisible({ timeout: 8_000 });
+    const reportsNow = new Date();
+    const reportsCurrentKey = reportsNow.getFullYear() * 12 + reportsNow.getMonth();
+    const august2026Key = 2026 * 12 + 7;
+    for (let step = 0; step < Math.max(0, reportsCurrentKey - august2026Key); step += 1) {
+      await page.getByRole("button", { name: "Previous month", exact: true }).click();
+    }
     await expect(page.getByText("Total Expenses", { exact: true })).toBeVisible();
     await expect(page.getByText("₹4,500", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /Export Bills CSV/ })).toBeVisible();

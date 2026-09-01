@@ -87,7 +87,7 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
     expect(dashboardBody.data.permissions).not.toContain("meals.override");
     expect(dashboardBody.data.permissions).not.toContain("leave.decide");
 
-    const oneTimeDate = "2026-09-20";
+    const oneTimeDate = "2026-09-15";
     const createOneTimeMeal = await adminApi.post(`${API}/api/meals/config`, {
       data: {
         displayName: "September Special Dinner",
@@ -113,11 +113,11 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
     expect(createOneTimeMeal.status()).toBe(201);
     const createOneTimeBody = await createOneTimeMeal.json() as ApiEnvelope<{ id: string }>;
 
-    const beforeOneTime = await residentApi.get(`${API}/api/meals/entries?date=2026-09-19`);
+    const beforeOneTime = await residentApi.get(`${API}/api/meals/entries?date=2026-09-14`);
     expect(beforeOneTime.ok()).toBeTruthy();
     const beforeOneTimeBody = await beforeOneTime.json() as ApiEnvelope<ResidentSchedule>;
     expect(beforeOneTimeBody.data.meals.map((meal) => meal.displayName)).not.toContain("September Special Dinner");
-    expect((beforeOneTimeBody.data.byDate["2026-09-19"] ?? []).map((entry) => entry.mealDisplayName)).not.toContain("September Special Dinner");
+    expect((beforeOneTimeBody.data.byDate["2026-09-14"] ?? []).map((entry) => entry.mealDisplayName)).not.toContain("September Special Dinner");
 
     const onOneTime = await residentApi.get(`${API}/api/meals/entries?date=${oneTimeDate}`);
     expect(onOneTime.ok()).toBeTruthy();
@@ -141,12 +141,12 @@ test("Resident meals and leave are self-scoped, cutoff-aware and baseline-preser
     const specialCountsBody = await specialCounts.json() as ApiEnvelope<{ counts: Array<{ name: string }> }>;
     expect(specialCountsBody.data.counts.map((meal) => meal.name)).toContain("September Special Dinner");
 
-    const afterOneTime = await residentApi.get(`${API}/api/meals/entries?date=2026-09-21`);
+    const afterOneTime = await residentApi.get(`${API}/api/meals/entries?date=2026-09-16`);
     expect(afterOneTime.ok()).toBeTruthy();
     const afterOneTimeBody = await afterOneTime.json() as ApiEnvelope<ResidentSchedule>;
     expect(afterOneTimeBody.data.meals.map((meal) => meal.displayName)).not.toContain("September Special Dinner");
-    expect((afterOneTimeBody.data.byDate["2026-09-21"] ?? []).map((entry) => entry.mealDisplayName)).not.toContain("September Special Dinner");
-    const afterCounts = await adminApi.get(`${API}/api/kitchen?date=2026-09-21`);
+    expect((afterOneTimeBody.data.byDate["2026-09-16"] ?? []).map((entry) => entry.mealDisplayName)).not.toContain("September Special Dinner");
+    const afterCounts = await adminApi.get(`${API}/api/kitchen?date=2026-09-16`);
     expect(afterCounts.ok()).toBeTruthy();
     const afterCountsBody = await afterCounts.json() as ApiEnvelope<{ counts: Array<{ name: string }> }>;
     expect(afterCountsBody.data.counts.map((meal) => meal.name)).not.toContain("September Special Dinner");
